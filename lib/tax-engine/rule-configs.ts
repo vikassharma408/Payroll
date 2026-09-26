@@ -107,7 +107,7 @@ function commonRules(regime: Regime, cessRate: number): TaxRuleMeta[] {
       },
       {
         name: "Rebate u/s 87A",
-        section: "Sec 87A",
+        section: "Sec 87A (Income-tax Act 1961) / Sec 156 (Income-tax Act 2025)",
         calculationMethod: "Full tax rebated (max Rs 12,500) if taxable income <= Rs 5,00,000",
         limitValue: 500000,
         rateValue: 12500,
@@ -175,11 +175,11 @@ function commonRules(regime: Regime, cessRate: number): TaxRuleMeta[] {
       {
         name: "Standard Deduction",
         section: "Sec 16(ia)",
-        calculationMethod: "Flat deduction from salary income (higher than old regime from FY 2024-25)",
+        calculationMethod: "Flat deduction from salary income (higher than the old regime)",
       },
       {
         name: "Rebate u/s 87A",
-        section: "Sec 87A",
+        section: "Sec 87A (Income-tax Act 1961) / Sec 156 (Income-tax Act 2025)",
         calculationMethod:
           "Full tax rebated if taxable income does not exceed the threshold; marginal relief applies just above it so tax never exceeds income over the threshold.",
       },
@@ -242,57 +242,36 @@ function buildRuleSet(params: {
 }
 
 // ---------------------------------------------------------------------------
-// FY 2024-25 (historical reference year - included so the engine's
-// multi-year handling can be demonstrated/tested). Old regime parameters are
-// stable across years; new-regime slabs/rebate below reflect the FY 2024-25
-// Budget (July 2024). Treat as best-effort historical data - re-verify
-// against the CBDT notification for that year before using it for a live
-// FY 2024-25 payroll run.
-// ---------------------------------------------------------------------------
-const FY2024_25_OLD = buildRuleSet({
-  financialYearCode: "2024-25",
-  regime: "OLD",
-  effectiveFrom: "2024-04-01",
-  standardDeduction: 50000,
-  rebateLimitOld: 500000,
-  rebateMaxOld: 12500,
-  rebateLimitNew: 700000, // unused for OLD regime calc
-  npsEmployerCapPercent: 0.1,
-  surchargeConfig: OLD_SURCHARGE,
-  slabs: oldRegimeSlabs(),
-  notes:
-    "Historical reference year - verify against the official CBDT notification for FY 2024-25 before relying on this for live payroll.",
-});
-
-const FY2024_25_NEW = buildRuleSet({
-  financialYearCode: "2024-25",
-  regime: "NEW",
-  effectiveFrom: "2024-04-01",
-  standardDeduction: 75000,
-  rebateLimitOld: 500000, // unused for NEW regime calc
-  rebateMaxOld: 12500,
-  rebateLimitNew: 700000,
-  npsEmployerCapPercent: 0.14,
-  surchargeConfig: NEW_SURCHARGE,
-  slabs: newRegimeSlabs([
-    { minIncome: 0, maxIncome: 300000, rate: 0 },
-    { minIncome: 300000, maxIncome: 700000, rate: 0.05 },
-    { minIncome: 700000, maxIncome: 1000000, rate: 0.1 },
-    { minIncome: 1000000, maxIncome: 1200000, rate: 0.15 },
-    { minIncome: 1200000, maxIncome: 1500000, rate: 0.2 },
-    { minIncome: 1500000, maxIncome: null, rate: 0.3 },
-  ]),
-  notes:
-    "Historical reference year - verify against the official CBDT notification for FY 2024-25 before relying on this for live payroll.",
-});
-
-// ---------------------------------------------------------------------------
-// FY 2025-26 and FY 2026-27 - new regime slabs/rebate per the Finance Act
-// 2025 (Budget presented Feb 2025). These figures are cross-verified against
-// the user-supplied FY 2026-27 salary/TDS workbook (Mr. A: New regime annual
-// tax liability Rs 89,294 on taxable income Rs 13,72,400; Old regime Rs
-// 2,40,209 on taxable income Rs 13,94,900), which the engine reproduces
-// exactly (see lib/tax-engine/__tests__).
+// FY 2026-27 onward only - this app does not model years before FY 2026-27.
+//
+// New regime slabs/rebate per the Finance Act 2025 (Budget presented Feb
+// 2025), continued unchanged into FY 2026-27 by the Union Budget 2026 (which
+// made no changes to slabs, the standard deduction, or Chapter VI-A limits).
+// Independently verified in September 2026 via web research across multiple
+// sources (ClearTax, Bajaj Finserv, Bankbazaar, TaxGuru, Canara HSBC Life,
+// Axis Max Life, and others), cross-checked against each other, in addition
+// to the user-supplied FY 2026-27 salary/TDS workbook (Mr. A: New regime
+// annual tax liability Rs 89,294 on taxable income Rs 13,72,400; Old regime
+// Rs 2,40,209 on taxable income Rs 13,94,900), which the engine reproduces
+// exactly (see lib/tax-engine/__tests__). Confirmed unchanged for FY 2026-27:
+// both regimes' slabs, standard deduction (Rs 75,000 new / Rs 50,000 old),
+// Sec 87A rebate (new regime: full rebate up to Rs 12L taxable income, i.e.
+// up to Rs 60,000 of tax, with marginal relief just above; old regime: up to
+// Rs 12,500 at <= Rs 5L), surcharge slabs/marginal relief, cess rate (4%),
+// Sec 80C/80D/80CCD(1B) limits, Sec 80CCD(2) employer NPS cap (10% old / 14%
+// new regime of Basic+DA), and the Sec 17(2)(vii) Rs 7.5L combined employer
+// PF+NPS+superannuation perquisite threshold.
+//
+// One structural change *was* found: effective 1 April 2026, the
+// Income-tax Act, 2025 replaces the Income-tax Act, 1961, renumbering
+// sections (verified: old Sec 87A = new Sec 156). Rates/limits are
+// unaffected - only citations change. This app cites the historical 1961
+// Act section numbers throughout (e.g. "Sec 80C", "Sec 10(13A)") since they
+// remain the numbers every Indian payroll/tax professional recognizes, and
+// multiple secondary sources gave inconsistent numbers for the 2025 Act's
+// renumbering of provisions beyond Sec 87A/156. Cross-check the Income-tax
+// Act, 2025 itself for exact new section numbers before using this for
+// statutory filings or disclosures that must cite the current Act.
 // ---------------------------------------------------------------------------
 const NEW_REGIME_SLAB_BANDS_2025 = [
   { minIncome: 0, maxIncome: 400000, rate: 0 },
@@ -332,7 +311,6 @@ function buildOldNewPair(financialYearCode: string, effectiveFrom: string): [Tax
   return [old, newR];
 }
 
-const [FY2025_26_OLD, FY2025_26_NEW] = buildOldNewPair("2025-26", "2025-04-01");
 const [FY2026_27_OLD, FY2026_27_NEW] = buildOldNewPair("2026-27", "2026-04-01");
 
 // FY 2027-28: no Finance Act has been passed for this year yet at the time
@@ -346,10 +324,6 @@ FY2027_28_OLD.notes =
 FY2027_28_NEW.notes = FY2027_28_OLD.notes;
 
 export const TAX_RULE_CONFIGS: TaxRuleSetConfig[] = [
-  FY2024_25_OLD,
-  FY2024_25_NEW,
-  FY2025_26_OLD,
-  FY2025_26_NEW,
   FY2026_27_OLD,
   FY2026_27_NEW,
   FY2027_28_OLD,
@@ -357,8 +331,6 @@ export const TAX_RULE_CONFIGS: TaxRuleSetConfig[] = [
 ];
 
 export const FINANCIAL_YEARS = [
-  { code: "2024-25", startDate: "2024-04-01", endDate: "2025-03-31", isCurrent: false },
-  { code: "2025-26", startDate: "2025-04-01", endDate: "2026-03-31", isCurrent: false },
   { code: "2026-27", startDate: "2026-04-01", endDate: "2027-03-31", isCurrent: true },
   { code: "2027-28", startDate: "2027-04-01", endDate: "2028-03-31", isCurrent: false },
 ];
