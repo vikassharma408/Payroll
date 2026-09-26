@@ -117,3 +117,31 @@ export async function updateEmployee(employeeId: string, formData: FormData): Pr
   revalidatePath(`/employees/${employeeId}`);
   redirect(`/employees/${employeeId}`);
 }
+
+export async function deleteEmployee(employeeId: string): Promise<ActionResult> {
+  const employee = await prisma.employee.findUnique({ where: { id: employeeId } });
+  if (!employee) return { ok: false, error: "Employee not found." };
+
+  const processedLine = await prisma.payrollRunLine.findFirst({
+    where: { employeeId },
+    include: { payrollRun: { include: { financialYear: true } } },
+    orderBy: { payrollRun: { payrollMonthIndex: "asc" } },
+  });
+  if (processedLine) {
+    const { payrollRun } = processedLine;
+    return {
+      ok: false,
+      error: `Cannot delete ${employee.fullName} (${employee.employeeCode}): payroll has already been processed for them (FY ${payrollRun.financialYear.code}, month ${payrollRun.payrollMonthIndex}, status ${payrollRun.status}). Payroll history must be preserved. Set their status to Inactive or Left instead of deleting them.`,
+    };
+  }
+
+  await prisma.$transaction([
+    prisma.investmentDeclaration.deleteMany({ where: { employeeId } }),
+    prisma.previousEmployerIncome.deleteMany({ where: { employeeId } }),
+    prisma.employeeSalaryStructure.deleteMany({ where: { employeeId } }),
+    prisma.employee.delete({ where: { id: employeeId } }),
+  ]);
+
+  revalidatePath("/employees");
+  redirect("/employees");
+}

@@ -5,6 +5,7 @@ import { PageHeader, Card, Button, Badge, Th, Td, inr, EmptyState } from "@/comp
 import { SalaryStructureForm } from "@/components/salary-structure-form";
 import { InvestmentDeclarationForm } from "@/components/investment-declaration-form";
 import { PreviousEmployerSection } from "@/components/previous-employer-form";
+import { DeleteEmployeeButton } from "@/components/delete-employee-button";
 
 export default async function EmployeeDetailPage({
   params,
@@ -57,6 +58,7 @@ export default async function EmployeeDetailPage({
           <>
             <Badge tone={employee.status === "ACTIVE" ? "success" : "default"}>{employee.status}</Badge>
             <Button href={`/employees/${id}/edit`} variant="secondary">Edit Profile</Button>
+            <DeleteEmployeeButton employeeId={id} employeeName={employee.fullName} />
           </>
         }
       />
