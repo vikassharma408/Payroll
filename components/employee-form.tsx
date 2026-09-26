@@ -42,7 +42,7 @@ export function EmployeeForm({ action, defaultValues = {}, submitLabel = "Save E
   return (
     <form action={formAction} className="flex flex-col gap-6">
       {state.error && (
-        <div className="rounded-md border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700">{state.error}</div>
+        <div className="rounded-md border border-[color-mix(in_srgb,var(--bad)_35%,transparent)] bg-[color-mix(in_srgb,var(--bad)_10%,transparent)] px-3 py-2 text-sm text-[var(--bad-text)]">{state.error}</div>
       )}
 
       <Card>

@@ -42,6 +42,12 @@ export type ImportTemplateType =
   | "PREVIOUS_EMPLOYER"
   | "MONTHLY_PAYROLL";
 
+// A single workbook combining Employee/Salary Structure/Investment/Previous
+// Employer tabs plus an Instructions tab - the recommended one-file setup
+// path. Handled separately from ImportTemplateType since it fans out into
+// four of those imports rather than being a single sheet shape itself.
+export const COMBINED_IMPORT_KEY = "COMBINED" as const;
+
 // FY month index: 1 = April ... 12 = March
 export const FY_MONTH_NAMES = [
   "April",

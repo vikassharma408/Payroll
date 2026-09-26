@@ -40,8 +40,8 @@ export function PayrollRunActions({ runId, status }: { runId: string; status: Pa
           </Button>
         )}
       </div>
-      {calcState.error && <div className="text-xs text-amber-700">{calcState.error}</div>}
-      {statusState.error && <div className="text-xs text-red-700">{statusState.error}</div>}
+      {calcState.error && <div className="text-xs text-[var(--clay)]">{calcState.error}</div>}
+      {statusState.error && <div className="text-xs text-[var(--bad-text)]">{statusState.error}</div>}
     </div>
   );
 }

@@ -62,7 +62,7 @@ export function PreviousEmployerSection({
                   <Td>{inr(r.tdsDeducted)}</Td>
                   <Td>
                     <form action={handleDelete.bind(null, r.id)}>
-                      <button type="submit" className="text-xs text-red-600 hover:underline">
+                      <button type="submit" className="text-xs text-[var(--bad-text)] hover:underline">
                         Remove
                       </button>
                     </form>

@@ -11,7 +11,7 @@ export function TaxCalcView({ result, label }: { result: TaxCalcResult; label: s
       <button
         type="button"
         onClick={() => setOpen((o) => !o)}
-        className="flex w-full items-center justify-between px-3 py-2 text-left text-sm font-medium hover:bg-gray-50"
+        className="flex w-full items-center justify-between px-3 py-2 text-left text-sm font-medium hover:bg-[var(--ink-2)]"
       >
         <span>View Calculation - {label}</span>
         <span className="text-[var(--muted)]">{open ? "Hide" : "Show"}</span>
@@ -19,7 +19,7 @@ export function TaxCalcView({ result, label }: { result: TaxCalcResult; label: s
       {open && (
         <div className="border-t border-[var(--border)] px-3 py-2">
           {result.warnings.length > 0 && (
-            <div className="mb-2 rounded-md border border-amber-300 bg-amber-50 px-2 py-1.5 text-xs text-amber-800">
+            <div className="mb-2 rounded-md border border-[color-mix(in_srgb,var(--clay)_45%,transparent)] bg-[color-mix(in_srgb,var(--clay)_12%,transparent)] px-2 py-1.5 text-xs text-[var(--clay)]">
               {result.warnings.map((w, i) => (
                 <div key={i}>⚠ {w}</div>
               ))}

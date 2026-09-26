@@ -21,7 +21,7 @@ export default async function BankFilePage({ params, searchParams }: { params: P
         actions={
           <>
             <form method="get" className="flex items-center gap-2">
-              <select name="template" defaultValue={activeTemplate?.code} className="rounded-md border border-[var(--border)] px-2 py-1.5 text-sm">
+              <select name="template" defaultValue={activeTemplate?.code} className="rounded-md border border-[var(--line)] bg-[var(--ink-2)] px-2 py-1.5 text-sm text-[var(--ivory)]">
                 {templates.map((t) => <option key={t.code} value={t.code}>{t.bankName}</option>)}
               </select>
               <Button type="submit" variant="secondary">Switch Template</Button>
@@ -33,9 +33,9 @@ export default async function BankFilePage({ params, searchParams }: { params: P
       />
 
       {issues.length > 0 && (
-        <Card className="border-red-300 bg-red-50">
-          <div className="mb-2 text-sm font-semibold text-red-700">Validation Issues ({issues.length})</div>
-          <ul className="list-disc pl-5 text-sm text-red-700">
+        <Card className="border-[color-mix(in_srgb,var(--bad)_45%,transparent)] bg-[color-mix(in_srgb,var(--bad)_10%,transparent)]">
+          <div className="mb-2 text-sm font-semibold text-[var(--bad-text)]">Validation Issues ({issues.length})</div>
+          <ul className="list-disc pl-5 text-sm text-[var(--bad-text)]">
             {issues.map((issue, i) => (
               <li key={i}>{issue.employeeCode} - {issue.employeeName}: {issue.issue}</li>
             ))}

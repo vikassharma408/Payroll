@@ -37,18 +37,18 @@ export default async function EmployeesPage({ searchParams }: { searchParams: Pr
         <form className="flex flex-wrap items-end gap-3" method="get">
           <div className="flex flex-col gap-1">
             <label className="text-xs font-medium text-[var(--muted)]">Search</label>
-            <input name="q" defaultValue={q} placeholder="Name, code or PAN" className="rounded-md border border-[var(--border)] px-2.5 py-1.5 text-sm" />
+            <input name="q" defaultValue={q} placeholder="Name, code or PAN" className="rounded-md border border-[var(--line)] bg-[var(--ink-2)] px-2.5 py-1.5 text-sm text-[var(--ivory)]" />
           </div>
           <div className="flex flex-col gap-1">
             <label className="text-xs font-medium text-[var(--muted)]">Department</label>
-            <select name="department" defaultValue={department ?? ""} className="rounded-md border border-[var(--border)] px-2.5 py-1.5 text-sm">
+            <select name="department" defaultValue={department ?? ""} className="rounded-md border border-[var(--line)] bg-[var(--ink-2)] px-2.5 py-1.5 text-sm text-[var(--ivory)]">
               <option value="">All</option>
               {departments.map((d) => d.department && <option key={d.department} value={d.department}>{d.department}</option>)}
             </select>
           </div>
           <div className="flex flex-col gap-1">
             <label className="text-xs font-medium text-[var(--muted)]">Status</label>
-            <select name="status" defaultValue={status ?? ""} className="rounded-md border border-[var(--border)] px-2.5 py-1.5 text-sm">
+            <select name="status" defaultValue={status ?? ""} className="rounded-md border border-[var(--line)] bg-[var(--ink-2)] px-2.5 py-1.5 text-sm text-[var(--ivory)]">
               <option value="">All</option>
               <option value="ACTIVE">Active</option>
               <option value="INACTIVE">Inactive</option>

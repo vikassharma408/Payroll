@@ -20,7 +20,7 @@ export function AdjustmentForm({ payrollRunLineId }: { payrollRunLineId: string 
         <input name="enteredBy" required defaultValue="Payroll Admin" className={inputClass} />
       </Field>
       <Button type="submit" disabled={pending}>{pending ? "Saving..." : "Add Adjustment"}</Button>
-      {state.error && <div className="w-full text-xs text-red-700">{state.error}</div>}
+      {state.error && <div className="w-full text-xs text-[var(--bad-text)]">{state.error}</div>}
     </form>
   );
 }

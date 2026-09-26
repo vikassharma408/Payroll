@@ -109,7 +109,7 @@ export default async function SlipPage({ params }: { params: Promise<{ runId: st
           </div>
         </div>
 
-        <div className="mt-4 flex items-center justify-between rounded-md bg-blue-50 px-4 py-3">
+        <div className="mt-4 flex items-center justify-between rounded-md bg-[color-mix(in_srgb,var(--gold)_12%,transparent)] px-4 py-3">
           <span className="font-medium">Net Salary Payable</span>
           <span className="text-xl font-bold text-[var(--brand-dark)]">{inr(data.line.netSalary)}</span>
         </div>

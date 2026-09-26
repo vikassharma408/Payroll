@@ -32,7 +32,7 @@ export default async function DashboardPage({ searchParams }: { searchParams: Pr
               <Link
                 key={f.id}
                 href={`/dashboard?fy=${f.code}`}
-                className={`rounded-md border px-2.5 py-1 text-xs font-medium ${f.id === activeFy.id ? "border-[var(--brand)] bg-blue-50 text-[var(--brand)]" : "border-[var(--border)] bg-white"}`}
+                className={`rounded-md border px-2.5 py-1 text-xs font-medium ${f.id === activeFy.id ? "border-[var(--brand)] bg-[color-mix(in_srgb,var(--gold)_12%,transparent)] text-[var(--brand)]" : "border-[var(--border)] bg-[var(--ink-2)]"}`}
               >
                 FY {f.code}
               </Link>

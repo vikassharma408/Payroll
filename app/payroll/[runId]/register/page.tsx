@@ -37,8 +37,8 @@ export default async function SalaryRegisterPage({
 
       <Card>
         <form className="flex flex-wrap gap-3" method="get">
-          <input name="q" defaultValue={q} placeholder="Search name or code" className="rounded-md border border-[var(--border)] px-2.5 py-1.5 text-sm" />
-          <select name="department" defaultValue={department ?? ""} className="rounded-md border border-[var(--border)] px-2.5 py-1.5 text-sm">
+          <input name="q" defaultValue={q} placeholder="Search name or code" className="rounded-md border border-[var(--line)] bg-[var(--ink-2)] px-2.5 py-1.5 text-sm text-[var(--ivory)]" />
+          <select name="department" defaultValue={department ?? ""} className="rounded-md border border-[var(--line)] bg-[var(--ink-2)] px-2.5 py-1.5 text-sm text-[var(--ivory)]">
             <option value="">All Departments</option>
             {departments.map((d) => <option key={d} value={d}>{d}</option>)}
           </select>

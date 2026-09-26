@@ -49,7 +49,7 @@ export default async function ReportViewPage({
           {meta?.needsRun && (
             <div className="flex flex-col gap-1">
               <label className="text-xs text-[var(--muted)]">Payroll Run</label>
-              <select name="runId" defaultValue={runId} className="rounded-md border border-[var(--border)] px-2 py-1.5 text-sm">
+              <select name="runId" defaultValue={runId} className="rounded-md border border-[var(--line)] bg-[var(--ink-2)] px-2 py-1.5 text-sm text-[var(--ivory)]">
                 {runs.map((r) => (
                   <option key={r.id} value={r.id}>{FY_MONTH_NAMES[r.payrollMonthIndex - 1]} {r.calendarYear} (FY {r.financialYear.code})</option>
                 ))}
@@ -59,7 +59,7 @@ export default async function ReportViewPage({
           {!meta?.needsRun && (
             <div className="flex flex-col gap-1">
               <label className="text-xs text-[var(--muted)]">Financial Year</label>
-              <select name="fyId" defaultValue={fyId} className="rounded-md border border-[var(--border)] px-2 py-1.5 text-sm">
+              <select name="fyId" defaultValue={fyId} className="rounded-md border border-[var(--line)] bg-[var(--ink-2)] px-2 py-1.5 text-sm text-[var(--ivory)]">
                 {financialYears.map((f) => <option key={f.id} value={f.id}>FY {f.code}</option>)}
               </select>
             </div>

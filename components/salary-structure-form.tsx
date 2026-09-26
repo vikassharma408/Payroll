@@ -165,8 +165,8 @@ export function SalaryStructureForm({
       {renderGroup("Employer Contributions", grouped.EMPLOYER_CONTRIBUTION)}
       {renderGroup("Deductions", grouped.DEDUCTION)}
 
-      {preview.error && <div className="mb-3 rounded-md border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700">{preview.error}</div>}
-      {message && <div className="mb-3 rounded-md border border-[var(--border)] bg-gray-50 px-3 py-2 text-sm">{message}</div>}
+      {preview.error && <div className="mb-3 rounded-md border border-[color-mix(in_srgb,var(--bad)_35%,transparent)] bg-[color-mix(in_srgb,var(--bad)_10%,transparent)] px-3 py-2 text-sm text-[var(--bad-text)]">{preview.error}</div>}
+      {message && <div className="mb-3 rounded-md border border-[var(--border)] bg-[var(--ink-2)] px-3 py-2 text-sm">{message}</div>}
 
       <Button onClick={handleSave} disabled={saving}>
         {saving ? "Saving..." : "Save Salary Structure"}

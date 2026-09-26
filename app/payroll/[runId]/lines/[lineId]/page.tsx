@@ -99,7 +99,7 @@ export default async function PayrollLineDetailPage({ params }: { params: Promis
             </tbody>
           </table>
         </Card>
-        <Card className="flex flex-col justify-center bg-blue-50">
+        <Card className="flex flex-col justify-center bg-[color-mix(in_srgb,var(--gold)_12%,transparent)]">
           <div className="text-sm text-[var(--muted)]">Net Salary</div>
           <div className="text-3xl font-bold text-[var(--brand-dark)]">{inr(line.netSalary)}</div>
         </Card>

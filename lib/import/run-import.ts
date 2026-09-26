@@ -9,7 +9,7 @@ import { FY_MONTH_NAMES } from "@/lib/types";
 
 export interface ImportSummary {
   batchId: string;
-  templateType: ImportTemplateType;
+  templateType: ImportTemplateType | "COMBINED";
   totalRecords: number;
   importedRecords: number;
   failedRecords: number;
@@ -420,5 +420,55 @@ export async function runImport(type: ImportTemplateType, buffer: Buffer, fileNa
     importedRecords: result.imported,
     failedRecords: result.errors.length,
     errors: result.errors,
+  };
+}
+
+/**
+ * Imports the combined setup workbook (Employee Master, Salary Structure,
+ * Investment Declaration, Previous Employer tabs). Runs in that order since
+ * the later tabs reference employee codes the first tab creates. Produces
+ * one aggregated ImportSummary/ImportBatch with each error labeled by tab.
+ */
+export async function runCombinedImport(buffer: Buffer, fileName: string): Promise<ImportSummary> {
+  const sections: { type: ImportTemplateType; label: string; run: (rows: Record<string, unknown>[]) => Promise<{ imported: number; errors: { rowNumber: number; message: string }[] }> }[] = [
+    { type: "EMPLOYEE", label: "Employee Master", run: importEmployees },
+    { type: "SALARY_STRUCTURE", label: "Salary Structure", run: importSalaryStructures },
+    { type: "INVESTMENT", label: "Investment Declaration", run: importInvestmentDeclarations },
+    { type: "PREVIOUS_EMPLOYER", label: "Previous Employer", run: importPreviousEmployer },
+  ];
+
+  let totalRecords = 0;
+  let imported = 0;
+  const errors: { rowNumber: number; message: string }[] = [];
+
+  for (const section of sections) {
+    const rows = parseWorkbookRows(buffer, IMPORT_TEMPLATES[section.type].sheetName);
+    totalRecords += rows.length;
+    const result = await section.run(rows);
+    imported += result.imported;
+    for (const e of result.errors) {
+      errors.push({ rowNumber: e.rowNumber, message: `[${section.label}] ${e.message}` });
+    }
+  }
+
+  const batch = await prisma.importBatch.create({
+    data: {
+      templateType: "COMBINED",
+      fileName,
+      totalRecords,
+      importedRecords: imported,
+      failedRecords: errors.length,
+      status: errors.length === 0 ? "COMPLETED" : imported === 0 ? "FAILED" : "COMPLETED_WITH_ERRORS",
+      errors: { create: errors },
+    },
+  });
+
+  return {
+    batchId: batch.id,
+    templateType: "COMBINED",
+    totalRecords,
+    importedRecords: imported,
+    failedRecords: errors.length,
+    errors,
   };
 }

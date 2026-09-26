@@ -13,7 +13,7 @@ export function EmailSlipButton({ lineId }: { lineId: string }) {
           {pending ? "Sending..." : "Email Salary Slip"}
         </Button>
       </form>
-      {state.error && <div className="max-w-md text-xs text-amber-700">{state.error}</div>}
+      {state.error && <div className="max-w-md text-xs text-[var(--clay)]">{state.error}</div>}
     </div>
   );
 }

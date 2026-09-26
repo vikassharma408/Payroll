@@ -61,19 +61,28 @@ export default async function EmployeeDetailPage({
         }
       />
 
-      <Card>
-        <div className="flex flex-wrap gap-2">
-          {financialYears.map((f) => (
-            <Link
-              key={f.id}
-              href={`/employees/${id}?fy=${f.code}`}
-              className={`rounded-md border px-2.5 py-1 text-xs font-medium ${f.id === activeFy?.id ? "border-[var(--brand)] bg-blue-50 text-[var(--brand)]" : "border-[var(--border)] bg-white"}`}
-            >
-              FY {f.code}
-            </Link>
-          ))}
+      {financialYears.length === 0 ? (
+        <div className="rounded-md border border-[color-mix(in_srgb,var(--clay)_45%,transparent)] bg-[color-mix(in_srgb,var(--clay)_12%,transparent)] px-4 py-3 text-sm text-[var(--clay)]">
+          <strong>No Financial Year is configured yet</strong> — that&apos;s why Salary Structure, Investment
+          Declaration and Previous Employer don&apos;t appear below (they each need a Financial Year to attach to).
+          Run <code className="rounded bg-[color-mix(in_srgb,var(--clay)_22%,transparent)] px-1 py-0.5 font-mono">npm run db:seed</code> from the
+          project folder to set up financial years, tax rules and master data, then refresh this page.
         </div>
-      </Card>
+      ) : (
+        <Card>
+          <div className="flex flex-wrap gap-2">
+            {financialYears.map((f) => (
+              <Link
+                key={f.id}
+                href={`/employees/${id}?fy=${f.code}`}
+                className={`rounded-md border px-2.5 py-1 text-xs font-medium ${f.id === activeFy?.id ? "border-[var(--brand)] bg-[color-mix(in_srgb,var(--gold)_12%,transparent)] text-[var(--brand)]" : "border-[var(--border)] bg-[var(--ink-2)]"}`}
+              >
+                FY {f.code}
+              </Link>
+            ))}
+          </div>
+        </Card>
+      )}
 
       <Card>
         <div className="mb-3 text-sm font-semibold">Profile</div>

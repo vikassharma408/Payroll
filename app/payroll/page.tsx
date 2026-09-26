@@ -22,26 +22,34 @@ export default async function PayrollListPage() {
 
       <Card>
         <div className="mb-3 text-sm font-semibold">Create / Open a Payroll Run</div>
-        <form action={handleCreate} className="flex flex-wrap items-end gap-3">
-          <Field label="Financial Year">
-            <select name="financialYearId" defaultValue={currentFy?.id} className={inputClass}>
-              {financialYears.map((f) => (
-                <option key={f.id} value={f.id}>FY {f.code}</option>
-              ))}
-            </select>
-          </Field>
-          <Field label="Payroll Month">
-            <select name="payrollMonthIndex" className={inputClass}>
-              {FY_MONTH_NAMES.map((m, i) => (
-                <option key={m} value={i + 1}>{m}</option>
-              ))}
-            </select>
-          </Field>
-          <Field label="Payroll Group" hint="Leave blank for all employees">
-            <input name="payrollGroup" className={inputClass} placeholder="e.g. MONTHLY" />
-          </Field>
-          <Button type="submit">Create / Open Run</Button>
-        </form>
+        {financialYears.length === 0 ? (
+          <div className="rounded-md border border-[color-mix(in_srgb,var(--clay)_45%,transparent)] bg-[color-mix(in_srgb,var(--clay)_12%,transparent)] px-4 py-3 text-sm text-[var(--clay)]">
+            <strong>No Financial Year is configured yet.</strong> Run{" "}
+            <code className="rounded bg-[color-mix(in_srgb,var(--clay)_22%,transparent)] px-1 py-0.5 font-mono">npm run db:seed</code> from the project
+            folder to set up financial years and tax rules, then refresh this page.
+          </div>
+        ) : (
+          <form action={handleCreate} className="flex flex-wrap items-end gap-3">
+            <Field label="Financial Year">
+              <select name="financialYearId" defaultValue={currentFy?.id} className={inputClass}>
+                {financialYears.map((f) => (
+                  <option key={f.id} value={f.id}>FY {f.code}</option>
+                ))}
+              </select>
+            </Field>
+            <Field label="Payroll Month">
+              <select name="payrollMonthIndex" className={inputClass}>
+                {FY_MONTH_NAMES.map((m, i) => (
+                  <option key={m} value={i + 1}>{m}</option>
+                ))}
+              </select>
+            </Field>
+            <Field label="Payroll Group" hint="Leave blank for all employees">
+              <input name="payrollGroup" className={inputClass} placeholder="e.g. MONTHLY" />
+            </Field>
+            <Button type="submit">Create / Open Run</Button>
+          </form>
+        )}
       </Card>
 
       <Card>

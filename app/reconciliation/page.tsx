@@ -28,18 +28,18 @@ export default async function ReconciliationPage({ searchParams }: { searchParam
         <form className="flex flex-wrap items-end gap-3" method="get">
           <div className="flex flex-col gap-1">
             <label className="text-xs text-[var(--muted)]">Current Run</label>
-            <select name="currentRunId" defaultValue={currentRun?.id} className="rounded-md border border-[var(--border)] px-2 py-1.5 text-sm">
+            <select name="currentRunId" defaultValue={currentRun?.id} className="rounded-md border border-[var(--line)] bg-[var(--ink-2)] px-2 py-1.5 text-sm text-[var(--ivory)]">
               {runs.map((r) => <option key={r.id} value={r.id}>{runLabel(r)}</option>)}
             </select>
           </div>
           <div className="flex flex-col gap-1">
             <label className="text-xs text-[var(--muted)]">Compare Against</label>
-            <select name="previousRunId" defaultValue={previousRun?.id ?? ""} className="rounded-md border border-[var(--border)] px-2 py-1.5 text-sm">
+            <select name="previousRunId" defaultValue={previousRun?.id ?? ""} className="rounded-md border border-[var(--line)] bg-[var(--ink-2)] px-2 py-1.5 text-sm text-[var(--ivory)]">
               <option value="">(none)</option>
               {runs.map((r) => <option key={r.id} value={r.id}>{runLabel(r)}</option>)}
             </select>
           </div>
-          <button type="submit" className="rounded-md bg-[var(--brand)] px-3 py-1.5 text-sm text-white">Compare</button>
+          <button type="submit" className="rounded-md bg-[var(--gold)] px-3 py-1.5 text-sm text-[var(--on-accent)]">Compare</button>
         </form>
       </Card>
 

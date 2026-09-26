@@ -37,7 +37,7 @@ export default async function TaxRulesPage({ searchParams }: { searchParams: Pro
               <Link
                 key={f.id}
                 href={`/tax-rules?fy=${f.code}&regime=${activeRegime}`}
-                className={`rounded-md border px-2.5 py-1 text-xs font-medium ${f.id === activeFy?.id ? "border-[var(--brand)] bg-blue-50 text-[var(--brand)]" : "border-[var(--border)] bg-white"}`}
+                className={`rounded-md border px-2.5 py-1 text-xs font-medium ${f.id === activeFy?.id ? "border-[var(--brand)] bg-[color-mix(in_srgb,var(--gold)_12%,transparent)] text-[var(--brand)]" : "border-[var(--border)] bg-[var(--ink-2)]"}`}
               >
                 FY {f.code}
               </Link>
@@ -48,7 +48,7 @@ export default async function TaxRulesPage({ searchParams }: { searchParams: Pro
               <Link
                 key={r}
                 href={`/tax-rules?fy=${activeFy?.code}&regime=${r}`}
-                className={`rounded-md border px-2.5 py-1 text-xs font-medium ${r === activeRegime ? "border-[var(--brand-dark)] bg-blue-600 text-white" : "border-[var(--border)] bg-white"}`}
+                className={`rounded-md border px-2.5 py-1 text-xs font-medium ${r === activeRegime ? "border-[var(--brand-dark)] bg-[var(--gold)] text-[var(--on-accent)]" : "border-[var(--border)] bg-[var(--ink-2)]"}`}
               >
                 {r === "OLD" ? "Old Regime" : "New Regime"}
               </Link>
@@ -62,7 +62,7 @@ export default async function TaxRulesPage({ searchParams }: { searchParams: Pro
       ) : (
         <>
           {ruleSet.notes && (
-            <div className="rounded-md border border-amber-300 bg-amber-50 px-4 py-3 text-sm text-amber-800">
+            <div className="rounded-md border border-[color-mix(in_srgb,var(--clay)_45%,transparent)] bg-[color-mix(in_srgb,var(--clay)_12%,transparent)] px-4 py-3 text-sm text-[var(--clay)]">
               <strong>Assumption / Notice:</strong> {ruleSet.notes}
             </div>
           )}
@@ -140,7 +140,7 @@ export default async function TaxRulesPage({ searchParams }: { searchParams: Pro
                       {r.calculationMethod}
                       {r.assumptionWarning && (
                         <div className="mt-1">
-                          <Badge tone="warning">Assumption</Badge> <span className="text-xs text-amber-700">{r.assumptionWarning}</span>
+                          <Badge tone="warning">Assumption</Badge> <span className="text-xs text-[var(--clay)]">{r.assumptionWarning}</span>
                         </div>
                       )}
                     </Td>
