@@ -4,7 +4,13 @@
 // version, backed by the ported html-app/src/payroll-engine.js.
 
 registerView("payroll-runs", "Payroll", "Payroll Runs", renderPayrollRunsList);
-registerDetailView("payroll-runs", (container, segments) => renderPayrollRunDetail(container, segments[0]));
+registerDetailView("payroll-runs", (container, segments) => {
+  const [runId, sub, lineId] = segments;
+  if (sub === "register") return renderSalaryRegister(container, runId);
+  if (sub === "bank-file") return renderBankFile(container, runId);
+  if (sub === "slip" && lineId) return renderSalarySlip(container, runId, lineId);
+  renderPayrollRunDetail(container, runId);
+});
 
 function monthLabel(run) {
   const name = FY_MONTH_NAMES[run.payrollMonthIndex - 1];
@@ -119,6 +125,8 @@ function renderPayrollRunDetail(container, runId) {
         </div>
         <div class="row gap-8">
           <button id="btn-calculate" ${run.status === "LOCKED" || run.status === "PAID" ? "disabled" : ""}>${run.lines.length ? "Recalculate" : "Run Calculation"}</button>
+          ${run.lines.length ? `<a href="#/payroll-runs/${run.id}/register"><button>Salary Register</button></a>` : ""}
+          ${run.lines.length ? `<a href="#/payroll-runs/${run.id}/bank-file"><button>Bank Payment File</button></a>` : ""}
           ${nextStatus && run.lines.length ? `<button class="primary" id="btn-advance">Mark as ${nextStatus}</button>` : ""}
         </div>
       </div>
@@ -147,7 +155,10 @@ function renderPayrollRunDetail(container, runId) {
                     <td>${adjTotal ? rupees(adjTotal) : "-"}</td>
                     <td><strong>${rupees(l.netSalary)}</strong></td>
                     <td>${l.regimeUsed}</td>
-                    <td><button data-line="${l.id}" class="toggle-line">${expandedLineId === l.id ? "Hide" : "Details"}</button></td>
+                    <td class="row gap-8">
+                      <button data-line="${l.id}" class="toggle-line">${expandedLineId === l.id ? "Hide" : "Details"}</button>
+                      <a href="#/payroll-runs/${run.id}/slip/${l.id}"><button>Slip</button></a>
+                    </td>
                   </tr>
                   ${expandedLineId === l.id ? `<tr><td colspan="8">${renderLineDetail(l, emp)}</td></tr>` : ""}
                 `;
@@ -263,4 +274,191 @@ function renderPayrollRunDetail(container, runId) {
   }
 
   render();
+}
+
+// --- Salary Register ---------------------------------------------------
+function renderSalaryRegister(container, runId) {
+  const run = db.payrollRuns.find((r) => r.id === runId);
+  if (!run) {
+    container.innerHTML = `<div class="card">Payroll run not found.</div>`;
+    return;
+  }
+  const rows = getSalaryRegisterRows(db, runId);
+  container.innerHTML = `
+    <div class="row between no-print">
+      <a href="#/payroll-runs/${runId}"><button>&larr; Back to Payroll Run</button></a>
+      <div class="row gap-8">
+        <button id="btn-export-csv">Export CSV</button>
+        <button id="btn-print">Print</button>
+      </div>
+    </div>
+    <div class="card mt-16">
+      <h2>Salary Register - ${monthLabel(run)}</h2>
+      <div style="overflow-x:auto;">
+        <table>
+          <thead><tr>${SALARY_REGISTER_COLUMNS.map(([h]) => `<th>${h}</th>`).join("")}</tr></thead>
+          <tbody>${rows.map((r) => `<tr>${SALARY_REGISTER_COLUMNS.map(([, f]) => `<td>${typeof r[f] === "number" ? rupees(r[f]) : escapeHtml(r[f] || "")}</td>`).join("")}</tr>`).join("")}</tbody>
+        </table>
+      </div>
+    </div>
+  `;
+  document.getElementById("btn-export-csv").addEventListener("click", () => {
+    downloadCsv(`salary-register-${runId}.csv`, SALARY_REGISTER_COLUMNS.map(([h]) => h), rows.map((r) => SALARY_REGISTER_COLUMNS.map(([, f]) => r[f])));
+  });
+  document.getElementById("btn-print").addEventListener("click", () => window.print());
+}
+
+// --- Bank Payment File ---------------------------------------------------
+function renderBankFile(container, runId) {
+  const run = db.payrollRuns.find((r) => r.id === runId);
+  if (!run) {
+    container.innerHTML = `<div class="card">Payroll run not found.</div>`;
+    return;
+  }
+  const { rows, issues, monthLabel: ml } = buildBankFileData(db, runId);
+  const templates = db.bankFileTemplates.filter((t) => t.isActive);
+
+  function render(templateCode) {
+    const template = templates.find((t) => t.code === templateCode) || templates[0];
+    const columns = template.columns;
+    container.innerHTML = `
+      <div class="row between no-print">
+        <a href="#/payroll-runs/${runId}"><button>&larr; Back to Payroll Run</button></a>
+        <div class="row gap-8">
+          <select id="template-select">${templates.map((t) => `<option value="${t.code}" ${t.code === template.code ? "selected" : ""}>${t.bankName}</option>`).join("")}</select>
+          <button id="btn-export-csv">Export CSV</button>
+        </div>
+      </div>
+      ${
+        issues.length
+          ? `<div class="card text-bad mt-16"><h3>Validation Issues (${issues.length})</h3><ul>${issues.map((i) => `<li>${escapeHtml(i.employeeCode)} - ${escapeHtml(i.employeeName)}: ${escapeHtml(i.issue)}</li>`).join("")}</ul></div>`
+          : ""
+      }
+      <div class="card mt-16">
+        <h2>Bank Payment File - ${ml} (${template.bankName})</h2>
+        <div style="overflow-x:auto;">
+          <table>
+            <thead><tr>${columns.map((c) => `<th>${c.header}</th>`).join("")}</tr></thead>
+            <tbody>${rows.map((r) => `<tr>${columns.map((c) => `<td>${c.format === "amount" ? rupees(r[c.field]) : escapeHtml(r[c.field] ?? "")}</td>`).join("")}</tr>`).join("")}</tbody>
+          </table>
+        </div>
+      </div>
+    `;
+    document.getElementById("template-select").addEventListener("change", (e) => render(e.target.value));
+    document.getElementById("btn-export-csv").addEventListener("click", () => {
+      downloadCsv(`bank-file-${runId}-${template.code}.csv`, columns.map((c) => c.header), rows.map((r) => columns.map((c) => r[c.field])));
+    });
+  }
+  render(templates[0] && templates[0].code);
+}
+
+// --- Salary Slip ---------------------------------------------------------
+const SLIP_COMPONENT_LABELS = {
+  BASIC: "Basic Salary", DA: "Dearness Allowance", HRA: "House Rent Allowance", SPECIAL_ALLOWANCE: "Special Allowance",
+  CONVEYANCE: "Conveyance Allowance", TRANSPORT_ALLOWANCE: "Transport Allowance", MEDICAL_ALLOWANCE: "Medical Allowance",
+  LTA: "LTA / LTC", BONUS: "Bonus", INCENTIVE: "Incentive", COMMISSION: "Commission", OVERTIME: "Overtime", ARREARS: "Arrears",
+  PERFORMANCE_PAY: "Performance Pay", OTHER_ALLOWANCE: "Other Allowances", EMPLOYER_PF: "Employer PF", EMPLOYER_NPS: "Employer NPS",
+  EMPLOYER_SUPERANNUATION: "Employer Superannuation", GRATUITY: "Gratuity", OTHER_EMPLOYER_BENEFIT: "Other Employer Benefits",
+  EMPLOYEE_PF: "Employee PF", EMPLOYEE_ESI: "Employee ESI", PROFESSIONAL_TAX: "Professional Tax", LWF: "Labour Welfare Fund",
+  SALARY_ADVANCE: "Salary Advance Recovery", LOAN_RECOVERY: "Loan Recovery", OTHER_DEDUCTION: "Other Deductions",
+};
+
+function maskAccount(acc) {
+  if (!acc) return "-";
+  if (acc.length <= 4) return acc;
+  return "X".repeat(acc.length - 4) + acc.slice(-4);
+}
+
+function renderSalarySlip(container, runId, lineId) {
+  const run = db.payrollRuns.find((r) => r.id === runId);
+  const line = run && run.lines.find((l) => l.id === lineId);
+  if (!run || !line) {
+    container.innerHTML = `<div class="card">Salary slip not found.</div>`;
+    return;
+  }
+  const employee = db.employees.find((e) => e.id === line.employeeId);
+  const fy = db.financialYears.find((f) => f.id === run.financialYearId);
+  const priorLines = db.payrollRuns
+    .filter((r) => r.financialYearId === run.financialYearId && r.payrollMonthIndex <= run.payrollMonthIndex)
+    .flatMap((r) => r.lines)
+    .filter((l) => l.employeeId === line.employeeId);
+  const ytd = priorLines.reduce((acc, l) => ({ gross: acc.gross + l.grossSalary, deductions: acc.deductions + l.totalDeductions, tds: acc.tds + l.tdsMonthly, net: acc.net + l.netSalary }), { gross: 0, deductions: 0, tds: 0, net: 0 });
+  const adjustmentsTotal = line.adjustments.reduce((s, a) => s + a.amount, 0);
+  const annualTaxLiability = line.taxCalcSnapshot[line.regimeUsed.toLowerCase()].totalTaxLiability;
+
+  const earningRows = Object.entries(line.earnings).filter(([, v]) => v !== 0).map(([code, amt]) => `<tr><td>${SLIP_COMPONENT_LABELS[code] || code}</td><td>${rupees(amt)}</td></tr>`).join("");
+  const employerRows = Object.entries(line.employerContributions).filter(([, v]) => v !== 0).map(([code, amt]) => `<tr><td>${SLIP_COMPONENT_LABELS[code] || code}</td><td>${rupees(amt)}</td></tr>`).join("");
+  const deductionRows = Object.entries(line.deductions).filter(([, v]) => v !== 0).map(([code, amt]) => `<tr><td>${SLIP_COMPONENT_LABELS[code] || code}</td><td>${rupees(amt)}</td></tr>`).join("");
+
+  container.innerHTML = `
+    <div class="row between no-print">
+      <a href="#/payroll-runs/${runId}"><button>&larr; Back to Payroll Run</button></a>
+      <button id="btn-print">Print / Save as PDF</button>
+    </div>
+    <div class="card mt-16">
+      <div class="row between" style="border-bottom:2px solid var(--line); padding-bottom:8px;">
+        <div>
+          <h2 style="margin-bottom:2px;">${escapeHtml(db.company.name)}</h2>
+          <div class="text-muted">${escapeHtml(db.company.address || "")}</div>
+          <div class="text-muted">PAN: ${db.company.pan || "-"}  TAN: ${db.company.tan || "-"}</div>
+        </div>
+        <div class="text-muted" style="text-align:right;">
+          <div>Payslip for ${monthLabel(run)}</div>
+          <div>FY ${fy.code}</div>
+        </div>
+      </div>
+      <h2 style="text-align:center; text-transform:uppercase;">Payslip - ${monthLabel(run)}</h2>
+      <div class="card-grid">
+        <table>
+          <tr><td class="text-muted">Employee Code</td><td>${escapeHtml(employee.employeeCode)}</td></tr>
+          <tr><td class="text-muted">Employee Name</td><td>${escapeHtml(employee.fullName)}</td></tr>
+          <tr><td class="text-muted">Designation</td><td>${escapeHtml(employee.designation || "-")}</td></tr>
+          <tr><td class="text-muted">Department</td><td>${escapeHtml(employee.department || "-")}</td></tr>
+          <tr><td class="text-muted">PAN</td><td>${employee.pan || "-"}</td></tr>
+          <tr><td class="text-muted">UAN</td><td>${employee.uan || "-"}</td></tr>
+        </table>
+        <table>
+          <tr><td class="text-muted">Bank Name</td><td>${employee.bankName || "-"}</td></tr>
+          <tr><td class="text-muted">Account No.</td><td>${maskAccount(employee.bankAccountNo)}</td></tr>
+          <tr><td class="text-muted">Days in Month</td><td>${line.daysInMonth}</td></tr>
+          <tr><td class="text-muted">Days Worked</td><td>${line.daysWorked}</td></tr>
+          <tr><td class="text-muted">LOP Days</td><td>${line.lopDays}</td></tr>
+          <tr><td class="text-muted">Tax Regime</td><td>${line.regimeUsed}</td></tr>
+        </table>
+      </div>
+      <div class="card-grid mt-16">
+        <div>
+          <h3>Earnings</h3>
+          <table>${earningRows}<tr><td><strong>Gross Salary</strong></td><td><strong>${rupees(line.grossSalary)}</strong></td></tr></table>
+          <h3 class="mt-16">Employer Contributions</h3>
+          <table>${employerRows || `<tr><td class="text-muted">None</td><td></td></tr>`}</table>
+        </div>
+        <div>
+          <h3>Deductions</h3>
+          <table>
+            ${deductionRows}
+            <tr><td>TDS</td><td>${rupees(line.tdsMonthly)}</td></tr>
+            ${adjustmentsTotal !== 0 ? `<tr><td>Adjustments</td><td>${rupees(adjustmentsTotal)}</td></tr>` : ""}
+            <tr><td><strong>Total Deductions</strong></td><td><strong>${rupees(line.totalDeductions)}</strong></td></tr>
+          </table>
+          <h3 class="mt-16">Tax Summary</h3>
+          <table>
+            <tr><td class="text-muted">Regime Used</td><td>${line.regimeUsed}</td></tr>
+            <tr><td class="text-muted">Annual Tax Liability</td><td>${rupees(annualTaxLiability)}</td></tr>
+            <tr><td class="text-muted">TDS this Month</td><td>${rupees(line.tdsMonthly)}</td></tr>
+          </table>
+        </div>
+      </div>
+      <div class="row between" style="background:var(--ink); padding:10px 16px; border-radius:8px; margin-top:16px;">
+        <strong>Net Salary Payable</strong><strong>${rupees(line.netSalary)}</strong>
+      </div>
+      <h3 class="mt-16">Year-to-Date Totals (FY ${fy.code}, through ${monthLabel(run)})</h3>
+      <table>
+        <thead><tr><th>Gross (YTD)</th><th>Deductions (YTD)</th><th>TDS (YTD)</th><th>Net (YTD)</th></tr></thead>
+        <tbody><tr><td>${rupees(ytd.gross)}</td><td>${rupees(ytd.deductions)}</td><td>${rupees(ytd.tds)}</td><td>${rupees(ytd.net)}</td></tr></tbody>
+      </table>
+      <p class="text-muted mt-16" style="text-align:center; font-size:12px;">This is a system-generated payslip and does not require a signature.</p>
+    </div>
+  `;
+  document.getElementById("btn-print").addEventListener("click", () => window.print());
 }

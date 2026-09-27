@@ -24,6 +24,8 @@
     </div>
   </div>
 
+  <!-- Vendored third-party library (works fully offline, no CDN needed) -->
+  <script src="vendor/xlsx.full.min.js"></script>
   <!-- Ported engine + data layer (order matters: later files reference earlier
        files' top-level globals) -->
   <script src="src/rule-configs.js"></script>
@@ -34,11 +36,15 @@
   <script src="src/db.js"></script>
   <script src="src/persistence.js"></script>
   <script src="src/payroll-engine.js"></script>
+  <script src="src/reports.js"></script>
+  <script src="src/import.js"></script>
   <!-- App shell -->
   <script src="src/app.js"></script>
   <!-- Feature screens -->
   <script src="src/views/employees.js"></script>
   <script src="src/views/payroll-runs.js"></script>
+  <script src="src/views/reports.js"></script>
+  <script src="src/views/import.js"></script>
   <!-- Boot (must load last: fills placeholders for any view not yet built, then seeds/loads db and renders) -->
   <script src="src/bootstrap.js"></script>
 </body>
