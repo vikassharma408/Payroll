@@ -6,6 +6,8 @@ import { SalaryStructureForm } from "@/components/salary-structure-form";
 import { InvestmentDeclarationForm } from "@/components/investment-declaration-form";
 import { PreviousEmployerSection } from "@/components/previous-employer-form";
 import { DeleteEmployeeButton } from "@/components/delete-employee-button";
+import { RegimeEstimateCard } from "@/components/regime-estimate";
+import { estimateRegimeComparison } from "@/lib/payroll/estimate";
 
 export default async function EmployeeDetailPage({
   params,
@@ -42,6 +44,8 @@ export default async function EmployeeDetailPage({
   const previousEmployerRows = activeFy
     ? await prisma.previousEmployerIncome.findMany({ where: { employeeId: id, financialYearId: activeFy.id }, orderBy: { periodFrom: "asc" } })
     : [];
+
+  const regimeEstimate = activeFy ? await estimateRegimeComparison(id, activeFy.id) : null;
 
   const payrollLines = await prisma.payrollRunLine.findMany({
     where: { employeeId: id },
@@ -132,6 +136,8 @@ export default async function EmployeeDetailPage({
           rows={previousEmployerRows}
         />
       )}
+
+      {activeFy && <RegimeEstimateCard estimate={regimeEstimate} financialYearCode={activeFy.code} />}
 
       <Card>
         <div className="mb-3 text-sm font-semibold">Payroll History</div>
