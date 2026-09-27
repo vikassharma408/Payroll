@@ -1,0 +1,40 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Payroll Register</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Source+Serif+4:wght@600;700&display=swap" rel="stylesheet" />
+  <link rel="stylesheet" href="src/theme.css" />
+</head>
+<body>
+  <div class="app-shell">
+    <nav class="sidebar" id="sidebar"></nav>
+    <div class="main">
+      <div class="topbar no-print">
+        <h2 id="page-title" style="margin:0;">Dashboard</h2>
+        <div class="row gap-8">
+          <span id="backup-status" class="text-muted" style="font-size:12px;"></span>
+          <button class="theme-toggle" id="theme-toggle-btn" title="Toggle dark/light theme">&#127761;</button>
+        </div>
+      </div>
+      <div class="content" id="content"></div>
+    </div>
+  </div>
+
+  <!-- Ported engine + data layer (order matters: later files reference earlier
+       files' top-level globals) -->
+  <script src="src/rule-configs.js"></script>
+  <script src="src/master-data.js"></script>
+  <script src="src/dates.js"></script>
+  <script src="src/tax-engine.js"></script>
+  <script src="src/formula-engine.js"></script>
+  <script src="src/db.js"></script>
+  <script src="src/persistence.js"></script>
+  <script src="src/payroll-engine.js"></script>
+  <!-- App shell + views -->
+  <script src="src/app.js"></script>
+</body>
+</html>

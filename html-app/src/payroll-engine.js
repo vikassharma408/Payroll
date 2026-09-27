@@ -5,15 +5,18 @@
 
 (function (root) {
   const isNode = typeof module !== "undefined" && module.exports;
-  const TaxEngine = isNode ? require("./tax-engine.js") : root.TaxEngine;
-  const RuleConfigs = isNode ? require("./rule-configs.js") : root.RuleConfigs;
-  const Dates = isNode ? require("./dates.js") : root.Dates;
-  const DbMod = isNode ? require("./db.js") : root.Db;
-
-  const { calculateTax, monthlyHraExemption } = TaxEngine;
-  const { deriveAgeCategory } = RuleConfigs;
-  const { calendarToFyMonthIndex, daysInCalendarMonth } = Dates;
-  const { newId } = DbMod;
+  // In Node these come from require(); in the browser tax-engine.js,
+  // rule-configs.js, dates.js and db.js are loaded as plain <script> tags
+  // before this file, so their top-level function declarations are already
+  // attached to `window` (= `root` here). We read them via `root.X` rather
+  // than as bare identifiers, since a bare-identifier destructure of the
+  // same name (e.g. `const { calculateTax } = { calculateTax }`) would
+  // redeclare a same-scope local that shadows the global with a binding
+  // still in its own temporal dead zone at that point.
+  const { calculateTax, monthlyHraExemption } = isNode ? require("./tax-engine.js") : { calculateTax: root.calculateTax, monthlyHraExemption: root.monthlyHraExemption };
+  const { deriveAgeCategory } = isNode ? require("./rule-configs.js") : { deriveAgeCategory: root.deriveAgeCategory };
+  const { calendarToFyMonthIndex, daysInCalendarMonth } = isNode ? require("./dates.js") : { calendarToFyMonthIndex: root.calendarToFyMonthIndex, daysInCalendarMonth: root.daysInCalendarMonth };
+  const { newId } = isNode ? require("./db.js") : { newId: root.newId };
 
   const PERQ_CHECK_CODES = ["EMPLOYER_PF", "EMPLOYER_NPS", "EMPLOYER_SUPERANNUATION"];
   const BASIC_DA_CODES = ["BASIC", "DA"];
