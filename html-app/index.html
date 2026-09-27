@@ -34,7 +34,11 @@
   <script src="src/db.js"></script>
   <script src="src/persistence.js"></script>
   <script src="src/payroll-engine.js"></script>
-  <!-- App shell + views -->
+  <!-- App shell -->
   <script src="src/app.js"></script>
+  <!-- Feature screens -->
+  <script src="src/views/employees.js"></script>
+  <!-- Boot (must load last: fills placeholders for any view not yet built, then seeds/loads db and renders) -->
+  <script src="src/bootstrap.js"></script>
 </body>
 </html>

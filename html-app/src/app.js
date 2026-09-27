@@ -8,6 +8,11 @@ function registerView(path, section, label, render) {
   Views[path] = { section, label, render };
 }
 
+const DYNAMIC_ROUTES = {}; // "employees" -> render(container, restSegments)
+function registerDetailView(prefix, render) {
+  DYNAMIC_ROUTES[prefix] = render;
+}
+
 let db = null;
 
 function money(n) {
@@ -99,11 +104,18 @@ function toggleTheme() {
 
 function route() {
   const hash = location.hash.replace(/^#\/?/, "") || "dashboard";
-  const view = Views[hash] || Views["dashboard"];
-  document.getElementById("sidebar").innerHTML = renderSidebar(hash);
-  document.getElementById("page-title").textContent = view.label;
+  const segments = hash.split("/");
+  document.getElementById("sidebar").innerHTML = renderSidebar(segments[0]);
   const container = document.getElementById("content");
   container.innerHTML = "";
+
+  if (segments.length > 1 && DYNAMIC_ROUTES[segments[0]]) {
+    document.getElementById("page-title").textContent = Views[segments[0]] ? Views[segments[0]].label : segments[0];
+    DYNAMIC_ROUTES[segments[0]](container, segments.slice(1));
+    return;
+  }
+  const view = Views[segments[0]] || Views["dashboard"];
+  document.getElementById("page-title").textContent = view.label;
   view.render(container);
 }
 
@@ -243,35 +255,7 @@ registerView("backup", "Setup", "Backup & Restore", (container) => {
   }
 });
 
-// --- Placeholder for not-yet-built screens --------------------------------
-function registerPlaceholder(path, section, label) {
-  registerView(path, section, label, (container) => {
-    container.innerHTML = `<div class="card"><p class="text-muted">${label} screen is coming in the next update.</p></div>`;
-  });
-}
-for (const group of SIDEBAR) {
-  for (const [path, label] of group.items) {
-    if (!Views[path]) registerPlaceholder(path, group.section, label);
-  }
-}
-
-// --- Boot ------------------------------------------------------------------
-async function boot() {
-  applyTheme(currentTheme());
-  document.getElementById("theme-toggle-btn").addEventListener("click", toggleTheme);
-
-  const loaded = await Persistence.loadDb();
-  if (loaded) {
-    db = loaded;
-  } else {
-    db = createEmptyDb();
-    seedMasterData(db);
-    await Persistence.saveDb(db);
-  }
-
-  window.addEventListener("hashchange", route);
-  route();
-  updateBackupStatus(false);
-}
-
-boot();
+// NOTE: the placeholder-fill loop and the boot() call live in bootstrap.js,
+// which is loaded last (after every views/*.js file) so real views have a
+// chance to register themselves - via registerView() - before any gaps are
+// placeholder-filled and before the initial route() render happens.
