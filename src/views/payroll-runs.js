@@ -18,8 +18,14 @@ function monthLabel(run) {
 }
 
 function renderPayrollRunsList(container) {
+  const company = activeCompany();
+  if (!company) {
+    container.innerHTML = `<div class="card"><p class="text-muted">No company set up yet. <a href="#/companies/new">Add your first company</a> to get started.</p></div>`;
+    return;
+  }
   const fy = currentFy();
   const runs = db.payrollRuns
+    .filter((r) => r.companyId === company.id)
     .slice()
     .sort((a, b) => b.payrollMonthIndex - a.payrollMonthIndex);
 
@@ -72,7 +78,7 @@ function renderPayrollRunsList(container) {
       const payrollMonthIndex = Number(fd.get("payrollMonthIndex"));
       const payrollGroup = String(fd.get("payrollGroup") || "").trim() || null;
 
-      const existing = db.payrollRuns.find((r) => r.financialYearId === fy.id && r.payrollMonthIndex === payrollMonthIndex && r.payrollGroup === payrollGroup);
+      const existing = db.payrollRuns.find((r) => r.companyId === company.id && r.financialYearId === fy.id && r.payrollMonthIndex === payrollMonthIndex && r.payrollGroup === payrollGroup);
       if (existing) {
         navigate(`payroll-runs/${existing.id}`);
         return;
@@ -80,6 +86,7 @@ function renderPayrollRunsList(container) {
       const { calendarYear, calendarMonth } = fyMonthIndexToCalendar(payrollMonthIndex, new Date(fy.startDate).getFullYear());
       const run = {
         id: newId("run"),
+        companyId: company.id,
         financialYearId: fy.id,
         payrollMonthIndex,
         calendarYear,
@@ -93,6 +100,7 @@ function renderPayrollRunsList(container) {
         paidAt: null,
         createdBy: "Payroll Admin",
         createdAt: new Date().toISOString(),
+        variablePay: {},
         lines: [],
       };
       db.payrollRuns.push(run);
@@ -377,6 +385,7 @@ function renderSalarySlip(container, runId, lineId) {
     return;
   }
   const employee = db.employees.find((e) => e.id === line.employeeId);
+  const company = db.companies.find((c) => c.id === run.companyId) || db.companies[0] || { name: "", address: "", pan: "", tan: "" };
   const fy = db.financialYears.find((f) => f.id === run.financialYearId);
   const priorLines = db.payrollRuns
     .filter((r) => r.financialYearId === run.financialYearId && r.payrollMonthIndex <= run.payrollMonthIndex)
@@ -398,9 +407,9 @@ function renderSalarySlip(container, runId, lineId) {
     <div class="card mt-16">
       <div class="row between" style="border-bottom:2px solid var(--line); padding-bottom:8px;">
         <div>
-          <h2 style="margin-bottom:2px;">${escapeHtml(db.company.name)}</h2>
-          <div class="text-muted">${escapeHtml(db.company.address || "")}</div>
-          <div class="text-muted">PAN: ${db.company.pan || "-"}  TAN: ${db.company.tan || "-"}</div>
+          <h2 style="margin-bottom:2px;">${escapeHtml(company.name)}</h2>
+          <div class="text-muted">${escapeHtml(company.address || "")}</div>
+          <div class="text-muted">PAN: ${company.pan || "-"}  TAN: ${company.tan || "-"}</div>
         </div>
         <div class="text-muted" style="text-align:right;">
           <div>Payslip for ${monthLabel(run)}</div>

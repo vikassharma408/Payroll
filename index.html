@@ -16,6 +16,7 @@
       <div class="topbar no-print">
         <h2 id="page-title" style="margin:0;">Dashboard</h2>
         <div class="row gap-8">
+          <span id="company-switcher"></span>
           <span id="backup-status" class="text-muted" style="font-size:12px;"></span>
           <button class="theme-toggle" id="theme-toggle-btn" title="Toggle dark/light theme">&#127761;</button>
         </div>
@@ -35,12 +36,14 @@
   <script src="src/formula-engine.js"></script>
   <script src="src/db.js"></script>
   <script src="src/persistence.js"></script>
+  <script src="src/perquisites.js"></script>
   <script src="src/payroll-engine.js"></script>
   <script src="src/reports.js"></script>
   <script src="src/import.js"></script>
   <!-- App shell -->
   <script src="src/app.js"></script>
   <!-- Feature screens -->
+  <script src="src/views/companies.js"></script>
   <script src="src/views/employees.js"></script>
   <script src="src/views/payroll-runs.js"></script>
   <script src="src/views/reports.js"></script>

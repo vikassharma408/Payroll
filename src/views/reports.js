@@ -17,15 +17,20 @@ registerView("reports", "Insights", "Reports", (container) => {
   let selectedRunId = "";
 
   function render() {
+    const company = activeCompany();
+    if (!company) {
+      container.innerHTML = `<div class="card"><p class="text-muted">No company set up yet. <a href="#/companies/new">Add your first company</a> to get started.</p></div>`;
+      return;
+    }
     const fy = currentFy();
-    const runsForFy = fy ? db.payrollRuns.filter((r) => r.financialYearId === fy.id).sort((a, b) => b.payrollMonthIndex - a.payrollMonthIndex) : [];
-    if (!selectedRunId && runsForFy.length) selectedRunId = runsForFy[0].id;
+    const runsForFy = fy ? db.payrollRuns.filter((r) => r.financialYearId === fy.id && r.companyId === company.id).sort((a, b) => b.payrollMonthIndex - a.payrollMonthIndex) : [];
+    if (!selectedRunId || !runsForFy.some((r) => r.id === selectedRunId)) selectedRunId = runsForFy[0] ? runsForFy[0].id : "";
     const reportDef = REPORT_TYPES.find((r) => r.key === selectedKey);
     let result = { columns: [], rows: [] };
     let unavailable = "";
     if (reportDef.needsRun && !selectedRunId) unavailable = "Select a payroll run above to view this report.";
     else if (!fy) unavailable = "No Financial Year configured.";
-    else result = getReportData(db, selectedKey, { runId: selectedRunId, financialYearId: fy.id });
+    else result = getReportData(db, selectedKey, { runId: selectedRunId, financialYearId: fy.id, companyId: company.id });
 
     container.innerHTML = `
       <div class="card no-print">
@@ -76,9 +81,15 @@ registerView("reconciliation", "Insights", "Reconciliation", (container) => {
   let previousRunId = "";
 
   function render() {
+    const company = activeCompany();
+    if (!company) {
+      container.innerHTML = `<div class="card"><p class="text-muted">No company set up yet. <a href="#/companies/new">Add your first company</a> to get started.</p></div>`;
+      return;
+    }
     const fy = currentFy();
-    const runs = fy ? db.payrollRuns.filter((r) => r.financialYearId === fy.id).sort((a, b) => b.payrollMonthIndex - a.payrollMonthIndex) : [];
-    if (!currentRunId && runs.length) currentRunId = runs[0].id;
+    const runs = fy ? db.payrollRuns.filter((r) => r.financialYearId === fy.id && r.companyId === company.id).sort((a, b) => b.payrollMonthIndex - a.payrollMonthIndex) : [];
+    if (!currentRunId || !runs.some((r) => r.id === currentRunId)) currentRunId = runs[0] ? runs[0].id : "";
+    if (previousRunId && !runs.some((r) => r.id === previousRunId)) previousRunId = "";
     if (!previousRunId) {
       const currentRun = runs.find((r) => r.id === currentRunId);
       const prior = currentRun && runs.find((r) => r.payrollMonthIndex === currentRun.payrollMonthIndex - 1);
@@ -128,36 +139,4 @@ registerView("reconciliation", "Insights", "Reconciliation", (container) => {
   render();
 });
 
-// --- Company Settings ----------------------------------------------------
-registerView("company-settings", "Setup", "Company Settings", (container) => {
-  const c = db.company;
-  container.innerHTML = `
-    <form id="company-form" class="card">
-      <h3>Company Profile</h3>
-      <div class="form-grid">
-        <div><label>Company Name</label><input name="name" required value="${escapeHtml(c.name)}" /></div>
-        <div><label>Address</label><input name="address" value="${escapeHtml(c.address || "")}" /></div>
-        <div><label>PAN</label><input name="pan" value="${escapeHtml(c.pan || "")}" /></div>
-        <div><label>TAN</label><input name="tan" value="${escapeHtml(c.tan || "")}" /></div>
-        <div><label>Bank Name</label><input name="bankName" value="${escapeHtml(c.bankName || "")}" /></div>
-        <div><label>Bank Account No</label><input name="bankAccountNo" value="${escapeHtml(c.bankAccountNo || "")}" /></div>
-        <div><label>Bank IFSC</label><input name="bankIfsc" value="${escapeHtml(c.bankIfsc || "")}" /></div>
-      </div>
-      <div class="row gap-8 mt-16"><button type="submit" class="primary">Save</button></div>
-      <div id="save-msg" class="text-good mt-16"></div>
-    </form>
-  `;
-  document.getElementById("company-form").addEventListener("submit", async (evt) => {
-    evt.preventDefault();
-    const fd = new FormData(evt.target);
-    c.name = String(fd.get("name") || "My Company Pvt Ltd");
-    c.address = String(fd.get("address") || "") || null;
-    c.pan = String(fd.get("pan") || "") || null;
-    c.tan = String(fd.get("tan") || "") || null;
-    c.bankName = String(fd.get("bankName") || "") || null;
-    c.bankAccountNo = String(fd.get("bankAccountNo") || "") || null;
-    c.bankIfsc = String(fd.get("bankIfsc") || "") || null;
-    await persist();
-    document.getElementById("save-msg").textContent = "Saved.";
-  });
-});
+// Company management now lives in views/companies.js (multi-entity).

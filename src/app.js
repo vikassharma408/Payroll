@@ -37,6 +37,35 @@ async function persist() {
   updateBackupStatus(autoSaved);
 }
 
+const ACTIVE_COMPANY_KEY = "activeCompanyId";
+function getActiveCompanyId() {
+  const stored = localStorage.getItem(ACTIVE_COMPANY_KEY);
+  if (stored && db.companies.some((c) => c.id === stored)) return stored;
+  return db.companies[0] ? db.companies[0].id : null;
+}
+function setActiveCompanyId(id) {
+  localStorage.setItem(ACTIVE_COMPANY_KEY, id);
+}
+function activeCompany() {
+  const id = getActiveCompanyId();
+  return db.companies.find((c) => c.id === id) || null;
+}
+
+function renderCompanySwitcher() {
+  const el = document.getElementById("company-switcher");
+  if (!el) return;
+  if (db.companies.length === 0) {
+    el.innerHTML = `<a href="#/companies"><button>+ Add Company</button></a>`;
+    return;
+  }
+  const activeId = getActiveCompanyId();
+  el.innerHTML = `<select id="company-switcher-select">${db.companies.map((c) => `<option value="${c.id}" ${c.id === activeId ? "selected" : ""}>${escapeHtml(c.name)}</option>`).join("")}</select>`;
+  document.getElementById("company-switcher-select").addEventListener("change", (e) => {
+    setActiveCompanyId(e.target.value);
+    route();
+  });
+}
+
 function updateBackupStatus(justAutoSaved) {
   const el = document.getElementById("backup-status");
   if (!el) return;
@@ -69,8 +98,8 @@ const SIDEBAR = [
   {
     section: "Setup",
     items: [
+      ["companies", "Companies"],
       ["tax-rules", "Tax Rules"],
-      ["company-settings", "Company Settings"],
       ["backup", "Backup & Restore"],
     ],
   },
@@ -106,6 +135,7 @@ function route() {
   const hash = location.hash.replace(/^#\/?/, "") || "dashboard";
   const segments = hash.split("/");
   document.getElementById("sidebar").innerHTML = renderSidebar(segments[0]);
+  renderCompanySwitcher();
   const container = document.getElementById("content");
   container.innerHTML = "";
 
@@ -125,13 +155,19 @@ function navigate(path) {
 
 // --- Dashboard ---------------------------------------------------------
 registerView("dashboard", "Overview", "Dashboard", (container) => {
-  const activeEmployees = db.employees.filter((e) => e.status !== "INACTIVE").length;
+  const company = activeCompany();
+  if (!company) {
+    container.innerHTML = `<div class="card"><p class="text-muted">No company set up yet. <a href="#/companies/new">Add your first company</a> to get started.</p></div>`;
+    return;
+  }
+  const companyEmployees = db.employees.filter((e) => e.companyId === company.id);
+  const activeEmployees = companyEmployees.filter((e) => e.status !== "INACTIVE").length;
   const currentFy = db.financialYears.find((f) => f.isCurrent) || db.financialYears[0];
-  const runsThisFy = currentFy ? db.payrollRuns.filter((r) => r.financialYearId === currentFy.id) : [];
+  const runsThisFy = currentFy ? db.payrollRuns.filter((r) => r.financialYearId === currentFy.id && r.companyId === company.id) : [];
   const latestRun = runsThisFy.slice().sort((a, b) => b.payrollMonthIndex - a.payrollMonthIndex)[0];
   const latestNet = latestRun ? latestRun.lines.reduce((s, l) => s + l.netSalary, 0) : 0;
   const pendingDeclarations = currentFy
-    ? db.employees.filter((e) => e.status !== "INACTIVE" && !db.investmentDeclarations.some((d) => d.employeeId === e.id && d.financialYearId === currentFy.id)).length
+    ? companyEmployees.filter((e) => e.status !== "INACTIVE" && !db.investmentDeclarations.some((d) => d.employeeId === e.id && d.financialYearId === currentFy.id)).length
     : 0;
 
   container.innerHTML = `
@@ -143,36 +179,132 @@ registerView("dashboard", "Overview", "Dashboard", (container) => {
     </div>
     <div class="card">
       <h3>Getting started</h3>
-      <p class="text-muted">Add employees, define their salary structure, and process a monthly payroll run from the sidebar. Use <a href="#/backup">Backup &amp; Restore</a> to keep your data safe - this app stores everything locally in your browser.</p>
+      <p class="text-muted">Add employees, define their salary structure, and process a monthly payroll run from the sidebar. Use the company switcher at the top to work on a different entity, and <a href="#/backup">Backup &amp; Restore</a> to keep your data safe - this app stores everything locally in your browser.</p>
     </div>
   `;
 });
 
 // --- Tax Rules (read-only viewer) --------------------------------------
+// Percentages stored as fractions (e.g. 0.14) can print as
+// "14.000000000000002%" due to ordinary floating-point binary rounding
+// (0.14 has no exact binary representation) - round to 2dp for display only;
+// the underlying stored/calculated value is untouched.
+function pct(n) {
+  return `${Math.round(n * 10000) / 100}%`;
+}
+
 registerView("tax-rules", "Setup", "Tax Rules", (container) => {
-  const rows = db.taxRuleSets
-    .map(
-      (r) => `
-      <tr>
-        <td>${r.financialYearCode}</td>
-        <td>${r.regime}</td>
-        <td>${r.effectiveFrom}</td>
-        <td>${rupees(r.standardDeduction)}</td>
-        <td>${(r.cessRate * 100).toFixed(0)}%</td>
-        <td>${r.npsEmployerCapPercent * 100}%</td>
-        <td>${r.notes ? `<span class="badge neutral">${escapeHtml(r.notes.slice(0, 60))}${r.notes.length > 60 ? "..." : ""}</span>` : ""}</td>
-      </tr>`,
-    )
-    .join("");
-  container.innerHTML = `
-    <div class="card">
-      <p class="text-muted">These are the tax parameters built into the app for each financial year and regime. They are not editable from the UI - this keeps the calculations auditable and consistent with the underlying tax law research.</p>
-      <table>
-        <thead><tr><th>FY</th><th>Regime</th><th>Effective From</th><th>Standard Deduction</th><th>Cess</th><th>Employer NPS Cap</th><th>Notes</th></tr></thead>
-        <tbody>${rows}</tbody>
-      </table>
-    </div>
-  `;
+  let expandedId = null;
+
+  function render() {
+    const rows = db.taxRuleSets
+      .map(
+        (r) => `
+        <tr>
+          <td>${r.financialYearCode}</td>
+          <td>${r.regime}</td>
+          <td>${r.effectiveFrom}</td>
+          <td>${rupees(r.standardDeduction)}</td>
+          <td>${pct(r.cessRate)}</td>
+          <td>${pct(r.npsEmployerCapPercent)}</td>
+          <td>${r.notes ? `<span class="badge neutral">${escapeHtml(r.notes.slice(0, 60))}${r.notes.length > 60 ? "..." : ""}</span>` : ""}</td>
+          <td><button data-id="${r.id}" class="toggle-rule-detail">${expandedId === r.id ? "Hide" : "View full logic"}</button></td>
+        </tr>
+        ${expandedId === r.id ? `<tr><td colspan="8">${renderRuleDetail(r)}</td></tr>` : ""}`,
+      )
+      .join("");
+    container.innerHTML = `
+      <div class="card">
+        <p class="text-muted">These are the tax parameters built into the app for each financial year and regime - every slab, rebate, surcharge, deduction cap and HRA percentage the engine actually uses. Click "View full logic" on any row to see everything behind that FY/regime's calculation. They are not editable from the UI - this keeps the calculations auditable and consistent with the underlying tax law research.</p>
+        <table>
+          <thead><tr><th>FY</th><th>Regime</th><th>Effective From</th><th>Standard Deduction</th><th>Cess</th><th>Employer NPS Cap</th><th>Notes</th><th></th></tr></thead>
+          <tbody>${rows}</tbody>
+        </table>
+      </div>
+    `;
+    container.querySelectorAll(".toggle-rule-detail").forEach((btn) => {
+      btn.addEventListener("click", () => {
+        const id = btn.getAttribute("data-id");
+        expandedId = expandedId === id ? null : id;
+        render();
+      });
+    });
+  }
+
+  function renderRuleDetail(r) {
+    const byAge = new Map();
+    for (const slab of r.slabs) {
+      if (!byAge.has(slab.ageCategory)) byAge.set(slab.ageCategory, []);
+      byAge.get(slab.ageCategory).push(slab);
+    }
+    const slabsHtml = [...byAge.entries()]
+      .map(
+        ([age, slabs]) => `
+        <div class="mt-16">
+          <strong>${age.replace(/_/g, " ")}</strong>
+          <table>
+            <thead><tr><th>Income Band</th><th>Rate</th></tr></thead>
+            <tbody>${slabs
+              .sort((a, b) => a.order - b.order)
+              .map((s) => `<tr><td>${rupees(s.minIncome)} - ${s.maxIncome == null ? "and above" : rupees(s.maxIncome)}</td><td>${pct(s.rate)}</td></tr>`)
+              .join("")}</tbody>
+          </table>
+        </div>`,
+      )
+      .join("");
+
+    const surchargeRows = r.surchargeConfig
+      .slice()
+      .sort((a, b) => b.threshold - a.threshold)
+      .map((s) => `<tr><td>Taxable income &gt; ${rupees(s.threshold)}</td><td>${pct(s.rate)}</td></tr>`)
+      .join("");
+
+    const deductionRows = Object.entries(r.deductionLimits)
+      .map(([k, v]) => `<tr><td>${k.replace(/_/g, " ")}</td><td>${rupees(v)}</td></tr>`)
+      .join("");
+
+    const rulesRows = r.rules
+      .map(
+        (rule) => `
+        <tr>
+          <td>${escapeHtml(rule.name)}</td>
+          <td>${escapeHtml(rule.section)}</td>
+          <td>${escapeHtml(rule.calculationMethod)}</td>
+          <td>${rule.limitValue != null ? rupees(rule.limitValue) : "-"}</td>
+          <td>${rule.rateValue != null ? (rule.rateValue < 1 ? pct(rule.rateValue) : rule.rateValue) : "-"}</td>
+        </tr>
+        ${rule.assumptionWarning ? `<tr><td colspan="5" class="text-muted" style="font-size:12px;">&#9888; ${escapeHtml(rule.assumptionWarning)}</td></tr>` : ""}`,
+      )
+      .join("");
+
+    return `
+      <div class="card" style="margin:8px 0;">
+        <div class="card-grid">
+          <div><div class="stat-label">Rebate (Old Regime, Sec 87A)</div><div>Up to ${rupees(r.rebateMaxOld)} if taxable income &le; ${rupees(r.rebateLimitOld)}</div></div>
+          <div><div class="stat-label">Rebate (New Regime, Sec 87A)</div><div>Full rebate if taxable income &le; ${rupees(r.rebateLimitNew)}${r.marginalReliefNew ? ", with marginal relief just above it" : ""}</div></div>
+          <div><div class="stat-label">HRA Exemption (Sec 10(13A))</div><div>${pct(r.hraConfig.metroPercent)} of Basic+DA (metro) / ${pct(r.hraConfig.nonMetroPercent)} (non-metro)</div></div>
+          <div><div class="stat-label">Employer PF+NPS+Superannuation Perquisite Threshold (Sec 17(2)(vii))</div><div>${rupees(r.employerNpsPfPerqLimit)}/year combined</div></div>
+        </div>
+
+        <h3 class="mt-16">Income Slabs by Age Category</h3>
+        ${slabsHtml}
+
+        <h3 class="mt-16">Surcharge (with marginal relief)</h3>
+        <table><thead><tr><th>Threshold</th><th>Rate</th></tr></thead><tbody>${surchargeRows}</tbody></table>
+
+        <h3 class="mt-16">Chapter VI-A Deduction Limits</h3>
+        <table><thead><tr><th>Section</th><th>Limit</th></tr></thead><tbody>${deductionRows}</tbody></table>
+
+        <h3 class="mt-16">Full Rule Catalog</h3>
+        <table>
+          <thead><tr><th>Rule</th><th>Section</th><th>Calculation Method</th><th>Limit</th><th>Rate</th></tr></thead>
+          <tbody>${rulesRows}</tbody>
+        </table>
+      </div>
+    `;
+  }
+
+  render();
 });
 
 // --- Backup & Restore ----------------------------------------------------
@@ -223,7 +355,7 @@ registerView("backup", "Setup", "Backup & Restore", (container) => {
       }
       try {
         const restored = await Persistence.restoreFromFile(file);
-        db = restored;
+        db = migrateDb(restored);
         await Persistence.saveDb(db);
         alert("Backup restored successfully.");
         route();

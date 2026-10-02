@@ -13,21 +13,12 @@ function newId(prefix) {
   return `${prefix}_${Date.now().toString(36)}${_seq.toString(36)}${rand}`;
 }
 
-const SCHEMA_VERSION = 1;
+const SCHEMA_VERSION = 2;
 
 function createEmptyDb() {
   return {
     schemaVersion: SCHEMA_VERSION,
-    company: {
-      id: newId("co"),
-      name: "My Company Pvt Ltd",
-      address: "",
-      pan: "",
-      tan: "",
-      bankName: "",
-      bankAccountNo: "",
-      bankIfsc: "",
-    },
+    companies: [],
     financialYears: [],
     taxRuleSets: [],
     salaryComponents: [],
@@ -36,10 +27,39 @@ function createEmptyDb() {
     employeeSalaryStructures: [],
     investmentDeclarations: [],
     previousEmployerIncomes: [],
+    employeePerquisites: [],
     payrollRuns: [],
     importBatches: [],
     auditLog: [],
   };
+}
+
+/**
+ * Brings an older saved db up to the current SCHEMA_VERSION. Safe to call on
+ * every load (including a freshly restored backup file) - a no-op once the
+ * db is already current.
+ *   v1 -> v2: single `company` object -> `companies` array (multi-entity
+ *   support); every Employee/PayrollRun gets a `companyId` backfilled to
+ *   that one company; `employeePerquisites` and per-run `variablePay` are
+ *   added as empty defaults.
+ */
+function migrateDb(db) {
+  if (!db.schemaVersion || db.schemaVersion < 2) {
+    if (db.company && !db.companies) {
+      const company = { ...db.company, isActive: true };
+      db.companies = [company];
+      for (const e of db.employees || []) e.companyId = company.id;
+      for (const r of db.payrollRuns || []) r.companyId = company.id;
+      delete db.company;
+    }
+    db.schemaVersion = 2;
+  }
+  if (!db.companies) db.companies = [];
+  if (!db.employeePerquisites) db.employeePerquisites = [];
+  for (const r of db.payrollRuns || []) {
+    if (!r.variablePay) r.variablePay = {};
+  }
+  return db;
 }
 
 /** Populates reference/master data (FYs, tax rules, components, bank templates) into a fresh db. Idempotent - skips anything already present by code. */
@@ -73,8 +93,14 @@ function seedMasterData(db) {
     if (db.bankFileTemplates.some((x) => x.code === t.code)) continue;
     db.bankFileTemplates.push({ id: newId("bft"), ...t, isActive: true });
   }
+  if (db.companies.length === 0) {
+    db.companies.push({
+      id: newId("co"), name: "My Company Pvt Ltd", address: "", pan: "", tan: "",
+      bankName: "", bankAccountNo: "", bankIfsc: "", isActive: true, createdAt: new Date().toISOString(),
+    });
+  }
 }
 
 if (typeof module !== "undefined" && module.exports) {
-  module.exports = { createEmptyDb, seedMasterData, newId, SCHEMA_VERSION };
+  module.exports = { createEmptyDb, migrateDb, seedMasterData, newId, SCHEMA_VERSION };
 }

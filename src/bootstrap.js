@@ -20,7 +20,8 @@ async function boot() {
 
   const loaded = await Persistence.loadDb();
   if (loaded) {
-    db = loaded;
+    db = migrateDb(loaded);
+    await Persistence.saveDb(db);
   } else {
     db = createEmptyDb();
     seedMasterData(db);

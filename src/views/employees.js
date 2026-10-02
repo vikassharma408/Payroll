@@ -17,6 +17,10 @@ function num(v) {
 
 registerView("employees", "Payroll", "Employees", renderEmployeesList);
 registerDetailView("employees", (container, segments) => {
+  if (!activeCompany()) {
+    container.innerHTML = `<div class="card"><p class="text-muted">No company set up yet. <a href="#/companies/new">Add your first company</a> before adding employees.</p></div>`;
+    return;
+  }
   const [id, action] = segments;
   if (id === "new") return renderEmployeeForm(container, null);
   const employee = db.employees.find((e) => e.id === id);
@@ -29,9 +33,13 @@ registerDetailView("employees", (container, segments) => {
 });
 
 function renderEmployeesList(container) {
-  const rows = db.employees
-    .slice()
-    .sort((a, b) => a.employeeCode.localeCompare(b.employeeCode))
+  const company = activeCompany();
+  if (!company) {
+    container.innerHTML = `<div class="card"><p class="text-muted">No company set up yet. <a href="#/companies/new">Add your first company</a> to get started.</p></div>`;
+    return;
+  }
+  const companyEmployees = db.employees.filter((e) => e.companyId === company.id).sort((a, b) => a.employeeCode.localeCompare(b.employeeCode));
+  const rows = companyEmployees
     .map(
       (e) => `
       <tr>
@@ -46,7 +54,7 @@ function renderEmployeesList(container) {
     .join("");
   container.innerHTML = `
     <div class="row between mt-16" style="margin-bottom:16px;">
-      <span class="text-muted">${db.employees.length} employee(s)</span>
+      <span class="text-muted">${company.name}: ${companyEmployees.length} employee(s)</span>
       <a href="#/employees/new"><button class="primary">+ Add Employee</button></a>
     </div>
     <div class="card">
@@ -170,15 +178,16 @@ function renderEmployeeForm(container, employee) {
       errorEl.textContent = "IFSC must match AAAA0999999 format.";
       return;
     }
-    const dup = db.employees.find((x) => x.employeeCode === employeeCode && (!isEdit || x.id !== employee.id));
+    const companyId = isEdit ? employee.companyId : getActiveCompanyId();
+    const dup = db.employees.find((x) => x.companyId === companyId && x.employeeCode === employeeCode && (!isEdit || x.id !== employee.id));
     if (dup) {
-      errorEl.textContent = `Employee code '${employeeCode}' already exists.`;
+      errorEl.textContent = `Employee code '${employeeCode}' already exists in this company.`;
       return;
     }
     if (pan) {
-      const dupPan = db.employees.find((x) => x.pan === pan && (!isEdit || x.id !== employee.id));
+      const dupPan = db.employees.find((x) => x.companyId === companyId && x.pan === pan && (!isEdit || x.id !== employee.id));
       if (dupPan) {
-        errorEl.textContent = `PAN '${pan}' is already used by another employee.`;
+        errorEl.textContent = `PAN '${pan}' is already used by another employee in this company.`;
         return;
       }
     }
@@ -216,7 +225,7 @@ function renderEmployeeForm(container, employee) {
       Object.assign(employee, data);
       targetId = employee.id;
     } else {
-      const newEmployee = { id: newId("emp"), ageCategory: "BELOW_60", createdAt: new Date().toISOString(), updatedAt: new Date().toISOString(), ...data };
+      const newEmployee = { id: newId("emp"), companyId, ageCategory: "BELOW_60", createdAt: new Date().toISOString(), updatedAt: new Date().toISOString(), ...data };
       db.employees.push(newEmployee);
       targetId = newEmployee.id;
     }

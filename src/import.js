@@ -226,7 +226,7 @@ function requiredFieldsPresent(type, row, errors) {
   }
 }
 
-function importEmployees(db, rows) {
+function importEmployees(db, rows, companyId) {
   const errors = [];
   let imported = 0;
   const seenCodes = new Set();
@@ -242,13 +242,13 @@ function importEmployees(db, rows) {
     if (employeeCode) {
       if (seenCodes.has(employeeCode)) rowErrors.push(`Duplicate employee code '${employeeCode}' within this file`);
       seenCodes.add(employeeCode);
-      if (db.employees.some((e) => e.employeeCode === employeeCode)) rowErrors.push(`Employee code '${employeeCode}' already exists`);
+      if (db.employees.some((e) => e.companyId === companyId && e.employeeCode === employeeCode)) rowErrors.push(`Employee code '${employeeCode}' already exists in this company`);
     }
     if (pan) {
       if (!IMPORT_PAN_REGEX.test(pan)) rowErrors.push(`Invalid PAN format '${pan}'`);
       if (seenPans.has(pan)) rowErrors.push(`Duplicate PAN '${pan}' within this file`);
       seenPans.add(pan);
-      if (db.employees.some((e) => e.pan === pan)) rowErrors.push(`PAN '${pan}' already used by another employee`);
+      if (db.employees.some((e) => e.companyId === companyId && e.pan === pan)) rowErrors.push(`PAN '${pan}' already used by another employee in this company`);
     }
     const dateOfJoining = toDateOrNullI(row["Date of Joining"]);
     if (row["Date of Joining"] && !dateOfJoining) rowErrors.push("Invalid Date of Joining");
@@ -263,7 +263,7 @@ function importEmployees(db, rows) {
     }
 
     db.employees.push({
-      id: newId("emp"), employeeCode, fullName: String(row["Employee Name"] ?? "").trim(), pan,
+      id: newId("emp"), companyId, employeeCode, fullName: String(row["Employee Name"] ?? "").trim(), pan,
       dob: toDateOrNullI(row["DOB"]), gender: row["Gender"] ? String(row["Gender"]) : null,
       aadhaar: null, email: null, phone: null,
       dateOfJoining, dateOfLeaving: null,
@@ -286,7 +286,7 @@ function importEmployees(db, rows) {
   return { imported, errors };
 }
 
-function importSalaryStructures(db, rows) {
+function importSalaryStructures(db, rows, companyId) {
   const errors = [];
   let imported = 0;
   const fy = db.financialYears.find((f) => f.isCurrent);
@@ -299,7 +299,7 @@ function importSalaryStructures(db, rows) {
     const rowErrors = [];
     const employeeCode = String(row["Employee Code"] ?? "").trim();
     if (!employeeCode) rowErrors.push("Missing required field 'Employee Code'");
-    const employee = db.employees.find((e) => e.employeeCode === employeeCode);
+    const employee = db.employees.find((e) => e.companyId === companyId && e.employeeCode === employeeCode);
     if (employeeCode && !employee) rowErrors.push(`Employee code '${employeeCode}' not found`);
 
     const amounts = [];
@@ -335,7 +335,7 @@ function importSalaryStructures(db, rows) {
   return { imported, errors };
 }
 
-function importInvestmentDeclarations(db, rows) {
+function importInvestmentDeclarations(db, rows, companyId) {
   const errors = [];
   let imported = 0;
   const fy = db.financialYears.find((f) => f.isCurrent);
@@ -346,7 +346,7 @@ function importInvestmentDeclarations(db, rows) {
     const row = rows[i];
     const rowErrors = [];
     const employeeCode = String(row["Employee Code"] ?? "").trim();
-    const employee = db.employees.find((e) => e.employeeCode === employeeCode);
+    const employee = db.employees.find((e) => e.companyId === companyId && e.employeeCode === employeeCode);
     if (!employeeCode) rowErrors.push("Missing required field 'Employee Code'");
     else if (!employee) rowErrors.push(`Employee code '${employeeCode}' not found`);
 

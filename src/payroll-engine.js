@@ -246,6 +246,7 @@
   }
 
   function isEmployeeEligibleForRun(employee, run) {
+    if (run.companyId && employee.companyId !== run.companyId) return false;
     if (employee.status === "INACTIVE") return false;
     const monthStart = new Date(run.calendarYear, run.calendarMonth - 1, 1);
     const monthEnd = new Date(run.calendarYear, run.calendarMonth, 0);

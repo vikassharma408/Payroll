@@ -2,7 +2,7 @@
 
 A standalone, offline-first payroll, TDS and salary-register app for Indian
 businesses. No server, no database to install, no build step - it's a folder
-of plain HTML/CSS/JS. Open `html-app/index.html` in a browser (Chrome or
+of plain HTML/CSS/JS. Open `index.html` in a browser (Chrome or
 Edge recommended) and it runs entirely client-side.
 
 It is built around a **config-driven tax rule engine** (not hard-coded
@@ -11,7 +11,7 @@ figure is traceable back to the rule/formula that produced it.
 
 ## Quick start
 
-Double-click `html-app/index.html` (or open it from your browser's File menu).
+Double-click `index.html` (or open it from your browser's File menu).
 That's it - no installation, no `npm install`, no server to start.
 
 - Your data (employees, salary structures, payroll runs, everything) is
@@ -26,7 +26,7 @@ To re-verify the tax engine reproduces the reference workbook's figures
 exactly:
 
 ```bash
-node html-app/src/validate-fixtures.js
+node src/validate-fixtures.js
 ```
 
 (This only needs Node.js if you want to re-run that specific check; the app
@@ -35,7 +35,7 @@ itself needs nothing but a browser.)
 ## Architecture
 
 ```
-html-app/
+(repo root)
   index.html               The app shell: sidebar, theme, script includes.
   vendor/
     xlsx.full.min.js        SheetJS, vendored so the Import Wizard reads/
@@ -89,7 +89,7 @@ html-app/
 Every calculation file above (`tax-engine.js`, `formula-engine.js`,
 `payroll-engine.js`, `rule-configs.js`) is a verbatim, logic-for-logic port -
 not a rewrite - and is re-verified against the same reference-workbook
-fixtures on every change (`node html-app/src/validate-fixtures.js`).
+fixtures on every change (`node src/validate-fixtures.js`).
 
 ## Tax engine correctness
 
@@ -99,13 +99,13 @@ Education Cess, Sec 80C/80D/80CCD/80E/80EE/80EEA/80U/80DD, HRA exemption,
 Sec 17(1)(viii)/17(2)(vii) employer NPS/PF/superannuation treatment, house
 property set-off) was built directly against, and is unit-tested against, the
 FY 2026-27 salary/TDS workbook supplied by the business -
-`node html-app/src/validate-fixtures.js` reproduces Mr. A (₹89,294 new-regime
+`node src/validate-fixtures.js` reproduces Mr. A (₹89,294 new-regime
 / ₹2,40,209 old-regime annual tax), Mr. B (senior citizen, surcharge-
 triggering income) and Mr. C (full Sec 87A rebate under the new regime) to
 the rupee.
 
 **Adding a new financial year or amending a rule mid-year:** add a rule-set
-entry in `html-app/src/rule-configs.js`. The engine always resolves the
+entry in `src/rule-configs.js`. The engine always resolves the
 latest rule set whose `effectiveFrom` is on or before the calculation date
 for that FY + regime, and throws rather than silently falling back if none
 exists - so an unconfigured year is never computed on outdated assumptions.
