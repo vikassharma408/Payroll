@@ -26,6 +26,22 @@ function escapeHtml(s) {
   return String(s ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
 }
 
+/**
+ * Converts a SCREAMING_SNAKE_CASE enum/status value (ACTIVE, PROFESSIONAL_TAX,
+ * SENIOR_60_79, UPTO_1600CC, ...) into a sentence-case display label, for
+ * every raw status/regime/category/code shown directly to the user instead
+ * of through a hand-written label map. Preserves standard tax-section/unit
+ * notation (80C, 80CCD1B, 1600CC) by re-uppercasing a run of letters that
+ * directly follows a digit, rather than blindly lowercasing everything.
+ */
+function sentenceCase(str) {
+  if (!str) return "";
+  let s = String(str).replace(/_/g, " ").toLowerCase();
+  s = s.replace(/(\d)([a-z]+)/g, (_, d, letters) => d + letters.toUpperCase());
+  s = s.replace(/([a-z])(\d)/g, "$1 $2");
+  return s.charAt(0).toUpperCase() + s.slice(1);
+}
+
 /** Records a change in db.auditLog - call before persist() so the log entry is saved along with the change itself. */
 function logAudit(entityType, entityId, action, detail) {
   db.auditLog.push({ id: newId("log"), entityType, entityId, action, detail: detail || null, createdAt: new Date().toISOString() });
@@ -209,7 +225,7 @@ registerView("tax-rules", "Setup", "Tax Rules", (container) => {
         (r) => `
         <tr>
           <td>${r.financialYearCode}</td>
-          <td>${r.regime}</td>
+          <td>${sentenceCase(r.regime)}</td>
           <td>${r.effectiveFrom}</td>
           <td>${rupees(r.standardDeduction)}</td>
           <td>${pct(r.cessRate)}</td>
@@ -333,7 +349,7 @@ registerView("tax-rules", "Setup", "Tax Rules", (container) => {
       .map(
         (s, i) => `
         <tr>
-          <td>${s.ageCategory.replace(/_/g, " ")}</td>
+          <td>${sentenceCase(s.ageCategory)}</td>
           <td><input type="number" min="0" class="slab-min" data-idx="${i}" value="${s.minIncome}" /></td>
           <td><input type="number" min="0" class="slab-max" data-idx="${i}" value="${s.maxIncome ?? ""}" placeholder="(no limit)" /></td>
           <td><input type="number" min="0" step="0.01" class="slab-rate" data-idx="${i}" value="${s.rate * 100}" /> %</td>
@@ -354,12 +370,12 @@ registerView("tax-rules", "Setup", "Tax Rules", (container) => {
       .join("");
 
     const deductionRows = Object.entries(r.deductionLimits)
-      .map(([k, v]) => `<tr><td>${k.replace(/_/g, " ")}</td><td><input type="number" min="0" class="deduction-limit" data-key="${k}" value="${v}" /></td></tr>`)
+      .map(([k, v]) => `<tr><td>${sentenceCase(k)}</td><td><input type="number" min="0" class="deduction-limit" data-key="${k}" value="${v}" /></td></tr>`)
       .join("");
 
     return `
       <div class="card" style="margin:8px 0;">
-        <h3>Editing ${r.financialYearCode} - ${r.regime} Regime</h3>
+        <h3>Editing ${r.financialYearCode} - ${sentenceCase(r.regime)} regime</h3>
         <form id="rule-edit-form" data-id="${r.id}">
           <div class="form-grid">
             <div><label>Effective From</label><input type="date" name="effectiveFrom" value="${r.effectiveFrom.slice(0, 10)}" /></div>
@@ -416,7 +432,7 @@ registerView("tax-rules", "Setup", "Tax Rules", (container) => {
       .map(
         ([age, slabs]) => `
         <div class="mt-16">
-          <strong>${age.replace(/_/g, " ")}</strong>
+          <strong>${sentenceCase(age)}</strong>
           <table>
             <thead><tr><th>Income Band</th><th>Rate</th></tr></thead>
             <tbody>${slabs
@@ -435,7 +451,7 @@ registerView("tax-rules", "Setup", "Tax Rules", (container) => {
       .join("");
 
     const deductionRows = Object.entries(r.deductionLimits)
-      .map(([k, v]) => `<tr><td>${k.replace(/_/g, " ")}</td><td>${rupees(v)}</td></tr>`)
+      .map(([k, v]) => `<tr><td>${sentenceCase(k)}</td><td>${rupees(v)}</td></tr>`)
       .join("");
 
     const rulesRows = r.rules
@@ -492,7 +508,7 @@ registerView("pt-slabs", "Setup", "PT Slabs", (container) => {
         (s) => `
         <tr>
           <td>${s.label}</td>
-          <td>${s.type.replace(/_/g, " ")}</td>
+          <td>${sentenceCase(s.type)}</td>
           <td>${s.type === "MONTHLY" || s.type === "HALF_YEARLY" ? `up to ${rupees(s.slabs[s.slabs.length - 1].amount)}/month` : s.type === "FLAT" ? `${rupees(s.amount)}/month` : "-"}</td>
           <td>${s.seniorExemptionAge != null ? `${s.seniorExemptionAge}+` : "-"}</td>
           <td><button data-key="${s.key}" class="toggle-pt-edit">${editingKey === s.key ? "Cancel" : "Edit"}</button></td>
@@ -534,7 +550,7 @@ registerView("pt-slabs", "Setup", "PT Slabs", (container) => {
           <div class="form-grid">
             <div><label>Type</label>
               <select name="type">
-                ${["MONTHLY", "HALF_YEARLY", "FLAT", "NONE", "MANUAL"].map((t) => `<option value="${t}" ${s.type === t ? "selected" : ""}>${t.replace(/_/g, " ")}</option>`).join("")}
+                ${["MONTHLY", "HALF_YEARLY", "FLAT", "NONE", "MANUAL"].map((t) => `<option value="${t}" ${s.type === t ? "selected" : ""}>${sentenceCase(t)}</option>`).join("")}
               </select>
             </div>
             <div><label>Flat Monthly Amount (only used if Type = FLAT)</label><input type="number" min="0" name="amount" value="${s.amount || 0}" /></div>

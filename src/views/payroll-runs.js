@@ -37,7 +37,7 @@ function renderPayrollRunsList(container) {
       <tr>
         <td><a href="#/payroll-runs/${r.id}">${fyOfRun ? fyOfRun.code : "-"} - ${monthLabel(r)}</a></td>
         <td>${r.payrollGroup || "All"}</td>
-        <td><span class="badge ${r.status === "PAID" ? "good" : r.status === "DRAFT" ? "neutral" : "good"}">${r.status}</span></td>
+        <td><span class="badge ${r.status === "PAID" ? "good" : r.status === "DRAFT" ? "neutral" : "good"}">${sentenceCase(r.status)}</span></td>
         <td>${r.lines.length}</td>
         <td>${rupees(totalNet)}</td>
       </tr>`;
@@ -129,7 +129,7 @@ function renderPayrollRunDetail(container, runId) {
       <div class="row between">
         <div>
           <h2 style="margin-bottom:2px;">${fy ? fy.code : ""} - ${monthLabel(run)}</h2>
-          <div class="text-muted">${run.payrollGroup || "All employees"} · <span class="badge good">${run.status}</span></div>
+          <div class="text-muted">${run.payrollGroup || "All employees"} · <span class="badge good">${sentenceCase(run.status)}</span></div>
         </div>
         <div class="row gap-8">
           <button id="btn-calculate" ${run.status === "LOCKED" || run.status === "PAID" ? "disabled" : ""}>${run.lines.length ? "Recalculate" : "Run Calculation"}</button>
@@ -162,7 +162,7 @@ function renderPayrollRunDetail(container, runId) {
                     <td>${rupees(l.tdsMonthly)}</td>
                     <td>${adjTotal ? rupees(adjTotal) : "-"}</td>
                     <td><strong>${rupees(l.netSalary)}</strong></td>
-                    <td>${l.regimeUsed}</td>
+                    <td>${sentenceCase(l.regimeUsed)}</td>
                     <td class="row gap-8">
                       <button data-line="${l.id}" class="toggle-line">${expandedLineId === l.id ? "Hide" : "Details"}</button>
                       <a href="#/payroll-runs/${run.id}/slip/${l.id}"><button>Slip</button></a>
@@ -289,20 +289,20 @@ function renderPayrollRunDetail(container, runId) {
         <div class="card-grid mt-16">
           <div>
             <h3>Earnings</h3>
-            <table>${Object.entries(line.earnings).map(([k, v]) => `<tr><td>${k}</td><td>${rupees(v)}</td></tr>`).join("")}</table>
+            <table>${Object.entries(line.earnings).map(([k, v]) => `<tr><td>${SLIP_COMPONENT_LABELS[k] || sentenceCase(k)}</td><td>${rupees(v)}</td></tr>`).join("")}</table>
           </div>
           <div>
             <h3>Deductions</h3>
-            <table>${Object.entries(line.deductions).map(([k, v]) => `<tr><td>${k}</td><td>${rupees(v)}</td></tr>`).join("")}<tr><td>TDS</td><td>${rupees(line.tdsMonthly)}</td></tr></table>
+            <table>${Object.entries(line.deductions).map(([k, v]) => `<tr><td>${SLIP_COMPONENT_LABELS[k] || sentenceCase(k)}</td><td>${rupees(v)}</td></tr>`).join("")}<tr><td>TDS</td><td>${rupees(line.tdsMonthly)}</td></tr></table>
           </div>
           <div>
             <h3>Employer Contributions</h3>
-            <table>${Object.entries(line.employerContributions).map(([k, v]) => `<tr><td>${k}</td><td>${rupees(v)}</td></tr>`).join("")}</table>
+            <table>${Object.entries(line.employerContributions).map(([k, v]) => `<tr><td>${SLIP_COMPONENT_LABELS[k] || sentenceCase(k)}</td><td>${rupees(v)}</td></tr>`).join("")}</table>
           </div>
         </div>
         ${
           snap
-            ? `<details class="mt-16"><summary>Tax calculation trace (${line.regimeUsed} regime, annualized)</summary>
+            ? `<details class="mt-16"><summary>Tax calculation trace (${sentenceCase(line.regimeUsed).toLowerCase()} regime, annualized)</summary>
               <table class="mt-16">${snap.steps.map((s) => `<tr><td>${s.label}${s.note ? ` <span class="text-muted">(${s.note})</span>` : ""}</td><td>${rupees(s.amount)}</td></tr>`).join("")}</table>
             </details>`
             : ""
@@ -456,7 +456,7 @@ function renderSalarySlip(container, runId, lineId) {
           <div>FY ${fy.code}</div>
         </div>
       </div>
-      <h2 style="text-align:center; text-transform:uppercase;">Payslip - ${monthLabel(run)}</h2>
+      <h2 style="text-align:center;">Payslip - ${monthLabel(run)}</h2>
       <div class="card-grid">
         <table>
           <tr><td class="text-muted">Employee Code</td><td>${escapeHtml(employee.employeeCode)}</td></tr>
@@ -472,7 +472,7 @@ function renderSalarySlip(container, runId, lineId) {
           <tr><td class="text-muted">Days in Month</td><td>${line.daysInMonth}</td></tr>
           <tr><td class="text-muted">Days Worked</td><td>${line.daysWorked}</td></tr>
           <tr><td class="text-muted">LOP Days</td><td>${line.lopDays}</td></tr>
-          <tr><td class="text-muted">Tax Regime</td><td>${line.regimeUsed}</td></tr>
+          <tr><td class="text-muted">Tax Regime</td><td>${sentenceCase(line.regimeUsed)}</td></tr>
         </table>
       </div>
       <div class="card-grid mt-16">
@@ -492,7 +492,7 @@ function renderSalarySlip(container, runId, lineId) {
           </table>
           <h3 class="mt-16">Tax Summary</h3>
           <table>
-            <tr><td class="text-muted">Regime Used</td><td>${line.regimeUsed}</td></tr>
+            <tr><td class="text-muted">Regime Used</td><td>${sentenceCase(line.regimeUsed)}</td></tr>
             <tr><td class="text-muted">Annual Tax Liability</td><td>${rupees(annualTaxLiability)}</td></tr>
             <tr><td class="text-muted">TDS this Month</td><td>${rupees(line.tdsMonthly)}</td></tr>
           </table>

@@ -349,7 +349,7 @@
     const run = db.payrollRuns.find((r) => r.id === runId);
     if (!run) throw new Error("Payroll run not found");
     if (run.status === "LOCKED" || run.status === "PAID") {
-      throw new Error(`Payroll run is ${run.status} and cannot be recalculated. Use an adjustment instead.`);
+      throw new Error(`Payroll run is ${run.status.toLowerCase()} and cannot be recalculated. Use an adjustment instead.`);
     }
     const employees = db.employees.filter((e) => e.status !== "INACTIVE");
     const skipped = [];
@@ -375,7 +375,7 @@
     const run = db.payrollRuns.find((r) => r.id === runId);
     if (!run) throw new Error("Payroll run not found");
     if (run.status === "LOCKED" || run.status === "PAID") {
-      throw new Error(`Payroll run is ${run.status} and cannot be recalculated. Use an adjustment instead.`);
+      throw new Error(`Payroll run is ${run.status.toLowerCase()} and cannot be recalculated. Use an adjustment instead.`);
     }
     const employee = db.employees.find((e) => e.id === employeeId);
     if (!employee) throw new Error("Employee not found");
@@ -390,7 +390,7 @@
     const currentIndex = PAYROLL_STATUS_ORDER.indexOf(run.status);
     const targetIndex = PAYROLL_STATUS_ORDER.indexOf(targetStatus);
     if (targetIndex !== currentIndex + 1) {
-      throw new Error(`Cannot move payroll run from ${run.status} to ${targetStatus}. Status must advance one step at a time: ${PAYROLL_STATUS_ORDER.join(" -> ")}.`);
+      throw new Error(`Cannot move payroll run from ${run.status.toLowerCase()} to ${targetStatus.toLowerCase()}. Status must advance one step at a time: ${PAYROLL_STATUS_ORDER.map((s) => s.toLowerCase()).join(" -> ")}.`);
     }
     run.status = targetStatus;
     const field = TIMESTAMP_FIELD[targetStatus];
@@ -497,7 +497,7 @@
     const targetRun = db.payrollRuns.find((r) => r.id === targetRunId);
     if (!targetRun) throw new Error("Target payroll run not found");
     if (targetRun.status === "LOCKED" || targetRun.status === "PAID") {
-      throw new Error(`That run is ${targetRun.status} - choose a run that's still open to receive the arrears.`);
+      throw new Error(`That run is ${targetRun.status.toLowerCase()} - choose a run that's still open to receive the arrears.`);
     }
     if (!arrears || !arrears.months.length) throw new Error("Nothing to apply.");
 

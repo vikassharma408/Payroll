@@ -176,7 +176,7 @@ registerView("audit-log", "Insights", "Audit Log", (container) => {
   const importRows = db.importBatches
     .slice()
     .reverse()
-    .map((b) => ({ createdAt: b.createdAt, entityType: "Import", action: b.templateType, detail: `${b.fileName}: ${b.importedRecords}/${b.totalRecords} imported, ${b.failedRecords} failed (${b.status})` }));
+    .map((b) => ({ createdAt: b.createdAt, entityType: "Import", action: b.templateType, detail: `${b.fileName}: ${b.importedRecords}/${b.totalRecords} imported, ${b.failedRecords} failed (${sentenceCase(b.status).toLowerCase()})` }));
 
   const combined = [...entries, ...importRows].sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt));
 
@@ -189,7 +189,7 @@ registerView("audit-log", "Insights", "Audit Log", (container) => {
           ${
             combined
               .slice(0, 500)
-              .map((e) => `<tr><td>${e.createdAt.slice(0, 16).replace("T", " ")}</td><td>${escapeHtml(e.entityType)}</td><td>${escapeHtml(e.action)}</td><td>${escapeHtml(e.detail || "")}</td></tr>`)
+              .map((e) => `<tr><td>${e.createdAt.slice(0, 16).replace("T", " ")}</td><td>${escapeHtml(e.entityType)}</td><td>${escapeHtml(sentenceCase(e.action))}</td><td>${escapeHtml(e.detail || "")}</td></tr>`)
               .join("") || `<tr><td colspan="4" class="text-muted">No activity recorded yet.</td></tr>`
           }
         </tbody>

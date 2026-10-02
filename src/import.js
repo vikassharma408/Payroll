@@ -195,10 +195,17 @@ function downloadWorkbook(filename, arrayBuffer) {
   const a = document.createElement("a");
   a.href = url;
   a.download = filename;
+  a.rel = "noopener";
+  a.style.display = "none";
   document.body.appendChild(a);
   a.click();
-  a.remove();
-  URL.revokeObjectURL(url);
+  // Revoking the blob URL immediately can race with the browser actually
+  // starting the download in some embedded/sandboxed contexts - give it a
+  // moment first.
+  setTimeout(() => {
+    a.remove();
+    URL.revokeObjectURL(url);
+  }, 1000);
 }
 
 const IMPORT_PAN_REGEX = /^[A-Z]{5}[0-9]{4}[A-Z]$/;

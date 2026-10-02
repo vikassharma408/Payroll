@@ -63,7 +63,7 @@ registerView("import", "Payroll", "Import Wizard", (container) => {
               db.importBatches
                 .slice()
                 .reverse()
-                .map((b) => `<tr><td>${escapeHtml(b.fileName)}</td><td>${b.templateType}</td><td>${b.totalRecords}</td><td>${b.importedRecords}</td><td>${b.failedRecords}</td><td><span class="badge ${b.status === "COMPLETED" ? "good" : b.status === "FAILED" ? "bad" : "neutral"}">${b.status}</span></td><td>${b.createdAt.slice(0, 16).replace("T", " ")}</td></tr>`)
+                .map((b) => `<tr><td>${escapeHtml(b.fileName)}</td><td>${sentenceCase(b.templateType)}</td><td>${b.totalRecords}</td><td>${b.importedRecords}</td><td>${b.failedRecords}</td><td><span class="badge ${b.status === "COMPLETED" ? "good" : b.status === "FAILED" ? "bad" : "neutral"}">${sentenceCase(b.status)}</span></td><td>${b.createdAt.slice(0, 16).replace("T", " ")}</td></tr>`)
                 .join("") || `<tr><td colspan="7" class="text-muted">No imports yet.</td></tr>`
             }
           </tbody>
@@ -116,7 +116,7 @@ registerView("import", "Payroll", "Import Wizard", (container) => {
     if (!el) return;
     el.innerHTML = `
       <div class="card" style="background:var(--ink);">
-        <p><strong>${batch.status.replace(/_/g, " ")}</strong>: imported ${batch.importedRecords} of ${batch.totalRecords} row(s)${batch.failedRecords ? `, ${batch.failedRecords} failed` : ""}.</p>
+        <p><strong>${sentenceCase(batch.status)}</strong>: imported ${batch.importedRecords} of ${batch.totalRecords} row(s)${batch.failedRecords ? `, ${batch.failedRecords} failed` : ""}.</p>
         ${batch.errors.length ? `<ul>${batch.errors.map((e) => `<li>Row ${e.rowNumber}: ${escapeHtml(e.message)}</li>`).join("")}</ul>` : ""}
       </div>
     `;

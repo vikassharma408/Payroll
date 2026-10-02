@@ -73,10 +73,14 @@
     const a = document.createElement("a");
     a.href = url;
     a.download = `payroll-backup-${stamp}.json`;
+    a.rel = "noopener";
+    a.style.display = "none";
     document.body.appendChild(a);
     a.click();
-    a.remove();
-    URL.revokeObjectURL(url);
+    setTimeout(() => {
+      a.remove();
+      URL.revokeObjectURL(url);
+    }, 1000);
   }
 
   /** Parses+validates a backup File (from an <input type=file> or drag-drop) into a db object. Throws on invalid content. */

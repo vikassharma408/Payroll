@@ -60,8 +60,8 @@ function renderEmployeesList(container) {
           <td><a href="#/employees/${e.id}">${escapeHtml(e.fullName)}</a></td>
           <td>${escapeHtml(e.designation || "-")}</td>
           <td>${escapeHtml(e.department || "-")}</td>
-          <td>${e.taxRegime}</td>
-          <td><span class="badge ${e.status === "ACTIVE" ? "good" : e.status === "LEFT" ? "bad" : "neutral"}">${e.status}</span></td>
+          <td>${sentenceCase(e.taxRegime)}</td>
+          <td><span class="badge ${e.status === "ACTIVE" ? "good" : e.status === "LEFT" ? "bad" : "neutral"}">${sentenceCase(e.status)}</span></td>
         </tr>`,
       )
       .join("");
@@ -375,7 +375,7 @@ function renderEmployeeDetail(container, employee) {
       if (processedLine) {
         const fyCode = (db.financialYears.find((f) => f.id === processedLine.run.financialYearId) || {}).code || "?";
         alert(
-          `Cannot delete ${employee.fullName} (${employee.employeeCode}): payroll has already been processed for them (FY ${fyCode}, month ${processedLine.run.payrollMonthIndex}, status ${processedLine.run.status}). Payroll history must be preserved. Set their status to Inactive or Left instead of deleting them.`,
+          `Cannot delete ${employee.fullName} (${employee.employeeCode}): payroll has already been processed for them (FY ${fyCode}, month ${processedLine.run.payrollMonthIndex}, status ${processedLine.run.status.toLowerCase()}). Payroll history must be preserved. Set their status to Inactive or Left instead of deleting them.`,
         );
         return;
       }
@@ -408,7 +408,7 @@ function renderProfileTab(container, e) {
   container.innerHTML = `
     <div class="card card-grid">
       ${field("Date of Birth", e.dob)}
-      ${field("Gender", e.gender)}
+      ${field("Gender", sentenceCase(e.gender))}
       ${field("PAN", e.pan)}
       ${field("Aadhaar", e.aadhaar)}
       ${field("Email", escapeHtml(e.email || ""))}
@@ -451,7 +451,7 @@ function renderSalaryStructureTab(container, employee, fy, onSaved) {
     const options = db.salaryComponents
       .slice()
       .sort((a, b) => a.order - b.order)
-      .map((c) => `<option value="${c.id}">${c.code} - ${c.name} (${c.category})</option>`)
+      .map((c) => `<option value="${c.id}">${c.code} - ${c.name} (${sentenceCase(c.category)})</option>`)
       .join("");
 
     const arrears = active ? PayrollEngine.computeArrears(db, employee.id, fy.id, active.effectiveFrom) : null;
@@ -624,7 +624,7 @@ function renderSalaryStructureTab(container, employee, fy, onSaved) {
         return `
         <tr>
           <td>${comp.code} - ${comp.name}</td>
-          <td>${comp.category}</td>
+          <td>${sentenceCase(comp.category)}</td>
           <td><input data-idx="${i}" type="number" min="0" class="monthly-input" value="${r.monthlyAmount}" /></td>
           <td>${rupees(r.monthlyAmount * 12)}</td>
           <td><button data-idx="${i}" class="danger remove-row">Remove</button></td>
@@ -1015,26 +1015,26 @@ function renderRegimeComparisonTab(container, employee, fy, onSaved) {
       <a href="#/employees/${employee.id}/form16"><button>View Form 16 Part B Summary</button></a>
     </div>
     <div class="card-grid">
-      ${col("OLD Regime", estimate.old)}
-      ${col("NEW Regime", estimate.new)}
+      ${col("Old Regime", estimate.old)}
+      ${col("New Regime", estimate.new)}
     </div>
     <div class="card">
       <h3>Switch Tax Regime</h3>
       <p class="text-muted" style="font-size:12px;">An employee can revise the regime intimated to their employer for TDS purposes during the year - it isn't locked at joining. Switching only affects future payroll runs; already-withheld TDS for past months is never touched. The remaining months' TDS is automatically trued up against what's already been deducted, whichever regime you switch to.</p>
-      <p>Currently on: <span class="badge good">${employee.taxRegime} Regime</span></p>
+      <p>Currently on: <span class="badge good">${sentenceCase(employee.taxRegime)} regime</span></p>
       ${
         preview.hasUpcomingRun
-          ? `<p>For ${monthLabel(preview)} onward (the next open run), monthly TDS would be <strong>${rupees(preview.currentRegime === "OLD" ? preview.oldMonthlyTds : preview.newMonthlyTds)}</strong> staying on ${preview.currentRegime}, vs <strong>${rupees(preview.currentRegime === "OLD" ? preview.newMonthlyTds : preview.oldMonthlyTds)}</strong> if you switch to ${otherRegime}.</p>`
+          ? `<p>For ${monthLabel(preview)} onward (the next open run), monthly TDS would be <strong>${rupees(preview.currentRegime === "OLD" ? preview.oldMonthlyTds : preview.newMonthlyTds)}</strong> staying on ${sentenceCase(preview.currentRegime).toLowerCase()}, vs <strong>${rupees(preview.currentRegime === "OLD" ? preview.newMonthlyTds : preview.oldMonthlyTds)}</strong> if you switch to ${sentenceCase(otherRegime).toLowerCase()}.</p>`
           : `<p class="text-muted">No open payroll run exists yet to preview the exact monthly impact - the figures above (full-year estimate) are the best available preview. The next run you process after switching will compute the correct trued-up TDS automatically.</p>`
       }
-      <button id="btn-switch-regime">Switch to ${otherRegime} Regime</button>
+      <button id="btn-switch-regime">Switch to ${sentenceCase(otherRegime)} regime</button>
       <div id="regime-switch-error" class="text-bad mt-16"></div>
       ${
         history.length
           ? `<h3 class="mt-16">Switch History</h3><table><thead><tr><th>Date</th><th>From</th><th>To</th></tr></thead><tbody>${history
               .slice()
               .reverse()
-              .map((h) => `<tr><td>${h.changedAt.slice(0, 10)}</td><td>${h.from}</td><td>${h.to}</td></tr>`)
+              .map((h) => `<tr><td>${h.changedAt.slice(0, 10)}</td><td>${sentenceCase(h.from)}</td><td>${sentenceCase(h.to)}</td></tr>`)
               .join("")}</tbody></table>`
           : ""
       }
@@ -1044,7 +1044,7 @@ function renderRegimeComparisonTab(container, employee, fy, onSaved) {
   document.getElementById("btn-switch-regime").addEventListener("click", async () => {
     const errorEl = document.getElementById("regime-switch-error");
     errorEl.textContent = "";
-    if (!confirm(`Switch ${employee.fullName} from ${employee.taxRegime} to ${otherRegime} regime? This takes effect from the next payroll run onward.`)) return;
+    if (!confirm(`Switch ${employee.fullName} from ${sentenceCase(employee.taxRegime).toLowerCase()} to ${sentenceCase(otherRegime).toLowerCase()} regime? This takes effect from the next payroll run onward.`)) return;
     const fromRegime = employee.taxRegime;
     try {
       PayrollEngine.applyRegimeSwitch(db, employee.id, otherRegime);
@@ -1085,10 +1085,10 @@ function renderForm16(container, employee) {
         </div>
         <div class="text-muted" style="text-align:right;">
           <div>Annual Tax Computation Statement</div>
-          <div>FY ${fy.code} (${r.regime} Regime)</div>
+          <div>FY ${fy.code} (${sentenceCase(r.regime)} regime)</div>
         </div>
       </div>
-      <h2 style="text-align:center; text-transform:uppercase;">Form 16 Part B - Computation of Income &amp; Tax</h2>
+      <h2 style="text-align:center;">Form 16 Part B - Computation of Income &amp; Tax</h2>
       <div class="card-grid">
         <table>
           <tr><td class="text-muted">Employee Code</td><td>${escapeHtml(employee.employeeCode)}</td></tr>
@@ -1098,7 +1098,7 @@ function renderForm16(container, employee) {
         </table>
         <table>
           <tr><td class="text-muted">Financial Year</td><td>${fy.code}</td></tr>
-          <tr><td class="text-muted">Tax Regime</td><td>${r.regime}</td></tr>
+          <tr><td class="text-muted">Tax Regime</td><td>${sentenceCase(r.regime)}</td></tr>
           <tr><td class="text-muted">Period</td><td>${fy.startDate} to ${fy.endDate}</td></tr>
         </table>
       </div>
