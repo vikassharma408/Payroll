@@ -269,6 +269,7 @@ function renderEmployeeDetail(container, employee) {
     ["previous-employer", "Previous Employer"],
     ["perquisites", "Perquisites"],
     ["regime", "Regime Comparison"],
+    ...(employee.dateOfLeaving ? [["fnf", "Full & Final Settlement"]] : []),
   ];
 
   function render() {
@@ -326,6 +327,7 @@ function renderEmployeeDetail(container, employee) {
     else if (activeTab === "previous-employer") renderPreviousEmployerTab(tabContent, employee, fy, render);
     else if (activeTab === "perquisites") renderPerquisitesTab(tabContent, employee, fy, render);
     else if (activeTab === "regime") renderRegimeComparisonTab(tabContent, employee, fy);
+    else if (activeTab === "fnf") renderFnfTab(tabContent, employee, fy, render);
   }
 
   render();
@@ -848,4 +850,113 @@ function renderRegimeComparisonTab(container, employee, fy) {
       ${col("NEW Regime", estimate.new)}
     </div>
   `;
+}
+
+// --- Full & Final Settlement ---------------------------------------------
+const GRATUITY_EXEMPTION_CAP = 2000000; // Sec 10(10): statutory ceiling for non-government employees (as of the last amendment raising it from Rs 10L to Rs 20L).
+
+/** Completed years of service for gratuity, per Sec 4(2) of the Payment of Gratuity Act: a part-year of 6 months or more rounds up to a full year, less than 6 months rounds down. */
+function computeServiceYears(dateOfJoining, dateOfLeaving) {
+  const start = new Date(dateOfJoining);
+  const end = new Date(dateOfLeaving);
+  let totalMonths = (end.getFullYear() - start.getFullYear()) * 12 + (end.getMonth() - start.getMonth());
+  if (end.getDate() < start.getDate()) totalMonths -= 1;
+  totalMonths = Math.max(0, totalMonths);
+  const completedYears = Math.floor(totalMonths / 12);
+  const extraMonths = totalMonths % 12;
+  const roundedYears = extraMonths >= 6 ? completedYears + 1 : completedYears;
+  return { completedYears, extraMonths, roundedYears, totalMonths };
+}
+
+function renderFnfTab(container, employee, fy, onSaved) {
+  const activeStructure = db.employeeSalaryStructures
+    .filter((s) => s.employeeId === employee.id && s.financialYearId === fy.id && s.isActive)
+    .sort((a, b) => new Date(b.effectiveFrom) - new Date(a.effectiveFrom))[0];
+  const basicPlusDaMonthly = activeStructure ? activeStructure.components.filter((c) => c.componentCode === "BASIC" || c.componentCode === "DA").reduce((s, c) => s + c.monthlyAmount, 0) : 0;
+
+  const service = computeServiceYears(employee.dateOfJoining, employee.dateOfLeaving);
+  const gratuityEligible = service.roundedYears >= 5;
+  const statutoryGratuity = Math.round(((basicPlusDaMonthly * 15) / 26) * service.roundedYears);
+
+  const leaveDate = new Date(employee.dateOfLeaving);
+  const lastWorkingFyMonthIndex = calendarToFyMonthIndex(leaveDate.getFullYear(), leaveDate.getMonth() + 1);
+  const finalRun = db.payrollRuns.find((r) => r.companyId === employee.companyId && r.financialYearId === fy.id && r.payrollMonthIndex === lastWorkingFyMonthIndex && !r.payrollGroup);
+  const finalLine = finalRun ? finalRun.lines.find((l) => l.employeeId === employee.id) : null;
+
+  container.innerHTML = `
+    <div class="card">
+      <h3>Service Summary</h3>
+      <div class="card-grid">
+        <div><div class="stat-label">Date of Joining</div><div>${employee.dateOfJoining}</div></div>
+        <div><div class="stat-label">Date of Leaving</div><div>${employee.dateOfLeaving}</div></div>
+        <div><div class="stat-label">Service Period</div><div>${service.roundedYears} year(s) (${service.completedYears}y ${service.extraMonths}m exact)</div></div>
+        <div><div class="stat-label">Last Drawn Basic+DA (monthly)</div><div>${rupees(basicPlusDaMonthly)}</div></div>
+      </div>
+    </div>
+
+    <div class="card">
+      <h3>Gratuity (Payment of Gratuity Act, 1972)</h3>
+      ${
+        !gratuityEligible
+          ? `<p class="text-bad">Not eligible: fewer than 5 years of completed service (waived only for death or disablement - if that applies here, you can still enter an amount below).</p>`
+          : `<p class="text-muted">Statutory formula: Last drawn Basic+DA x 15/26 x completed years of service (6+ months rounds up) = ${rupees(basicPlusDaMonthly)} x 15/26 x ${service.roundedYears} = <strong>${rupees(statutoryGratuity)}</strong></p>`
+      }
+      <div class="form-grid">
+        <div><label>Gratuity to Pay</label><input type="number" min="0" id="fnf-gratuity" value="${gratuityEligible ? statutoryGratuity : 0}" /></div>
+      </div>
+      <p class="text-muted mt-16" style="font-size:12px;">Exempt from tax up to the LEAST of: actual amount, Rs ${GRATUITY_EXEMPTION_CAP.toLocaleString("en-IN")} (lifetime, Sec 10(10)), or the statutory formula above. If you pay more than that exemption (an ex-gratia top-up), the excess is taxable salary income - add it separately via this employee's "LOP & Bonus" override on the final payroll run if so, since it isn't auto-added here.</p>
+    </div>
+
+    <div class="card">
+      <h3>Leave Encashment</h3>
+      <div class="form-grid">
+        <div><label>Leave Days to Encash</label><input type="number" min="0" id="fnf-leave-days" value="0" /></div>
+        <div><label>Per-Day Rate</label><input type="number" min="0" id="fnf-leave-rate" value="${Math.round(basicPlusDaMonthly / 30)}" /></div>
+      </div>
+      <p class="text-muted mt-16" style="font-size:12px;">Exempt under Sec 10(10AA) up to a lifetime limit (Rs 25,00,000 for non-government employees) - most ordinary encashment amounts are well within this; verify separately if this employee is close to that lifetime cap across employers.</p>
+    </div>
+
+    <div class="card">
+      <h3>Notice Pay Recovery</h3>
+      <div class="form-grid">
+        <div><label>Amount to Recover (shortfall in notice period)</label><input type="number" min="0" id="fnf-notice-recovery" value="0" /></div>
+      </div>
+    </div>
+
+    <div class="card">
+      <h3>Post to Final Payroll Run</h3>
+      ${
+        !finalRun
+          ? `<p class="text-bad">No payroll run exists yet for their last working month (FY month ${lastWorkingFyMonthIndex}). <a href="#/payroll-runs">Create and calculate it first</a>, then come back here.</p>`
+          : !finalLine
+            ? `<p class="text-bad">That run exists but hasn't been calculated for this employee yet. Open it and click "Run Calculation" first.</p>`
+            : `<p class="text-muted">Will post Gratuity and Leave Encashment as additions, and Notice Pay Recovery as a deduction, to ${escapeHtml(employee.fullName)}'s line on the ${finalRun.calendarMonth}/${finalRun.calendarYear} run - each as a labeled, audited Manual Adjustment.</p>
+              <div class="row gap-8 mt-16"><button class="primary" id="btn-post-fnf">Post to Final Payroll Run</button></div>`
+      }
+      <div id="fnf-error" class="text-bad mt-16"></div>
+    </div>
+  `;
+
+  const postBtn = document.getElementById("btn-post-fnf");
+  if (postBtn) {
+    postBtn.addEventListener("click", async () => {
+      const errorEl = document.getElementById("fnf-error");
+      errorEl.textContent = "";
+      const gratuity = num(document.getElementById("fnf-gratuity").value);
+      const leaveDays = num(document.getElementById("fnf-leave-days").value);
+      const leaveRate = num(document.getElementById("fnf-leave-rate").value);
+      const leaveEncashment = Math.round(leaveDays * leaveRate);
+      const noticeRecovery = num(document.getElementById("fnf-notice-recovery").value);
+      try {
+        if (gratuity) PayrollEngine.addAdjustment(db, finalLine.id, { amount: gratuity, reason: `Gratuity (${service.roundedYears} years of service)`, enteredBy: "F&F Settlement" });
+        if (leaveEncashment) PayrollEngine.addAdjustment(db, finalLine.id, { amount: leaveEncashment, reason: `Leave Encashment (${leaveDays} days @ ${rupees(leaveRate)})`, enteredBy: "F&F Settlement" });
+        if (noticeRecovery) PayrollEngine.addAdjustment(db, finalLine.id, { amount: -noticeRecovery, reason: "Notice Pay Recovery", enteredBy: "F&F Settlement" });
+        await persist();
+        alert("Posted to the final payroll run. Open Payroll Runs to review and advance its status as usual.");
+        onSaved();
+      } catch (err) {
+        errorEl.textContent = err.message;
+      }
+    });
+  }
 }
