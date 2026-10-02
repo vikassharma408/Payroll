@@ -518,6 +518,69 @@
   }
 
   /**
+   * Previews the effect of switching an employee's TDS regime from the next
+   * payroll run onward: the law lets an employee revise the regime they've
+   * intimated to their employer for TDS purposes during the year (it isn't
+   * locked at joining), and switching doesn't need any special "split the
+   * year in two" math - computeEmployeePayrollLine already always computes
+   * BOTH regimes' monthlyTds off the same actual YTD income/TDS-withheld
+   * figures and projects the remainder of the year, so whichever regime
+   * ends up "current" from that point on gets a correctly trued-up monthly
+   * TDS automatically. This just surfaces both monthly figures, computed
+   * against the next still-open run, so the admin can see the impact
+   * before committing - without guessing at a from-scratch annual estimate.
+   * Returns `{ hasUpcomingRun: false }` if there's no open run left to
+   * preview against (the caller can fall back to the full-year
+   * estimateRegimeComparison figures already shown elsewhere instead).
+   */
+  function previewRegimeSwitch(db, employeeId, financialYearId) {
+    const employee = db.employees.find((e) => e.id === employeeId);
+    if (!employee) return { hasUpcomingRun: false };
+    const nextRun = db.payrollRuns
+      .filter(
+        (r) =>
+          r.financialYearId === financialYearId &&
+          r.companyId === employee.companyId &&
+          r.status !== "LOCKED" &&
+          r.status !== "PAID" &&
+          !r.lines.some((l) => l.employeeId === employeeId) && // not yet processed for this employee - a preview of what's coming, not a retroactive recompute of an already-processed month
+          isEmployeeEligibleForRun(employee, r),
+      )
+      .sort((a, b) => a.payrollMonthIndex - b.payrollMonthIndex)[0];
+    if (!nextRun) return { hasUpcomingRun: false };
+
+    const override = (nextRun.overrides && nextRun.overrides[employeeId]) || {};
+    let result;
+    try {
+      result = computeEmployeePayrollLine(db, nextRun.id, employeeId, { lopDays: override.lopDays, variablePay: override.variablePay });
+    } catch {
+      return { hasUpcomingRun: false };
+    }
+    return {
+      hasUpcomingRun: true,
+      runId: nextRun.id,
+      payrollMonthIndex: nextRun.payrollMonthIndex,
+      calendarYear: nextRun.calendarYear,
+      calendarMonth: nextRun.calendarMonth,
+      currentRegime: employee.taxRegime,
+      oldMonthlyTds: result.taxCalcSnapshot.old.monthlyTds,
+      newMonthlyTds: result.taxCalcSnapshot.new.monthlyTds,
+    };
+  }
+
+  /** Switches an employee's TDS regime going forward and records the change in employee.regimeSwitchHistory (separate from the general audit log, so it stays with the employee's own record for Form 16 / compliance purposes). Past months' already-withheld TDS is never touched - only future runs are affected. */
+  function applyRegimeSwitch(db, employeeId, newRegime) {
+    const employee = db.employees.find((e) => e.id === employeeId);
+    if (!employee) throw new Error("Employee not found");
+    if (newRegime !== "OLD" && newRegime !== "NEW") throw new Error("Regime must be OLD or NEW.");
+    if (employee.taxRegime === newRegime) throw new Error(`Employee is already on the ${newRegime} regime.`);
+    if (!employee.regimeSwitchHistory) employee.regimeSwitchHistory = [];
+    employee.regimeSwitchHistory.push({ from: employee.taxRegime, to: newRegime, changedAt: new Date().toISOString() });
+    employee.taxRegime = newRegime;
+    return employee;
+  }
+
+  /**
    * Projects a full-year Old vs New regime comparison directly from the
    * active Salary Structure + Investment Declaration + Previous Employer
    * records for a FY - independent of any payroll run ever having been
@@ -640,6 +703,8 @@
     addAdjustment,
     computeArrears,
     applyArrears,
+    previewRegimeSwitch,
+    applyRegimeSwitch,
     estimateRegimeComparison,
   };
 

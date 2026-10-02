@@ -396,7 +396,7 @@ function renderEmployeeDetail(container, employee) {
     else if (activeTab === "investment") renderInvestmentDeclarationTab(tabContent, employee, fy, render);
     else if (activeTab === "previous-employer") renderPreviousEmployerTab(tabContent, employee, fy, render);
     else if (activeTab === "perquisites") renderPerquisitesTab(tabContent, employee, fy, render);
-    else if (activeTab === "regime") renderRegimeComparisonTab(tabContent, employee, fy);
+    else if (activeTab === "regime") renderRegimeComparisonTab(tabContent, employee, fy, render);
     else if (activeTab === "fnf") renderFnfTab(tabContent, employee, fy, render);
   }
 
@@ -977,7 +977,7 @@ function renderPerquisitesTab(container, employee, fy, onSaved) {
 }
 
 // --- Regime Comparison -------------------------------------------------------
-function renderRegimeComparisonTab(container, employee, fy) {
+function renderRegimeComparisonTab(container, employee, fy, onSaved) {
   const estimate = PayrollEngine.estimateRegimeComparison(db, employee.id, fy.id);
   if (!estimate) {
     container.innerHTML = `<div class="card text-muted">No active salary structure for FY ${fy.code} yet - add one under the Salary Structure tab to see a regime comparison.</div>`;
@@ -1002,6 +1002,10 @@ function renderRegimeComparisonTab(container, employee, fy) {
       </div>
     `;
   }
+  const otherRegime = employee.taxRegime === "OLD" ? "NEW" : "OLD";
+  const preview = PayrollEngine.previewRegimeSwitch(db, employee.id, fy.id);
+  const history = employee.regimeSwitchHistory || [];
+
   container.innerHTML = `
     <div class="card row between">
       <div>
@@ -1014,7 +1018,43 @@ function renderRegimeComparisonTab(container, employee, fy) {
       ${col("OLD Regime", estimate.old)}
       ${col("NEW Regime", estimate.new)}
     </div>
+    <div class="card">
+      <h3>Switch Tax Regime</h3>
+      <p class="text-muted" style="font-size:12px;">An employee can revise the regime intimated to their employer for TDS purposes during the year - it isn't locked at joining. Switching only affects future payroll runs; already-withheld TDS for past months is never touched. The remaining months' TDS is automatically trued up against what's already been deducted, whichever regime you switch to.</p>
+      <p>Currently on: <span class="badge good">${employee.taxRegime} Regime</span></p>
+      ${
+        preview.hasUpcomingRun
+          ? `<p>For ${monthLabel(preview)} onward (the next open run), monthly TDS would be <strong>${rupees(preview.currentRegime === "OLD" ? preview.oldMonthlyTds : preview.newMonthlyTds)}</strong> staying on ${preview.currentRegime}, vs <strong>${rupees(preview.currentRegime === "OLD" ? preview.newMonthlyTds : preview.oldMonthlyTds)}</strong> if you switch to ${otherRegime}.</p>`
+          : `<p class="text-muted">No open payroll run exists yet to preview the exact monthly impact - the figures above (full-year estimate) are the best available preview. The next run you process after switching will compute the correct trued-up TDS automatically.</p>`
+      }
+      <button id="btn-switch-regime">Switch to ${otherRegime} Regime</button>
+      <div id="regime-switch-error" class="text-bad mt-16"></div>
+      ${
+        history.length
+          ? `<h3 class="mt-16">Switch History</h3><table><thead><tr><th>Date</th><th>From</th><th>To</th></tr></thead><tbody>${history
+              .slice()
+              .reverse()
+              .map((h) => `<tr><td>${h.changedAt.slice(0, 10)}</td><td>${h.from}</td><td>${h.to}</td></tr>`)
+              .join("")}</tbody></table>`
+          : ""
+      }
+    </div>
   `;
+
+  document.getElementById("btn-switch-regime").addEventListener("click", async () => {
+    const errorEl = document.getElementById("regime-switch-error");
+    errorEl.textContent = "";
+    if (!confirm(`Switch ${employee.fullName} from ${employee.taxRegime} to ${otherRegime} regime? This takes effect from the next payroll run onward.`)) return;
+    const fromRegime = employee.taxRegime;
+    try {
+      PayrollEngine.applyRegimeSwitch(db, employee.id, otherRegime);
+      logAudit("Employee", employee.id, "REGIME_SWITCH", `${employee.fullName} (${employee.employeeCode}) switched from ${fromRegime} to ${otherRegime} regime`);
+      await persist();
+      onSaved();
+    } catch (err) {
+      errorEl.textContent = err.message;
+    }
+  });
 }
 
 // --- Form 16 Part B Summary ------------------------------------------------
