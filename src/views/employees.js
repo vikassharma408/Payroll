@@ -40,6 +40,7 @@ function renderEmployeesList(container) {
     return;
   }
   let search = "";
+  let selected = new Set();
 
   function render() {
     const companyEmployees = db.employees.filter((e) => e.companyId === company.id).sort((a, b) => a.employeeCode.localeCompare(b.employeeCode));
@@ -47,10 +48,14 @@ function renderEmployeesList(container) {
     const filtered = q
       ? companyEmployees.filter((e) => [e.employeeCode, e.fullName, e.department, e.designation].some((v) => (v || "").toLowerCase().includes(q)))
       : companyEmployees;
+    // Drop selections that fell out of the current filtered set, so the bulk bar's count stays accurate.
+    selected = new Set([...selected].filter((id) => filtered.some((e) => e.id === id)));
+    const allSelected = filtered.length > 0 && filtered.every((e) => selected.has(e.id));
     const rows = filtered
       .map(
         (e) => `
         <tr>
+          <td><input type="checkbox" class="row-select" data-id="${e.id}" ${selected.has(e.id) ? "checked" : ""} /></td>
           <td><a href="#/employees/${e.id}">${escapeHtml(e.employeeCode)}</a></td>
           <td><a href="#/employees/${e.id}">${escapeHtml(e.fullName)}</a></td>
           <td>${escapeHtml(e.designation || "-")}</td>
@@ -65,11 +70,28 @@ function renderEmployeesList(container) {
         <span class="text-muted">${company.name}: ${filtered.length} of ${companyEmployees.length} employee(s)</span>
         <a href="#/employees/new"><button class="primary">+ Add Employee</button></a>
       </div>
+      ${
+        selected.size > 0
+          ? `<div class="card" style="background:var(--ink);">
+              <div class="row between" style="margin-bottom:4px;"><strong>${selected.size} selected</strong><button id="btn-clear-selection">Clear</button></div>
+              <div class="row gap-8 mt-16">
+                <input id="bulk-payroll-group" placeholder="Payroll group" style="max-width:200px;" />
+                <button id="btn-bulk-group">Set Payroll Group</button>
+                <select id="bulk-status" style="max-width:160px;">
+                  <option value="ACTIVE">Active</option>
+                  <option value="INACTIVE">Inactive</option>
+                  <option value="LEFT">Left</option>
+                </select>
+                <button id="btn-bulk-status">Set Status</button>
+              </div>
+            </div>`
+          : ""
+      }
       <div class="card">
         <input type="search" id="employee-search" placeholder="Search by code, name, department, or designation..." value="${escapeHtml(search)}" style="width:100%; margin-bottom:12px;" />
         <table>
-          <thead><tr><th>Code</th><th>Name</th><th>Designation</th><th>Department</th><th>Regime</th><th>Status</th></tr></thead>
-          <tbody>${rows || `<tr><td colspan="6" class="text-muted">${companyEmployees.length === 0 ? "No employees yet." : "No employees match your search."}</td></tr>`}</tbody>
+          <thead><tr><th><input type="checkbox" id="select-all" ${allSelected ? "checked" : ""} /></th><th>Code</th><th>Name</th><th>Designation</th><th>Department</th><th>Regime</th><th>Status</th></tr></thead>
+          <tbody>${rows || `<tr><td colspan="7" class="text-muted">${companyEmployees.length === 0 ? "No employees yet." : "No employees match your search."}</td></tr>`}</tbody>
         </table>
       </div>
     `;
@@ -80,6 +102,50 @@ function renderEmployeesList(container) {
       document.getElementById("employee-search").focus();
       document.getElementById("employee-search").setSelectionRange(search.length, search.length);
     });
+
+    document.getElementById("select-all").addEventListener("change", (e) => {
+      if (e.target.checked) filtered.forEach((emp) => selected.add(emp.id));
+      else filtered.forEach((emp) => selected.delete(emp.id));
+      render();
+    });
+    container.querySelectorAll(".row-select").forEach((cb) =>
+      cb.addEventListener("change", (e) => {
+        if (e.target.checked) selected.add(cb.dataset.id);
+        else selected.delete(cb.dataset.id);
+        render();
+      }),
+    );
+    const clearBtn = document.getElementById("btn-clear-selection");
+    if (clearBtn) clearBtn.addEventListener("click", () => { selected.clear(); render(); });
+
+    const bulkGroupBtn = document.getElementById("btn-bulk-group");
+    if (bulkGroupBtn) {
+      bulkGroupBtn.addEventListener("click", async () => {
+        const value = String(document.getElementById("bulk-payroll-group").value || "").trim() || null;
+        for (const id of selected) {
+          const emp = db.employees.find((e) => e.id === id);
+          if (emp) emp.payrollGroup = value;
+        }
+        logAudit("Employee", null, "BULK_UPDATE", `Set payroll group "${value || "(none)"}" for ${selected.size} employee(s)`);
+        await persist();
+        selected.clear();
+        render();
+      });
+    }
+    const bulkStatusBtn = document.getElementById("btn-bulk-status");
+    if (bulkStatusBtn) {
+      bulkStatusBtn.addEventListener("click", async () => {
+        const value = document.getElementById("bulk-status").value;
+        for (const id of selected) {
+          const emp = db.employees.find((e) => e.id === id);
+          if (emp) emp.status = value;
+        }
+        logAudit("Employee", null, "BULK_UPDATE", `Set status "${value}" for ${selected.size} employee(s)`);
+        await persist();
+        selected.clear();
+        render();
+      });
+    }
   }
 
   render();
