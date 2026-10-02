@@ -4,6 +4,27 @@
 // declarations, previous employer records, or a month's variable pay.
 
 registerView("import", "Payroll", "Import Wizard", (container) => {
+  let lastDownloadUrl = null;
+
+  /**
+   * Triggers the usual synthetic-click auto-download AND renders a real,
+   * persistent, directly-clickable link underneath - some browsers/security
+   * policies silently swallow a script-triggered download with no visible
+   * error (reported: works in Edge, not in Chrome, on the same machine), so
+   * the visible link is the actual fallback that doesn't depend on that
+   * auto-click succeeding. Right-click "Save Link As" also works on it.
+   */
+  function offerDownload(filename, arrayBuffer) {
+    if (lastDownloadUrl) URL.revokeObjectURL(lastDownloadUrl);
+    const blob = new Blob([arrayBuffer], { type: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" });
+    lastDownloadUrl = URL.createObjectURL(blob);
+    const linkEl = document.getElementById("template-download-link");
+    if (linkEl) {
+      linkEl.innerHTML = `<a href="${lastDownloadUrl}" download="${escapeHtml(filename)}" id="ready-download-link"><button>&#8595; ${escapeHtml(filename)} - click here if the download didn't start automatically</button></a>`;
+    }
+    downloadWorkbook(filename, arrayBuffer);
+  }
+
   function render() {
     const company = activeCompany();
     if (!company) {
@@ -28,6 +49,7 @@ registerView("import", "Payroll", "Import Wizard", (container) => {
           </select>
           <button id="btn-download-single">Download This Template</button>
         </div>
+        <div id="template-download-link" class="mt-16"></div>
       </div>
 
       <div class="card">
@@ -72,11 +94,11 @@ registerView("import", "Payroll", "Import Wizard", (container) => {
     `;
 
     document.getElementById("btn-download-combined").addEventListener("click", () => {
-      downloadWorkbook("payroll-combined-setup-template.xlsx", buildCombinedTemplateWorkbook());
+      offerDownload("payroll-combined-setup-template.xlsx", buildCombinedTemplateWorkbook());
     });
     document.getElementById("btn-download-single").addEventListener("click", () => {
       const type = document.getElementById("single-template-select").value;
-      downloadWorkbook(`${IMPORT_TEMPLATES[type].sheetName.toLowerCase().replace(/\s+/g, "-")}-template.xlsx`, buildTemplateWorkbook(type));
+      offerDownload(`${IMPORT_TEMPLATES[type].sheetName.toLowerCase().replace(/\s+/g, "-")}-template.xlsx`, buildTemplateWorkbook(type));
     });
 
     document.getElementById("combined-file-input").addEventListener("change", async (e) => {
