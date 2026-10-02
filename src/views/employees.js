@@ -82,6 +82,7 @@ function renderEmployeeForm(container, employee) {
     department: "",
     designation: "",
     location: "",
+    state: "",
     costCentre: "",
     payrollGroup: "",
     uan: "",
@@ -120,6 +121,12 @@ function renderEmployeeForm(container, employee) {
         <div><label>Department</label><input name="department" value="${escapeHtml(e.department || "")}" /></div>
         <div><label>Designation</label><input name="designation" value="${escapeHtml(e.designation || "")}" /></div>
         <div><label>Location</label><input name="location" value="${escapeHtml(e.location || "")}" /></div>
+        <div><label>State (for Professional Tax)</label>
+          <select name="state">
+            <option value="" ${!e.state ? "selected" : ""}>- Use fixed PT from Salary Structure -</option>
+            ${db.ptSlabs.map((s) => `<option value="${s.key}" ${e.state === s.key ? "selected" : ""}>${s.label}</option>`).join("")}
+          </select>
+        </div>
         <div><label>Cost Centre</label><input name="costCentre" value="${escapeHtml(e.costCentre || "")}" /></div>
         <div><label>Payroll Group</label><input name="payrollGroup" value="${escapeHtml(e.payrollGroup || "")}" /></div>
         <div><label>UAN</label><input name="uan" value="${escapeHtml(e.uan || "")}" /></div>
@@ -206,6 +213,7 @@ function renderEmployeeForm(container, employee) {
       department: String(fd.get("department") || "") || null,
       designation: String(fd.get("designation") || "") || null,
       location: String(fd.get("location") || "") || null,
+      state: String(fd.get("state") || "") || null,
       costCentre: String(fd.get("costCentre") || "") || null,
       payrollGroup: String(fd.get("payrollGroup") || "") || null,
       uan: String(fd.get("uan") || "") || null,

@@ -18,6 +18,7 @@
   const { calendarToFyMonthIndex, daysInCalendarMonth, fyMonthIndexToCalendar } = isNode ? require("./dates.js") : { calendarToFyMonthIndex: root.calendarToFyMonthIndex, daysInCalendarMonth: root.daysInCalendarMonth, fyMonthIndexToCalendar: root.fyMonthIndexToCalendar };
   const { newId } = isNode ? require("./db.js") : { newId: root.newId };
   const { computePerquisitesTotal } = isNode ? require("./perquisites.js") : { computePerquisitesTotal: root.computePerquisitesTotal };
+  const { computeMonthlyPT } = isNode ? require("./pt-slabs.js") : { computeMonthlyPT: root.computeMonthlyPT };
 
   const PERQ_CHECK_CODES = ["EMPLOYER_PF", "EMPLOYER_NPS", "EMPLOYER_SUPERANNUATION"];
   const BASIC_DA_CODES = ["BASIC", "DA"];
@@ -141,6 +142,20 @@
       const amt = NOT_PRORATED_DEDUCTION_CODES.includes(c.code) ? Math.round(c.monthlyAmount) : Math.round(c.monthlyAmount * prorationFactor);
       deductions[c.code] = amt;
       totalDeductionsExclTds += amt;
+    }
+
+    // If the employee has a state set (for state-wise Professional Tax) and
+    // PT applies to them, auto-compute PT from this month's gross salary and
+    // the (editable) db.ptSlabs for that state, overriding whatever the
+    // salary structure's own fixed PT component said. Falls back to the
+    // structure's figure for MANUAL/unrecognized states.
+    if (employee.ptApplicable && employee.state) {
+      const autoPt = computeMonthlyPT(db.ptSlabs, employee.state, grossSalary);
+      if (autoPt !== null) {
+        const roundedPt = Math.round(autoPt);
+        totalDeductionsExclTds += roundedPt - (deductions["PROFESSIONAL_TAX"] || 0);
+        deductions["PROFESSIONAL_TAX"] = roundedPt;
+      }
     }
 
     const basicPlusDaThisMonth = sumCodes(earnings, BASIC_DA_CODES);

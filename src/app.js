@@ -100,6 +100,7 @@ const SIDEBAR = [
     items: [
       ["companies", "Companies"],
       ["tax-rules", "Tax Rules"],
+      ["pt-slabs", "PT Slabs"],
       ["backup", "Backup & Restore"],
     ],
   },
@@ -472,6 +473,111 @@ registerView("tax-rules", "Setup", "Tax Rules", (container) => {
       </div>
     `;
   }
+
+  render();
+});
+
+// --- PT Slabs (editable, state-wise Professional Tax) ---------------------
+registerView("pt-slabs", "Setup", "PT Slabs", (container) => {
+  let editingKey = null;
+
+  function render() {
+    const rows = db.ptSlabs
+      .map(
+        (s) => `
+        <tr>
+          <td>${s.label}</td>
+          <td>${s.type.replace(/_/g, " ")}</td>
+          <td>${s.type === "MONTHLY" || s.type === "HALF_YEARLY" ? `up to ${rupees(s.slabs[s.slabs.length - 1].amount)}/month` : s.type === "FLAT" ? `${rupees(s.amount)}/month` : "-"}</td>
+          <td><button data-key="${s.key}" class="toggle-pt-edit">${editingKey === s.key ? "Cancel" : "Edit"}</button></td>
+        </tr>
+        ${editingKey === s.key ? `<tr><td colspan="4">${renderPtEditForm(s)}</td></tr>` : ""}`,
+      )
+      .join("");
+    container.innerHTML = `
+      <div class="card">
+        <p class="text-muted">Professional Tax is levied under each state's own Act, so rates and thresholds vary by state - several states (Delhi, UP, Haryana, Rajasthan, Himachal Pradesh) levy none at all. Assign an employee's state on their Profile tab to auto-compute their monthly PT from gross salary instead of a fixed amount; leave it unset to keep using the Salary Structure's fixed PT component. Edit a state's slabs below if a rate changes.</p>
+        <table>
+          <thead><tr><th>State</th><th>Type</th><th>Top Rate</th><th></th></tr></thead>
+          <tbody>${rows}</tbody>
+        </table>
+      </div>
+    `;
+    container.querySelectorAll(".toggle-pt-edit").forEach((btn) =>
+      btn.addEventListener("click", () => {
+        editingKey = editingKey === btn.dataset.key ? null : btn.dataset.key;
+        render();
+      }),
+    );
+  }
+
+  function renderPtEditForm(s) {
+    const slabRows = (s.slabs || [])
+      .map(
+        (slab, i) => `
+        <tr>
+          <td><input type="number" min="0" class="pt-slab-upto" data-idx="${i}" value="${slab.upTo ?? ""}" placeholder="(no limit - top band)" /></td>
+          <td><input type="number" min="0" step="0.01" class="pt-slab-amount" data-idx="${i}" value="${slab.amount}" /></td>
+          <td><button type="button" class="danger remove-pt-slab" data-idx="${i}">Remove</button></td>
+        </tr>`,
+      )
+      .join("");
+    return `
+      <div class="card" style="margin:8px 0;">
+        <form id="pt-edit-form" data-key="${s.key}">
+          <div class="form-grid">
+            <div><label>Type</label>
+              <select name="type">
+                ${["MONTHLY", "HALF_YEARLY", "FLAT", "NONE", "MANUAL"].map((t) => `<option value="${t}" ${s.type === t ? "selected" : ""}>${t.replace(/_/g, " ")}</option>`).join("")}
+              </select>
+            </div>
+            <div><label>Flat Monthly Amount (only used if Type = FLAT)</label><input type="number" min="0" name="amount" value="${s.amount || 0}" /></div>
+          </div>
+          <div><label class="mt-16">Note</label><textarea name="note" rows="2" style="width:100%;">${escapeHtml(s.note || "")}</textarea></div>
+          <h3 class="mt-16">Slabs ${s.type === "HALF_YEARLY" ? "(on half-yearly gross; monthly PT = slab amount / 6)" : "(on monthly gross)"}</h3>
+          <table><thead><tr><th>Up To (leave blank for the top/last band)</th><th>Amount</th><th></th></tr></thead><tbody id="pt-slab-rows">${slabRows}</tbody></table>
+          <div class="row gap-8 mt-16"><button type="button" id="btn-add-pt-slab">+ Add Slab Row</button></div>
+          <div id="pt-edit-error" class="text-bad mt-16"></div>
+          <div class="row gap-8 mt-16"><button type="submit" class="primary">Save</button></div>
+        </form>
+      </div>
+    `;
+  }
+
+  container.addEventListener("click", async (evt) => {
+    if (evt.target.id === "btn-add-pt-slab") {
+      const s = db.ptSlabs.find((x) => x.key === editingKey);
+      if (!s.slabs) s.slabs = [];
+      s.slabs.push({ upTo: null, amount: 0 });
+      await persist();
+      render();
+    } else if (evt.target.classList.contains("remove-pt-slab")) {
+      const s = db.ptSlabs.find((x) => x.key === editingKey);
+      s.slabs.splice(Number(evt.target.dataset.idx), 1);
+      await persist();
+      render();
+    }
+  });
+
+  container.addEventListener("submit", async (evt) => {
+    if (evt.target.id !== "pt-edit-form") return;
+    evt.preventDefault();
+    const s = db.ptSlabs.find((x) => x.key === evt.target.dataset.key);
+    const fd = new FormData(evt.target);
+    s.type = String(fd.get("type"));
+    s.amount = num(fd.get("amount"));
+    s.note = String(fd.get("note") || "") || null;
+    container.querySelectorAll(".pt-slab-upto").forEach((el) => {
+      const row = s.slabs[Number(el.dataset.idx)];
+      row.upTo = el.value === "" ? null : num(el.value);
+    });
+    container.querySelectorAll(".pt-slab-amount").forEach((el) => {
+      s.slabs[Number(el.dataset.idx)].amount = num(el.value);
+    });
+    await persist();
+    editingKey = null;
+    render();
+  });
 
   render();
 });

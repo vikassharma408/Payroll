@@ -13,7 +13,7 @@ function newId(prefix) {
   return `${prefix}_${Date.now().toString(36)}${_seq.toString(36)}${rand}`;
 }
 
-const SCHEMA_VERSION = 2;
+const SCHEMA_VERSION = 3;
 
 function createEmptyDb() {
   return {
@@ -23,6 +23,7 @@ function createEmptyDb() {
     taxRuleSets: [],
     salaryComponents: [],
     bankFileTemplates: [],
+    ptSlabs: [],
     employees: [],
     employeeSalaryStructures: [],
     investmentDeclarations: [],
@@ -42,6 +43,8 @@ function createEmptyDb() {
  *   support); every Employee/PayrollRun gets a `companyId` backfilled to
  *   that one company; `employeePerquisites` and per-run `overrides` (LOP
  *   days / one-time taxable pay per employee) are added as empty defaults.
+ *   v2 -> v3: `ptSlabs` (editable state-wise Professional Tax slabs) seeded
+ *   from pt-slabs.js's defaults if not already present.
  */
 function migrateDb(db) {
   if (!db.schemaVersion || db.schemaVersion < 2) {
@@ -54,8 +57,15 @@ function migrateDb(db) {
     }
     db.schemaVersion = 2;
   }
+  if (db.schemaVersion < 3) {
+    db.schemaVersion = 3;
+  }
   if (!db.companies) db.companies = [];
   if (!db.employeePerquisites) db.employeePerquisites = [];
+  if (!db.ptSlabs || db.ptSlabs.length === 0) {
+    const ptSlabsMod = typeof module !== "undefined" && module.exports ? require("./pt-slabs.js") : { PT_STATES };
+    db.ptSlabs = JSON.parse(JSON.stringify(ptSlabsMod.PT_STATES || []));
+  }
   for (const r of db.payrollRuns || []) {
     if (!r.overrides) r.overrides = {};
     delete r.variablePay;
@@ -75,6 +85,7 @@ function seedMasterData(db) {
   // rename-on-destructure below.
   const ruleConfigsMod = typeof module !== "undefined" && module.exports ? require("./rule-configs.js") : { TAX_RULE_CONFIGS, FINANCIAL_YEARS };
   const masterDataMod = typeof module !== "undefined" && module.exports ? require("./master-data.js") : { SALARY_COMPONENTS, BANK_FILE_TEMPLATES };
+  const ptSlabsMod = typeof module !== "undefined" && module.exports ? require("./pt-slabs.js") : { PT_STATES };
   const { TAX_RULE_CONFIGS: taxRuleConfigs, FINANCIAL_YEARS: financialYears } = ruleConfigsMod;
   const { SALARY_COMPONENTS: salaryComponents, BANK_FILE_TEMPLATES: bankFileTemplates } = masterDataMod;
 
@@ -93,6 +104,9 @@ function seedMasterData(db) {
   for (const t of bankFileTemplates) {
     if (db.bankFileTemplates.some((x) => x.code === t.code)) continue;
     db.bankFileTemplates.push({ id: newId("bft"), ...t, isActive: true });
+  }
+  if (!db.ptSlabs || db.ptSlabs.length === 0) {
+    db.ptSlabs = JSON.parse(JSON.stringify(ptSlabsMod.PT_STATES || []));
   }
   if (db.companies.length === 0) {
     db.companies.push({
