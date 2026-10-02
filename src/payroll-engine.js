@@ -414,6 +414,110 @@
   }
 
   /**
+   * Finds months where this employee was already paid under an OLDER salary
+   * structure than the one now active - i.e. arrears owed because a
+   * revision was saved with an `effectiveFrom` backdated to before some
+   * already-processed month(s) (`sinceDateIso`, normally the new
+   * structure's effectiveFrom). Only LOCKED/PAID runs are included: a run
+   * that's still open will simply pick up the new structure next time it's
+   * (re)calculated, no arrears needed - those are returned separately as
+   * `reprocessableRunIds` so the UI can point the admin at that simpler fix
+   * instead. A line already flagged `arrearsSettled` (by a prior
+   * applyArrears call for this same gap) is skipped, so calling this again
+   * after applying doesn't re-offer or double-count the same months.
+   *
+   * Only compares EARNINGS (what the hypothetical hind-recalculation of
+   * each affected month, under the now-active structure, would have paid
+   * vs. what the stored line actually paid) - deductions/TDS for those
+   * closed months are left exactly as they were; the arrears lump sum is
+   * taxed fresh as ordinary income in whichever current/future run it's
+   * applied to, via the normal ARREARS override path.
+   */
+  function computeArrears(db, employeeId, financialYearId, sinceDateIso) {
+    const since = new Date(sinceDateIso);
+    const now = new Date();
+    const thisMonthStart = new Date(now.getFullYear(), now.getMonth(), 1);
+    const runs = db.payrollRuns.filter((r) => r.financialYearId === financialYearId).sort((a, b) => a.payrollMonthIndex - b.payrollMonthIndex);
+
+    const months = [];
+    const reprocessableRunIds = [];
+    let total = 0;
+
+    for (const run of runs) {
+      const actualLine = run.lines.find((l) => l.employeeId === employeeId);
+      if (!actualLine) continue; // not processed for this employee - nothing to compare against yet
+      const runMonthDate = new Date(run.calendarYear, run.calendarMonth - 1, 1);
+      if (runMonthDate < since || runMonthDate >= thisMonthStart) continue;
+      if (actualLine.arrearsSettled) continue;
+
+      const override = (run.overrides && run.overrides[employeeId]) || {};
+      let hypothetical;
+      try {
+        hypothetical = computeEmployeePayrollLine(db, run.id, employeeId, { lopDays: override.lopDays, variablePay: override.variablePay });
+      } catch {
+        continue; // e.g. no active structure resolves for that date - skip rather than fail the whole calculation
+      }
+      const diff = hypothetical.grossSalary - actualLine.grossSalary;
+      if (!diff) continue; // this month's stored line already matches the now-active structure - nothing outstanding
+
+      if (run.status !== "LOCKED" && run.status !== "PAID") {
+        reprocessableRunIds.push(run.id);
+        continue;
+      }
+
+      const perComponent = {};
+      for (const code of new Set([...Object.keys(hypothetical.earnings), ...Object.keys(actualLine.earnings)])) {
+        const d = (hypothetical.earnings[code] || 0) - (actualLine.earnings[code] || 0);
+        if (d) perComponent[code] = d;
+      }
+      months.push({
+        runId: run.id,
+        payrollMonthIndex: run.payrollMonthIndex,
+        calendarYear: run.calendarYear,
+        calendarMonth: run.calendarMonth,
+        previousGross: actualLine.grossSalary,
+        revisedGross: hypothetical.grossSalary,
+        diff,
+        perComponent,
+      });
+      total += diff;
+    }
+
+    return { months, total, reprocessableRunIds };
+  }
+
+  /**
+   * Commits an arrears calculation (from computeArrears) into a still-open
+   * run: adds the total to that run's ARREARS override for this employee
+   * (on top of anything already entered there), recalculates the line, and
+   * flags every source month's line as settled so a later computeArrears
+   * call for the same gap doesn't re-offer or double-count it.
+   */
+  function applyArrears(db, employeeId, targetRunId, arrears) {
+    const targetRun = db.payrollRuns.find((r) => r.id === targetRunId);
+    if (!targetRun) throw new Error("Target payroll run not found");
+    if (targetRun.status === "LOCKED" || targetRun.status === "PAID") {
+      throw new Error(`That run is ${targetRun.status} - choose a run that's still open to receive the arrears.`);
+    }
+    if (!arrears || !arrears.months.length) throw new Error("Nothing to apply.");
+
+    if (!targetRun.overrides) targetRun.overrides = {};
+    const existing = targetRun.overrides[employeeId] || {};
+    const variablePay = { ...(existing.variablePay || {}) };
+    variablePay.ARREARS = (variablePay.ARREARS || 0) + arrears.total;
+    targetRun.overrides[employeeId] = { lopDays: existing.lopDays, variablePay };
+
+    const settledAt = new Date().toISOString();
+    for (const m of arrears.months) {
+      const sourceRun = db.payrollRuns.find((r) => r.id === m.runId);
+      const line = sourceRun && sourceRun.lines.find((l) => l.employeeId === employeeId);
+      if (line) line.arrearsSettled = { amount: m.diff, settledInRunId: targetRunId, settledAt };
+    }
+
+    return recalculateLine(db, targetRunId, employeeId);
+  }
+
+  /**
    * Projects a full-year Old vs New regime comparison directly from the
    * active Salary Structure + Investment Declaration + Previous Employer
    * records for a FY - independent of any payroll run ever having been
@@ -534,6 +638,8 @@
     recalculateLine,
     advancePayrollStatus,
     addAdjustment,
+    computeArrears,
+    applyArrears,
     estimateRegimeComparison,
   };
 

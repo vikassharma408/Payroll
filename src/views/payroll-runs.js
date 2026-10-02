@@ -281,7 +281,7 @@ function renderPayrollRunDetail(container, runId) {
             <div><label>Bonus</label><input type="number" min="0" name="BONUS" value="${vp.BONUS || 0}" ${canEdit ? "" : "disabled"} /></div>
             <div><label>Incentive</label><input type="number" min="0" name="INCENTIVE" value="${vp.INCENTIVE || 0}" ${canEdit ? "" : "disabled"} /></div>
             <div><label>Overtime</label><input type="number" min="0" name="OVERTIME" value="${vp.OVERTIME || 0}" ${canEdit ? "" : "disabled"} /></div>
-            <div><label>Arrears</label><input type="number" min="0" name="ARREARS" value="${vp.ARREARS || 0}" ${canEdit ? "" : "disabled"} /></div>
+            <div><label>Arrears</label><input type="number" name="ARREARS" value="${vp.ARREARS || 0}" ${canEdit ? "" : "disabled"} /></div>
             <div><label>Other Allowance</label><input type="number" min="0" name="OTHER_ALLOWANCE" value="${vp.OTHER_ALLOWANCE || 0}" ${canEdit ? "" : "disabled"} /></div>
           </form>
           ${canEdit ? `<div class="row gap-8 mt-16"><button class="primary save-override" data-employee-id="${line.employeeId}">Save &amp; Recalculate</button></div>` : `<p class="text-muted mt-16">This run is ${run.status.toLowerCase()} - LOP/one-time pay can no longer be changed here. Use a Manual Adjustment instead.</p>`}

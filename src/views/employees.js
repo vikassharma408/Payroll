@@ -437,6 +437,8 @@ function renderSalaryStructureTab(container, employee, fy, onSaved) {
   // built from); annual CTC is a read-only total computed from these, not a
   // separate input - so there's nothing to keep in sync by hand.
   let rows = active ? active.components.map((c) => ({ componentId: c.componentId, componentCode: c.componentCode, monthlyAmount: c.monthlyAmount })) : [];
+  let effectiveFromInput = new Date().toISOString().slice(0, 10);
+  let targetRunId = "";
 
   function computedCtc() {
     return rows.reduce((s, r) => {
@@ -452,11 +454,15 @@ function renderSalaryStructureTab(container, employee, fy, onSaved) {
       .map((c) => `<option value="${c.id}">${c.code} - ${c.name} (${c.category})</option>`)
       .join("");
 
+    const arrears = active ? PayrollEngine.computeArrears(db, employee.id, fy.id, active.effectiveFrom) : null;
+
     container.innerHTML = `
       <div class="card">
-        <div class="stat-label">Annual CTC (computed)</div>
-        <div class="stat-value" id="ctc-display">${rupees(computedCtc())}</div>
-        <p class="text-muted" style="font-size:12px;">Sum of all Earning + Employer Contribution components below, x12. Enter each component's MONTHLY amount; this total updates automatically.</p>
+        <div class="row gap-8" style="align-items:flex-end;">
+          <div><div class="stat-label">Annual CTC (computed)</div><div class="stat-value" id="ctc-display">${rupees(computedCtc())}</div></div>
+          <div style="margin-left:auto;"><label>Effective From</label><input type="date" id="structure-effective-from" value="${effectiveFromInput}" /></div>
+        </div>
+        <p class="text-muted" style="font-size:12px;">Sum of all Earning + Employer Contribution components below, x12. Enter each component's MONTHLY amount; this total updates automatically. Backdate "Effective From" for a mid-year revision (e.g. revising in June, effective from April) - any already-paid months in between will show up below as Arrears due.</p>
         <table class="mt-16">
           <thead><tr><th>Component</th><th>Category</th><th>Monthly Amount</th><th>Annual</th><th></th></tr></thead>
           <tbody id="rows-body"></tbody>
@@ -470,6 +476,7 @@ function renderSalaryStructureTab(container, employee, fy, onSaved) {
           <button class="primary" id="btn-save-structure">Save Structure</button>
         </div>
       </div>
+      ${renderArrearsPanel(arrears)}
       ${
         db.employeeSalaryStructures.filter((s) => s.employeeId === employee.id && s.financialYearId === fy.id).length > 1
           ? `<div class="card"><h3>Structure History</h3>${renderStructureHistory()}</div>`
@@ -477,6 +484,10 @@ function renderSalaryStructureTab(container, employee, fy, onSaved) {
       }
     `;
     renderRows();
+    document.getElementById("structure-effective-from").addEventListener("change", (e) => {
+      effectiveFromInput = e.target.value;
+    });
+    wireArrearsPanel(arrears);
     document.getElementById("btn-add-row").addEventListener("click", () => {
       const select = document.getElementById("add-component-select");
       const comp = db.salaryComponents.find((c) => c.id === select.value);
@@ -491,19 +502,27 @@ function renderSalaryStructureTab(container, employee, fy, onSaved) {
         errorEl.textContent = "Add at least one salary component.";
         return;
       }
+      if (!effectiveFromInput) {
+        errorEl.textContent = "Set an Effective From date.";
+        return;
+      }
       const now = new Date().toISOString();
-      for (const s of db.employeeSalaryStructures) {
-        if (s.employeeId === employee.id && s.financialYearId === fy.id && s.isActive) {
-          s.isActive = false;
-          s.effectiveTo = now;
-        }
+      const newEffectiveFrom = new Date(effectiveFromInput).toISOString();
+      const previouslyActive = db.employeeSalaryStructures.find((s) => s.employeeId === employee.id && s.financialYearId === fy.id && s.isActive);
+      if (previouslyActive && new Date(newEffectiveFrom) < new Date(previouslyActive.effectiveFrom)) {
+        errorEl.textContent = `Effective From can't be before the current structure's own Effective From (${previouslyActive.effectiveFrom.slice(0, 10)}). To correct an even earlier period, edit the Structure History records directly.`;
+        return;
+      }
+      if (previouslyActive) {
+        previouslyActive.isActive = false;
+        previouslyActive.effectiveTo = new Date(new Date(newEffectiveFrom).getTime() - 86400000).toISOString();
       }
       const structure = {
         id: newId("ess"),
         employeeId: employee.id,
         financialYearId: fy.id,
         annualCTC: computedCtc(),
-        effectiveFrom: now,
+        effectiveFrom: newEffectiveFrom,
         effectiveTo: null,
         isActive: true,
         createdAt: now,
@@ -524,6 +543,77 @@ function renderSalaryStructureTab(container, employee, fy, onSaved) {
       await persist();
       onSaved();
     });
+  }
+
+  /** Eligible runs to receive an arrears payment: still open (not LOCKED/PAID), this employee's company+FY, and the employee is actually eligible for that run (payroll group, employment dates). */
+  function eligibleArrearsRuns() {
+    return db.payrollRuns
+      .filter((r) => r.companyId === employee.companyId && r.financialYearId === fy.id && r.status !== "LOCKED" && r.status !== "PAID" && PayrollEngine.isEmployeeEligibleForRun(employee, r))
+      .sort((a, b) => a.payrollMonthIndex - b.payrollMonthIndex);
+  }
+
+  function renderArrearsPanel(arrears) {
+    if (!arrears || (arrears.months.length === 0 && arrears.reprocessableRunIds.length === 0)) return "";
+    const runs = eligibleArrearsRuns();
+    if (!targetRunId || !runs.some((r) => r.id === targetRunId)) targetRunId = runs[0] ? runs[0].id : "";
+    const reprocessNote =
+      arrears.reprocessableRunIds.length > 0
+        ? `<p class="text-muted" style="font-size:12px;">${arrears.reprocessableRunIds.length} already-processed run(s) in this gap are still open - they'll pick up this structure automatically next time they're recalculated, so no arrears needed for those.</p>`
+        : "";
+    if (arrears.months.length === 0) {
+      return `<div class="card">${reprocessNote}</div>`;
+    }
+    const rows = arrears.months
+      .map(
+        (m) => `
+        <tr>
+          <td>${FY_MONTH_NAMES[m.payrollMonthIndex - 1]} ${m.calendarYear}</td>
+          <td>${rupees(m.previousGross)}</td>
+          <td>${rupees(m.revisedGross)}</td>
+          <td class="${m.diff >= 0 ? "text-good" : "text-bad"}">${rupees(m.diff)}</td>
+        </tr>`,
+      )
+      .join("");
+    return `
+      <div class="card">
+        <h3>Arrears Due</h3>
+        <p class="text-muted" style="font-size:12px;">These months were already paid (and locked/paid) under the superseded structure. The difference below is owed as Arrears, taxed in whichever run you apply it to - not retroactively re-taxed in the original month.</p>
+        <table class="mt-16">
+          <thead><tr><th>Month</th><th>Previously Paid (Gross)</th><th>Now Due (Gross)</th><th>Difference</th></tr></thead>
+          <tbody>${rows}</tbody>
+        </table>
+        <div class="row between mt-16"><strong>Total Arrears</strong><strong>${rupees(arrears.total)}</strong></div>
+        ${reprocessNote}
+        <div class="row gap-8 mt-16" style="align-items:flex-end;">
+          <div><label>Apply To Run</label>
+            <select id="arrears-target-run">${runs.map((r) => `<option value="${r.id}" ${r.id === targetRunId ? "selected" : ""}>${monthLabel(r)}${r.payrollGroup ? " - " + r.payrollGroup : ""}</option>`).join("") || `<option value="">No open run available</option>`}</select>
+          </div>
+          <button class="primary" id="btn-apply-arrears" ${runs.length === 0 ? "disabled" : ""}>Add ${rupees(arrears.total)} as Arrears to Selected Run</button>
+        </div>
+        <div id="arrears-error" class="text-bad mt-16"></div>
+      </div>
+    `;
+  }
+
+  function wireArrearsPanel(arrears) {
+    const runSelect = document.getElementById("arrears-target-run");
+    if (runSelect) runSelect.addEventListener("change", (e) => { targetRunId = e.target.value; });
+    const applyBtn = document.getElementById("btn-apply-arrears");
+    if (applyBtn) {
+      applyBtn.addEventListener("click", async () => {
+        const errorEl = document.getElementById("arrears-error");
+        errorEl.textContent = "";
+        try {
+          PayrollEngine.applyArrears(db, employee.id, targetRunId, arrears);
+          const run = db.payrollRuns.find((r) => r.id === targetRunId);
+          logAudit("PayrollRun", targetRunId, "ARREARS_APPLIED", `${rupees(arrears.total)} arrears for ${employee.fullName} (${employee.employeeCode}), covering ${arrears.months.length} month(s), applied to ${monthLabel(run)}`);
+          await persist();
+          render();
+        } catch (err) {
+          errorEl.textContent = err.message;
+        }
+      });
+    }
   }
 
   function renderRows() {
