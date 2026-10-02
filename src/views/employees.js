@@ -740,7 +740,7 @@ function renderPreviousEmployerTab(container, employee, fy, onSaved) {
 // --- Perquisites -------------------------------------------------------------
 function renderPerquisitesTab(container, employee, fy, onSaved) {
   const entries = db.employeePerquisites.filter((p) => p.employeeId === employee.id && p.financialYearId === fy.id);
-  const { total, breakdown } = computePerquisitesTotal(entries);
+  const { total, breakdown, rates } = computePerquisitesTotal(entries, fy.startDate);
   let type = "GIFT_VOUCHER";
 
   function render() {
@@ -748,6 +748,7 @@ function renderPerquisitesTab(container, employee, fy, onSaved) {
       <div class="card">
         <div class="stat-label">Total Taxable Perquisite Value (FY ${fy.code})</div>
         <div class="stat-value">${rupees(total)}</div>
+        <div class="text-muted" style="font-size:12px; margin-top:4px;">Valued per ${escapeHtml(rates.label)}.</div>
       </div>
       <div class="card">
         <h3>Declared Perquisites</h3>
@@ -829,7 +830,7 @@ function renderPerquisitesTab(container, employee, fy, onSaved) {
     const el = document.getElementById("perq-type-fields");
     if (type === "GIFT_VOUCHER") {
       el.innerHTML = `
-        <p class="text-muted" style="font-size:12px;">Gifts/vouchers are exempt up to Rs ${GIFT_EXEMPTION_THRESHOLD.toLocaleString("en-IN")} in aggregate per year - if the YEAR'S TOTAL across all gifts exceeds that, the full amount becomes taxable, not just the excess. Add one entry per gift; the total is computed automatically.</p>
+        <p class="text-muted" style="font-size:12px;">Gifts/vouchers are exempt up to Rs ${rates.giftExemptionThreshold.toLocaleString("en-IN")} in aggregate per year (${escapeHtml(rates.ruleRef)}) - if the YEAR'S TOTAL across all gifts exceeds that, the full amount becomes taxable, not just the excess. Add one entry per gift; the total is computed automatically.</p>
         <div class="form-grid">
           <div><label>Value *</label><input type="number" min="0" name="amount" required /></div>
           <div><label>Description</label><input name="description" placeholder="e.g. Diwali gift voucher" /></div>
@@ -849,30 +850,30 @@ function renderPerquisitesTab(container, employee, fy, onSaved) {
           <div><label>Months Used This FY</label><input type="number" min="1" max="12" name="monthsUsed" value="12" /></div>
         </div>
         <div class="card" style="background:var(--ink); margin-top:12px;">
-          <p class="text-muted" style="font-size:12px;">Used only for "Partly official, partly personal" (flat monthly rate per Rule 3(2)(A)):</p>
+          <p class="text-muted" style="font-size:12px;">Used only for "Partly official, partly personal" (flat monthly rate per ${escapeHtml(rates.ruleRef)}):</p>
           <div class="form-grid">
             <div><label>Engine Capacity</label>
               <select name="engineCategory">
-                <option value="UPTO_1600CC">Up to 1.6 litre (Rs ${CAR_FLAT_MONTHLY_RATE.UPTO_1600CC}/month)</option>
-                <option value="ABOVE_1600CC">Above 1.6 litre (Rs ${CAR_FLAT_MONTHLY_RATE.ABOVE_1600CC}/month)</option>
+                <option value="UPTO_1600CC">Up to 1.6 litre (Rs ${rates.carFlatMonthlyRate.UPTO_1600CC}/month)</option>
+                <option value="ABOVE_1600CC">Above 1.6 litre (Rs ${rates.carFlatMonthlyRate.ABOVE_1600CC}/month)</option>
               </select>
             </div>
-            <div style="display:flex;align-items:flex-end;"><label class="row gap-8" style="display:flex;align-items:center;"><input type="checkbox" name="hasDriver" style="width:auto;" /> Employer also provides a driver (+Rs ${CAR_DRIVER_FLAT_MONTHLY_RATE}/month)</label></div>
+            <div style="display:flex;align-items:flex-end;"><label class="row gap-8" style="display:flex;align-items:center;"><input type="checkbox" name="hasDriver" style="width:auto;" /> Employer also provides a driver (+Rs ${rates.carDriverFlatMonthlyRate}/month)</label></div>
           </div>
         </div>
         <div class="card" style="background:var(--ink); margin-top:12px;">
-          <p class="text-muted" style="font-size:12px;">Used only for "Wholly for personal use" (actual-cost method per Rule 3(2)(B)):</p>
+          <p class="text-muted" style="font-size:12px;">Used only for "Wholly for personal use" (actual-cost method per ${escapeHtml(rates.ruleRef)}):</p>
           <div class="form-grid">
             <div><label>Running &amp; Maintenance Cost</label><input type="number" min="0" name="runningMaintenanceCost" value="0" /></div>
             <div><label>Driver Salary</label><input type="number" min="0" name="driverSalary" value="0" /></div>
-            <div><label>Car Cost (for 10%/year depreciation)</label><input type="number" min="0" name="depreciationBase" value="0" /></div>
+            <div><label>Car Cost (for ${rates.carDepreciationRatePa * 100}%/year depreciation)</label><input type="number" min="0" name="depreciationBase" value="0" /></div>
             <div><label>Amount Recovered from Employee</label><input type="number" min="0" name="recoveredFromEmployee" value="0" /></div>
           </div>
         </div>
       `;
     } else {
       el.innerHTML = `
-        <p class="text-bad" style="font-size:12px;">This covers anything not modeled above (rent-free accommodation, ESOPs, interest-free loans, club membership, etc.) - work out the taxable value yourself per the applicable Rule 3 provision and enter it directly.</p>
+        <p class="text-bad" style="font-size:12px;">This covers anything not modeled above (rent-free accommodation, ESOPs, interest-free loans, club membership, etc.) - work out the taxable value yourself per the applicable ${escapeHtml(rates.ruleRef)} provision (FY ${fy.code}) and enter it directly.</p>
         <div class="form-grid">
           <div><label>Label *</label><input name="label" placeholder="e.g. Club membership" required /></div>
           <div><label>Taxable Value *</label><input type="number" min="0" name="taxableValue" required /></div>

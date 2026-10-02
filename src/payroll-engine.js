@@ -166,7 +166,7 @@
     const declaration = db.investmentDeclarations.find((d) => d.employeeId === employeeId && d.financialYearId === fy.id) || null;
     const prevEmployer = db.previousEmployerIncomes.find((p) => p.employeeId === employeeId && p.financialYearId === fy.id) || null;
     const perquisiteEntries = db.employeePerquisites.filter((p) => p.employeeId === employeeId && p.financialYearId === fy.id);
-    const perquisitesAnnual = computePerquisitesTotal(perquisiteEntries).total;
+    const perquisitesAnnual = computePerquisitesTotal(perquisiteEntries, fy.startDate).total;
 
     const oldConfig = getTaxRuleSetConfig(db, fy.code, "OLD", currentMonthDateIso);
     const newConfig = getTaxRuleSetConfig(db, fy.code, "NEW", currentMonthDateIso);
@@ -431,7 +431,7 @@
 
     const declaration = db.investmentDeclarations.find((d) => d.employeeId === employeeId && d.financialYearId === financialYearId) || null;
     const prevEmployerRows = db.previousEmployerIncomes.filter((p) => p.employeeId === employeeId && p.financialYearId === financialYearId);
-    const perquisitesAnnualForEstimate = computePerquisitesTotal(db.employeePerquisites.filter((p) => p.employeeId === employeeId && p.financialYearId === financialYearId)).total;
+    const perquisitesAnnualForEstimate = computePerquisitesTotal(db.employeePerquisites.filter((p) => p.employeeId === employeeId && p.financialYearId === financialYearId), fy.startDate).total;
 
     const earningsAnnual = {}, employerAnnual = {}, deductionAnnual = {};
     for (const c of structure.components) {
