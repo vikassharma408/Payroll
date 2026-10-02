@@ -379,7 +379,7 @@ function importInvestmentDeclarations(db, rows, companyId) {
   return { imported, errors };
 }
 
-function importPreviousEmployer(db, rows) {
+function importPreviousEmployer(db, rows, companyId) {
   const errors = [];
   let imported = 0;
   const fy = db.financialYears.find((f) => f.isCurrent);
@@ -391,7 +391,7 @@ function importPreviousEmployer(db, rows) {
     const rowErrors = [];
     requiredFieldsPresent("PREVIOUS_EMPLOYER", row, rowErrors);
     const employeeCode = String(row["Employee Code"] ?? "").trim();
-    const employee = db.employees.find((e) => e.employeeCode === employeeCode);
+    const employee = db.employees.find((e) => e.companyId === companyId && e.employeeCode === employeeCode);
     if (employeeCode && !employee) rowErrors.push(`Employee code '${employeeCode}' not found`);
     const grossSalary = toNumberI(row["Salary"]);
     const taxableSalary = toNumberI(row["Taxable Salary"]);
@@ -415,7 +415,7 @@ function importPreviousEmployer(db, rows) {
   return { imported, errors };
 }
 
-function importMonthlyPayroll(db, rows) {
+function importMonthlyPayroll(db, rows, companyId) {
   const errors = [];
   let imported = 0;
   const fy = db.financialYears.find((f) => f.isCurrent);
@@ -427,7 +427,7 @@ function importMonthlyPayroll(db, rows) {
     const row = rows[i];
     const rowErrors = [];
     const employeeCode = String(row["Employee Code"] ?? "").trim();
-    const employee = db.employees.find((e) => e.employeeCode === employeeCode);
+    const employee = db.employees.find((e) => e.companyId === companyId && e.employeeCode === employeeCode);
     if (!employeeCode) rowErrors.push("Missing required field 'Employee Code'");
     else if (!employee) rowErrors.push(`Employee code '${employeeCode}' not found`);
 
@@ -443,7 +443,7 @@ function importMonthlyPayroll(db, rows) {
       continue;
     }
 
-    const run = db.payrollRuns.find((r) => r.financialYearId === fy.id && r.payrollMonthIndex === monthIndex && !r.payrollGroup);
+    const run = db.payrollRuns.find((r) => r.companyId === companyId && r.financialYearId === fy.id && r.payrollMonthIndex === monthIndex && !r.payrollGroup);
     if (!run) {
       errors.push({ rowNumber, message: `No payroll run exists yet for ${monthName} ${fy.code}. Create it first, then re-import.` });
       continue;
@@ -482,10 +482,10 @@ function importMonthlyPayroll(db, rows) {
   return { imported, errors };
 }
 
-function runSingleImport(db, type, arrayBuffer, fileName) {
+function runSingleImport(db, type, arrayBuffer, fileName, companyId) {
   const rows = parseWorkbookRows(arrayBuffer, IMPORT_TEMPLATES[type].sheetName);
   const runners = { EMPLOYEE: importEmployees, SALARY_STRUCTURE: importSalaryStructures, INVESTMENT: importInvestmentDeclarations, PREVIOUS_EMPLOYER: importPreviousEmployer, MONTHLY_PAYROLL: importMonthlyPayroll };
-  const result = runners[type](db, rows);
+  const result = runners[type](db, rows, companyId);
   const batch = {
     id: newId("imp"), templateType: type, fileName, totalRecords: rows.length, importedRecords: result.imported, failedRecords: result.errors.length,
     status: result.errors.length === 0 ? "COMPLETED" : result.imported === 0 ? "FAILED" : "COMPLETED_WITH_ERRORS",
@@ -495,7 +495,7 @@ function runSingleImport(db, type, arrayBuffer, fileName) {
   return batch;
 }
 
-function runCombinedImport(db, arrayBuffer, fileName) {
+function runCombinedImport(db, arrayBuffer, fileName, companyId) {
   const sections = [
     ["EMPLOYEE", "Employee Master", importEmployees],
     ["SALARY_STRUCTURE", "Salary Structure", importSalaryStructures],
@@ -507,7 +507,7 @@ function runCombinedImport(db, arrayBuffer, fileName) {
   for (const [type, label, run] of sections) {
     const rows = parseWorkbookRows(arrayBuffer, IMPORT_TEMPLATES[type].sheetName);
     totalRecords += rows.length;
-    const result = run(db, rows);
+    const result = run(db, rows, companyId);
     imported += result.imported;
     for (const e of result.errors) errors.push({ rowNumber: e.rowNumber, message: `[${label}] ${e.message}` });
   }

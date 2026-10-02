@@ -5,8 +5,14 @@
 
 registerView("import", "Payroll", "Import Wizard", (container) => {
   function render() {
+    const company = activeCompany();
+    if (!company) {
+      container.innerHTML = `<div class="card"><p class="text-muted">No company set up yet. <a href="#/companies/new">Add your first company</a> to get started.</p></div>`;
+      return;
+    }
     container.innerHTML = `
       <div class="card">
+        <p class="text-muted">Importing into <strong>${escapeHtml(company.name)}</strong>. Switch companies at the top if you meant a different one.</p>
         <h3>1. Download a Template</h3>
         <p class="text-muted">The Combined Setup Template covers everything you need for onboarding many employees at once (Employee Master, Salary Structure, Investment Declaration, Previous Employer), plus a step-by-step Instructions tab. Use Monthly Payroll Input separately, each pay period, for LOP days or one-off bonus/incentive/overtime/arrears.</p>
         <div class="row gap-8">
@@ -78,7 +84,7 @@ registerView("import", "Payroll", "Import Wizard", (container) => {
       if (!file) return;
       try {
         const buf = await file.arrayBuffer();
-        const batch = runCombinedImport(db, buf, file.name);
+        const batch = runCombinedImport(db, buf, file.name, company.id);
         await persist();
         render();
         showResult(batch);
@@ -94,7 +100,7 @@ registerView("import", "Payroll", "Import Wizard", (container) => {
       const type = document.getElementById("upload-template-select").value;
       try {
         const buf = await file.arrayBuffer();
-        const batch = runSingleImport(db, type, buf, file.name);
+        const batch = runSingleImport(db, type, buf, file.name, company.id);
         await persist();
         render();
         showResult(batch);

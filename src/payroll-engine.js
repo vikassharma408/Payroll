@@ -15,7 +15,7 @@
   // still in its own temporal dead zone at that point.
   const { calculateTax, monthlyHraExemption } = isNode ? require("./tax-engine.js") : { calculateTax: root.calculateTax, monthlyHraExemption: root.monthlyHraExemption };
   const { deriveAgeCategory } = isNode ? require("./rule-configs.js") : { deriveAgeCategory: root.deriveAgeCategory };
-  const { calendarToFyMonthIndex, daysInCalendarMonth } = isNode ? require("./dates.js") : { calendarToFyMonthIndex: root.calendarToFyMonthIndex, daysInCalendarMonth: root.daysInCalendarMonth };
+  const { calendarToFyMonthIndex, daysInCalendarMonth, fyMonthIndexToCalendar } = isNode ? require("./dates.js") : { calendarToFyMonthIndex: root.calendarToFyMonthIndex, daysInCalendarMonth: root.daysInCalendarMonth, fyMonthIndexToCalendar: root.fyMonthIndexToCalendar };
   const { newId } = isNode ? require("./db.js") : { newId: root.newId };
 
   const PERQ_CHECK_CODES = ["EMPLOYER_PF", "EMPLOYER_NPS", "EMPLOYER_SUPERANNUATION"];
@@ -25,6 +25,15 @@
 
   function sumCodes(map, codes) {
     return codes.reduce((s, code) => s + (map[code] ?? 0), 0);
+  }
+
+  /** Whether a declared rent period (start/end dates, either optional) covers any part of the given calendar month - so HRA exemption only applies for months rent was actually being paid. */
+  function isRentActiveInMonth(calendarYear, calendarMonth, rentStartDate, rentEndDate) {
+    const monthStart = new Date(calendarYear, calendarMonth - 1, 1);
+    const monthEnd = new Date(calendarYear, calendarMonth, 0);
+    if (rentStartDate && monthEnd < new Date(rentStartDate)) return false;
+    if (rentEndDate && monthStart > new Date(rentEndDate)) return false;
+    return true;
   }
 
   /** Resolves the tax rule set in force for a FY+regime as of a date - mirrors lib/tax-engine/index.ts's DB resolver. */
@@ -84,8 +93,19 @@
       lastActiveMonthIndex = calendarToFyMonthIndex(dol.getFullYear(), dol.getMonth() + 1);
     }
 
+    // Days naturally "in service" this month, before LOP: the full month,
+    // unless the employee joined or left partway through it - so a mid-month
+    // joiner/leaver is correctly prorated even with zero LOP days entered.
+    const monthStart = new Date(run.calendarYear, run.calendarMonth - 1, 1);
+    const monthEnd = new Date(run.calendarYear, run.calendarMonth, 0);
+    const joinDate = new Date(employee.dateOfJoining);
+    const leaveDate = employee.dateOfLeaving ? new Date(employee.dateOfLeaving) : null;
+    const serviceStart = joinDate > monthStart ? joinDate : monthStart;
+    const serviceEnd = leaveDate && leaveDate < monthEnd ? leaveDate : monthEnd;
+    const naturalDaysInService = Math.max(0, Math.round((serviceEnd - serviceStart) / 86400000) + 1);
+
     const lopDays = options.lopDays ?? 0;
-    const daysWorked = options.daysWorked ?? daysInMonth - lopDays;
+    const daysWorked = options.daysWorked ?? Math.max(0, naturalDaysInService - lopDays);
     const prorationFactor = daysInMonth > 0 ? Math.max(0, Math.min(1, daysWorked / daysInMonth)) : 1;
 
     const earnings = {};
@@ -123,7 +143,8 @@
     const oldConfig = getTaxRuleSetConfig(db, fy.code, "OLD", currentMonthDateIso);
     const newConfig = getTaxRuleSetConfig(db, fy.code, "NEW", currentMonthDateIso);
 
-    const rentPaidThisMonth = (declaration?.monthlyRent ?? 0) * prorationFactor;
+    const rentActiveThisMonth = isRentActiveInMonth(run.calendarYear, run.calendarMonth, declaration?.rentStartDate, declaration?.rentEndDate);
+    const rentPaidThisMonth = rentActiveThisMonth ? (declaration?.monthlyRent ?? 0) * prorationFactor : 0;
     const hraExemptionThisMonth = monthlyHraExemption(
       { basic: basicPlusDaThisMonth, hraReceived: earnings["HRA"] ?? 0, rentPaid: rentPaidThisMonth, isMetro: employee.isMetroCity },
       oldConfig.hraConfig,
@@ -158,17 +179,27 @@
     const projEmployerNpsPerMonth = structureEmployerMap["EMPLOYER_NPS"] ?? 0;
     const projPtPerMonth = structureDeductionMap["PROFESSIONAL_TAX"] ?? 0;
     const projBasicPlusDaPerMonth = sumCodes(structureEarningMap, BASIC_DA_CODES);
-    const projHraExemptionPerMonth = monthlyHraExemption(
-      { basic: projBasicPlusDaPerMonth, hraReceived: structureEarningMap["HRA"] ?? 0, rentPaid: declaration?.monthlyRent ?? 0, isMetro: employee.isMetroCity },
-      oldConfig.hraConfig,
-    );
+    // Projected HRA exemption is summed month-by-month (rather than a flat
+    // per-month figure x remaining months) since a declared rent period can
+    // start or end partway through the projection window - e.g. rent
+    // starting next month, or a lease ending before the FY's last month.
+    let projHraExemptionTotal = 0;
+    const fyStartYear = new Date(fy.startDate).getFullYear();
+    for (let m = currentIndex + 1; m <= lastActiveMonthIndex; m++) {
+      const { calendarYear: cy, calendarMonth: cm } = fyMonthIndexToCalendar(m, fyStartYear);
+      const rentActive = isRentActiveInMonth(cy, cm, declaration?.rentStartDate, declaration?.rentEndDate);
+      projHraExemptionTotal += monthlyHraExemption(
+        { basic: projBasicPlusDaPerMonth, hraReceived: structureEarningMap["HRA"] ?? 0, rentPaid: rentActive ? declaration?.monthlyRent ?? 0 : 0, isMetro: employee.isMetroCity },
+        oldConfig.hraConfig,
+      );
+    }
 
     const annualGross = ytdGross + grossSalary + remainingProjectionMonths * projGrossPerMonth;
     const annualBasicPlusDa = ytdBasicPlusDa + basicPlusDaThisMonth + remainingProjectionMonths * projBasicPlusDaPerMonth;
     const annualEmployerPfNpsSuper = ytdEmployerPfNpsSuper + employerPfNpsSuperThisMonth + remainingProjectionMonths * projEmployerPfNpsSuperPerMonth;
     const annualEmployerNps = ytdEmployerNps + employerNpsThisMonth + remainingProjectionMonths * projEmployerNpsPerMonth;
     const annualPt = ytdPt + ptThisMonth + remainingProjectionMonths * projPtPerMonth;
-    const annualHraExemption = ytdHraExemption + hraExemptionThisMonth + remainingProjectionMonths * projHraExemptionPerMonth;
+    const annualHraExemption = ytdHraExemption + hraExemptionThisMonth + projHraExemptionTotal;
 
     const remainingMonthsForTds = Math.max(1, Math.min(13 - currentIndex, lastActiveMonthIndex - currentIndex + 1));
 
@@ -369,10 +400,18 @@
     const oldConfig = getTaxRuleSetConfig(db, fy.code, "OLD", asOf);
     const newConfig = getTaxRuleSetConfig(db, fy.code, "NEW", asOf);
 
-    const hraExemptionAnnual = monthlyHraExemption(
-      { basic: basicPlusDaAnnual, hraReceived: earningsAnnual["HRA"] ?? 0, rentPaid: (declaration?.monthlyRent ?? 0) * 12, isMetro: employee.isMetroCity },
-      oldConfig.hraConfig,
-    );
+    // Summed month-by-month (not monthlyRent x 12) since a declared rent
+    // period can start or end partway through the year.
+    const fyStartYearForEstimate = new Date(fy.startDate).getFullYear();
+    let hraExemptionAnnual = 0;
+    for (let m = 1; m <= 12; m++) {
+      const { calendarYear: cy, calendarMonth: cm } = fyMonthIndexToCalendar(m, fyStartYearForEstimate);
+      const rentActive = isRentActiveInMonth(cy, cm, declaration?.rentStartDate, declaration?.rentEndDate);
+      hraExemptionAnnual += monthlyHraExemption(
+        { basic: basicPlusDaAnnual / 12, hraReceived: (earningsAnnual["HRA"] ?? 0) / 12, rentPaid: rentActive ? declaration?.monthlyRent ?? 0 : 0, isMetro: employee.isMetroCity },
+        oldConfig.hraConfig,
+      );
+    }
 
     const previousEmployerTaxableSalary = prevEmployerRows.reduce((s, r) => s + r.taxableSalary, 0);
     const tdsDeductedPreviousEmployer = prevEmployerRows.reduce((s, r) => s + r.tdsDeducted, 0);

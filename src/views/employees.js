@@ -547,10 +547,13 @@ function renderInvestmentDeclarationTab(container, employee, fy, onSaved) {
         <h3>HRA / Rent</h3>
         <div class="form-grid">
           <div><label>Monthly Rent</label><input type="number" min="0" name="monthlyRent" value="${d.monthlyRent || 0}" /></div>
+          <div><label>Rent Start Date</label><input type="date" name="rentStartDate" value="${d.rentStartDate || ""}" /></div>
+          <div><label>Rent End Date (if moved out during the FY)</label><input type="date" name="rentEndDate" value="${d.rentEndDate || ""}" /></div>
           <div><label>Rental Address</label><input name="rentalAddress" value="${escapeHtml(d.rentalAddress || "")}" /></div>
           <div><label>Landlord Name</label><input name="landlordName" value="${escapeHtml(d.landlordName || "")}" /></div>
           <div><label>Landlord PAN</label><input name="landlordPan" value="${escapeHtml(d.landlordPan || "")}" /></div>
         </div>
+        <p class="text-muted mt-16" style="font-size:12px;">Leave Start/End Date blank if rent was paid for the entire financial year. If set, HRA exemption is only calculated for the months within this period (e.g. if rent started in July, April-June get no HRA exemption).</p>
       </div>
       ${numFieldGroups}
       <div class="card">
@@ -573,6 +576,8 @@ function renderInvestmentDeclarationTab(container, employee, fy, onSaved) {
       for (const [key] of fields) record[key] = num(fd.get(key));
     }
     record.monthlyRent = num(fd.get("monthlyRent"));
+    record.rentStartDate = String(fd.get("rentStartDate") || "") || null;
+    record.rentEndDate = String(fd.get("rentEndDate") || "") || null;
     record.rentalAddress = String(fd.get("rentalAddress") || "") || null;
     record.landlordName = String(fd.get("landlordName") || "") || null;
     record.landlordPan = String(fd.get("landlordPan") || "") || null;
