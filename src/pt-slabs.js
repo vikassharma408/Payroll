@@ -12,9 +12,13 @@
 // SENIOR CITIZEN EXEMPTION: several state PT Acts exempt employees who have
 // crossed a certain age entirely, regardless of salary - modeled here as
 // `seniorExemptionAge` (PT goes to 0 once the employee reaches it that
-// month). Only set for states where at least 2 independent sources agreed
-// on the exact age; left unset elsewhere rather than guessed (see per-state
-// notes for states where sources conflicted or gave no specific age).
+// month). Every MONTHLY/HALF_YEARLY state was researched for this (WebSearch,
+// Oct 2026); set only where at least 2 independent sources agreed on the
+// exact age (one of them a primary government source for Assam) - left
+// unset elsewhere rather than guessed (see per-state notes: West Bengal's
+// sources still conflict 60 vs 65 after 3 separate searches, Bihar's Act
+// has no age-based exemption at all, and Punjab's flat Development Tax ties
+// senior treatment to income rather than a flat age cutoff).
 
 const PT_STATES = [
   {
@@ -46,23 +50,27 @@ const PT_STATES = [
       { upTo: 40000, amount: 150 },
       { upTo: null, amount: 200 },
     ],
+    note: "Sources conflict on whether a senior-citizen exemption applies at 60 or at 65 (checked across 3 separate searches, still unresolved) - no seniorExemptionAge is set here. Verify with the WB Commercial Taxes Dept and fill it in above if you confirm one.",
   },
   {
     key: "ANDHRA_PRADESH", label: "Andhra Pradesh", type: "MONTHLY",
+    seniorExemptionAge: 65, // AP Tax on Professions, Trades, Callings and Employments Act, 1987 - exempts persons over 65 (matches Telangana below, which shares the same pre-bifurcation Act).
     slabs: [
       { upTo: 15000, amount: 0 },
       { upTo: 20000, amount: 150 },
       { upTo: null, amount: 200 },
     ],
-    note: "Sources conflict on whether a senior-citizen exemption applies at 60 or at 65, so no seniorExemptionAge is set here - verify with the AP Commercial Taxes Dept before relying on one.",
+    note: "Employees aged 65+ are fully exempt (see seniorExemptionAge). A minority of sources say 60 instead of 65 - verify with the AP Commercial Taxes Dept if in doubt.",
   },
   {
     key: "TELANGANA", label: "Telangana", type: "MONTHLY",
+    seniorExemptionAge: 65, // Telangana Tax on Professions, Trades, Callings and Employments Act, 1987 - exempts persons over 65.
     slabs: [
       { upTo: 15000, amount: 0 },
       { upTo: 20000, amount: 150 },
       { upTo: null, amount: 200 },
     ],
+    note: "Employees aged 65+ are fully exempt (see seniorExemptionAge).",
   },
   {
     key: "GUJARAT", label: "Gujarat", type: "MONTHLY",
@@ -77,19 +85,23 @@ const PT_STATES = [
   },
   {
     key: "MADHYA_PRADESH", label: "Madhya Pradesh", type: "MONTHLY",
+    seniorExemptionAge: 65, // MP Vritti Kar Adhiniyam (Professional Tax Act) - exempts senior citizens over 65.
     slabs: [
       { upTo: 15000, amount: 0 },
       { upTo: 18000, amount: 125 },
       { upTo: null, amount: 208.33 },
     ],
+    note: "Employees aged 65+ are fully exempt (see seniorExemptionAge).",
   },
   {
     key: "ASSAM", label: "Assam", type: "MONTHLY",
+    seniorExemptionAge: 60, // Assam Commercial Taxes Dept notification FTX.41/2010/5 (31 May 2010, re-confirming an earlier FTX.38/05/33 dated 8 Jun 2005) - exemption of tax for any person above 60 years.
     slabs: [
       { upTo: 10000, amount: 0 },
       { upTo: 15000, amount: 150 },
       { upTo: null, amount: 208 },
     ],
+    note: "Employees aged 60+ are fully exempt (see seniorExemptionAge), per the Assam Commercial Taxes Dept's own published notification.",
   },
   {
     key: "BIHAR", label: "Bihar", type: "MONTHLY",
@@ -98,6 +110,7 @@ const PT_STATES = [
       { upTo: 41666, amount: 83 },
       { upTo: null, amount: 208 },
     ],
+    note: "Researched specifically for a senior-citizen exemption and found none - the Bihar Tax on Professions, Trades, Callings and Employments Act, 2011 exempts only Armed Forces personnel, not an age band. No seniorExemptionAge is set here.",
   },
   {
     key: "TAMIL_NADU", label: "Tamil Nadu", type: "HALF_YEARLY",
@@ -114,6 +127,7 @@ const PT_STATES = [
   },
   {
     key: "KERALA", label: "Kerala", type: "HALF_YEARLY",
+    seniorExemptionAge: 65, // Kerala Panchayat Raj (Profession Tax) Rules, 1996 / Kerala Municipality Act, 1994 Sec 254 - exempts senior citizens over 65 in both panchayat and municipal/corporation areas.
     slabs: [
       { upTo: 11999, amount: 0 },
       { upTo: 17999, amount: 120 },
@@ -122,7 +136,7 @@ const PT_STATES = [
       { upTo: 99999, amount: 450 },
       { upTo: null, amount: 1200 },
     ],
-    note: "Charged half-yearly (June/December) on half-yearly gross; shown here as an averaged monthly equivalent (half-yearly slab amount / 6) for routine monthly payroll processing.",
+    note: "Charged half-yearly (June/December) on half-yearly gross; shown here as an averaged monthly equivalent (half-yearly slab amount / 6) for routine monthly payroll processing. Employees aged 65+ are fully exempt (see seniorExemptionAge) - must be claimed, per source commentary, rather than being automatic; this app applies it automatically.",
   },
   { key: "DELHI", label: "Delhi", type: "NONE" },
   { key: "UTTAR_PRADESH", label: "Uttar Pradesh", type: "NONE" },
@@ -131,7 +145,7 @@ const PT_STATES = [
   { key: "HIMACHAL_PRADESH", label: "Himachal Pradesh", type: "NONE" },
   {
     key: "PUNJAB", label: "Punjab", type: "FLAT", amount: 200,
-    note: "Punjab does not levy Professional Tax; this is the flat Rs 200/month Punjab State Development Tax (2018), commonly deducted the same way.",
+    note: "Punjab does not levy Professional Tax; this is the flat Rs 200/month Punjab State Development Tax (2018), commonly deducted the same way. Its senior-citizen treatment isn't a simple age cutoff - PSDT FAQs tie it to whether the employee's income still exceeds the higher income-tax exemption threshold given to seniors, so no seniorExemptionAge is modeled here; handle an exempt senior by unchecking PT Applicable on their Profile.",
   },
   {
     key: "ODISHA", label: "Odisha", type: "NONE",
