@@ -38,32 +38,50 @@ function renderEmployeesList(container) {
     container.innerHTML = `<div class="card"><p class="text-muted">No company set up yet. <a href="#/companies/new">Add your first company</a> to get started.</p></div>`;
     return;
   }
-  const companyEmployees = db.employees.filter((e) => e.companyId === company.id).sort((a, b) => a.employeeCode.localeCompare(b.employeeCode));
-  const rows = companyEmployees
-    .map(
-      (e) => `
-      <tr>
-        <td><a href="#/employees/${e.id}">${escapeHtml(e.employeeCode)}</a></td>
-        <td><a href="#/employees/${e.id}">${escapeHtml(e.fullName)}</a></td>
-        <td>${escapeHtml(e.designation || "-")}</td>
-        <td>${escapeHtml(e.department || "-")}</td>
-        <td>${e.taxRegime}</td>
-        <td><span class="badge ${e.status === "ACTIVE" ? "good" : e.status === "LEFT" ? "bad" : "neutral"}">${e.status}</span></td>
-      </tr>`,
-    )
-    .join("");
-  container.innerHTML = `
-    <div class="row between mt-16" style="margin-bottom:16px;">
-      <span class="text-muted">${company.name}: ${companyEmployees.length} employee(s)</span>
-      <a href="#/employees/new"><button class="primary">+ Add Employee</button></a>
-    </div>
-    <div class="card">
-      <table>
-        <thead><tr><th>Code</th><th>Name</th><th>Designation</th><th>Department</th><th>Regime</th><th>Status</th></tr></thead>
-        <tbody>${rows || `<tr><td colspan="6" class="text-muted">No employees yet.</td></tr>`}</tbody>
-      </table>
-    </div>
-  `;
+  let search = "";
+
+  function render() {
+    const companyEmployees = db.employees.filter((e) => e.companyId === company.id).sort((a, b) => a.employeeCode.localeCompare(b.employeeCode));
+    const q = search.trim().toLowerCase();
+    const filtered = q
+      ? companyEmployees.filter((e) => [e.employeeCode, e.fullName, e.department, e.designation].some((v) => (v || "").toLowerCase().includes(q)))
+      : companyEmployees;
+    const rows = filtered
+      .map(
+        (e) => `
+        <tr>
+          <td><a href="#/employees/${e.id}">${escapeHtml(e.employeeCode)}</a></td>
+          <td><a href="#/employees/${e.id}">${escapeHtml(e.fullName)}</a></td>
+          <td>${escapeHtml(e.designation || "-")}</td>
+          <td>${escapeHtml(e.department || "-")}</td>
+          <td>${e.taxRegime}</td>
+          <td><span class="badge ${e.status === "ACTIVE" ? "good" : e.status === "LEFT" ? "bad" : "neutral"}">${e.status}</span></td>
+        </tr>`,
+      )
+      .join("");
+    container.innerHTML = `
+      <div class="row between mt-16" style="margin-bottom:16px;">
+        <span class="text-muted">${company.name}: ${filtered.length} of ${companyEmployees.length} employee(s)</span>
+        <a href="#/employees/new"><button class="primary">+ Add Employee</button></a>
+      </div>
+      <div class="card">
+        <input type="search" id="employee-search" placeholder="Search by code, name, department, or designation..." value="${escapeHtml(search)}" style="width:100%; margin-bottom:12px;" />
+        <table>
+          <thead><tr><th>Code</th><th>Name</th><th>Designation</th><th>Department</th><th>Regime</th><th>Status</th></tr></thead>
+          <tbody>${rows || `<tr><td colspan="6" class="text-muted">${companyEmployees.length === 0 ? "No employees yet." : "No employees match your search."}</td></tr>`}</tbody>
+        </table>
+      </div>
+    `;
+    const searchInput = document.getElementById("employee-search");
+    searchInput.addEventListener("input", (e) => {
+      search = e.target.value;
+      render();
+      document.getElementById("employee-search").focus();
+      document.getElementById("employee-search").setSelectionRange(search.length, search.length);
+    });
+  }
+
+  render();
 }
 
 function renderEmployeeForm(container, employee) {
