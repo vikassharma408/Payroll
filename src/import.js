@@ -420,7 +420,11 @@ function importMonthlyPayroll(db, rows, companyId) {
   let imported = 0;
   const fy = db.financialYears.find((f) => f.isCurrent);
   if (!fy) throw new Error("No financial year is marked current. Set one under Tax Rules first.");
-  const VARIABLE_FIELDS = [["Bonus", "Bonus"], ["Incentive", "Incentive"], ["Overtime", "Overtime"], ["Arrears", "Arrears"], ["Other Earnings", "Other Earnings"]];
+  // Maps each template column to the taxable salary-component code it feeds
+  // into run.overrides[employeeId].variablePay - these are real taxable
+  // earnings for the month (same path as the on-screen "LOP & Bonus" editor),
+  // NOT post-tax Manual Adjustments, so they correctly affect gross/TDS.
+  const VARIABLE_FIELDS = [["Bonus", "BONUS"], ["Incentive", "INCENTIVE"], ["Overtime", "OVERTIME"], ["Arrears", "ARREARS"], ["Other Earnings", "OTHER_ALLOWANCE"]];
 
   for (let i = 0; i < rows.length; i++) {
     const rowNumber = i + 2;
@@ -454,24 +458,15 @@ function importMonthlyPayroll(db, rows, companyId) {
     }
 
     try {
-      const result = PayrollEngine.computeEmployeePayrollLine(db, run.id, employee.id, { lopDays });
-      const existingIdx = run.lines.findIndex((l) => l.employeeId === employee.id);
-      const line = {
-        id: existingIdx >= 0 ? run.lines[existingIdx].id : newId("prl"), employeeId: employee.id,
-        daysInMonth: result.daysInMonth, daysWorked: result.daysWorked, lopDays: result.lopDays,
-        earnings: result.earnings, grossSalary: result.grossSalary, employerContributions: result.employerContributions,
-        totalEmployerCost: result.totalEmployerCost, deductions: result.deductions, tdsMonthly: result.tdsMonthly,
-        totalDeductions: result.totalDeductions, netSalary: result.netSalary, regimeUsed: result.regimeUsed,
-        taxCalcSnapshot: result.taxCalcSnapshot, metrics: result.metrics,
-        adjustments: existingIdx >= 0 ? run.lines[existingIdx].adjustments : [],
-      };
-      if (existingIdx >= 0) run.lines[existingIdx] = line;
-      else run.lines.push(line);
-
-      for (const [header, label] of VARIABLE_FIELDS) {
+      const variablePay = {};
+      for (const [header, code] of VARIABLE_FIELDS) {
         const amt = toNumberI(row[header]);
-        if (amt) PayrollEngine.addAdjustment(db, line.id, { amount: amt, reason: `Imported monthly input: ${label}`, enteredBy: "Import Wizard" });
+        if (amt) variablePay[code] = (variablePay[code] || 0) + amt;
       }
+      if (!run.overrides) run.overrides = {};
+      if (lopDays || Object.keys(variablePay).length) run.overrides[employee.id] = { lopDays, variablePay };
+      const line = PayrollEngine.recalculateLine(db, run.id, employee.id);
+
       const otherDed = toNumberI(row["Other Deductions"]);
       if (otherDed) PayrollEngine.addAdjustment(db, line.id, { amount: -otherDed, reason: "Imported monthly input: Other Deductions", enteredBy: "Import Wizard" });
       imported++;

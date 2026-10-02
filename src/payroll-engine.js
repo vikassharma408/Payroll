@@ -116,6 +116,16 @@
       grossSalary += amt;
     }
 
+    // One-time taxable pay for this specific month (bonus, incentive, etc.) -
+    // added to this month's earnings/gross/TDS calculation same as any other
+    // earning, but NOT part of the salary structure, so it is never
+    // projected into future months' annual-income estimate.
+    for (const [code, amount] of Object.entries(options.variablePay || {})) {
+      if (!amount) continue;
+      earnings[code] = (earnings[code] || 0) + amount;
+      grossSalary += amount;
+    }
+
     const employerContributions = {};
     let totalEmployerContrib = 0;
     for (const c of structure.components.filter((c) => c.category === "EMPLOYER_CONTRIBUTION")) {
@@ -287,6 +297,35 @@
     return true;
   }
 
+  /** Computes one employee's line (honoring any saved run.overrides for them) and upserts it into run.lines. Shared by processPayrollRun (bulk) and recalculateLine (single row, e.g. after editing LOP/bonus overrides). */
+  function computeAndUpsertLine(db, run, employee) {
+    const override = (run.overrides && run.overrides[employee.id]) || {};
+    const result = computeEmployeePayrollLine(db, run.id, employee.id, { lopDays: override.lopDays, variablePay: override.variablePay });
+    const existingIdx = run.lines.findIndex((l) => l.employeeId === employee.id);
+    const line = {
+      id: existingIdx >= 0 ? run.lines[existingIdx].id : newId("prl"),
+      employeeId: employee.id,
+      daysInMonth: result.daysInMonth,
+      daysWorked: result.daysWorked,
+      lopDays: result.lopDays,
+      earnings: result.earnings,
+      grossSalary: result.grossSalary,
+      employerContributions: result.employerContributions,
+      totalEmployerCost: result.totalEmployerCost,
+      deductions: result.deductions,
+      tdsMonthly: result.tdsMonthly,
+      totalDeductions: result.totalDeductions,
+      netSalary: result.netSalary,
+      regimeUsed: result.regimeUsed,
+      taxCalcSnapshot: result.taxCalcSnapshot,
+      metrics: result.metrics,
+      adjustments: existingIdx >= 0 ? run.lines[existingIdx].adjustments : [],
+    };
+    if (existingIdx >= 0) run.lines[existingIdx] = line;
+    else run.lines.push(line);
+    return line;
+  }
+
   function processPayrollRun(db, runId) {
     const run = db.payrollRuns.find((r) => r.id === runId);
     if (!run) throw new Error("Payroll run not found");
@@ -300,29 +339,7 @@
     for (const employee of employees) {
       if (!isEmployeeEligibleForRun(employee, run)) continue;
       try {
-        const result = computeEmployeePayrollLine(db, runId, employee.id);
-        const existingIdx = run.lines.findIndex((l) => l.employeeId === employee.id);
-        const line = {
-          id: existingIdx >= 0 ? run.lines[existingIdx].id : newId("prl"),
-          employeeId: employee.id,
-          daysInMonth: result.daysInMonth,
-          daysWorked: result.daysWorked,
-          lopDays: result.lopDays,
-          earnings: result.earnings,
-          grossSalary: result.grossSalary,
-          employerContributions: result.employerContributions,
-          totalEmployerCost: result.totalEmployerCost,
-          deductions: result.deductions,
-          tdsMonthly: result.tdsMonthly,
-          totalDeductions: result.totalDeductions,
-          netSalary: result.netSalary,
-          regimeUsed: result.regimeUsed,
-          taxCalcSnapshot: result.taxCalcSnapshot,
-          metrics: result.metrics,
-          adjustments: existingIdx >= 0 ? run.lines[existingIdx].adjustments : [],
-        };
-        if (existingIdx >= 0) run.lines[existingIdx] = line;
-        else run.lines.push(line);
+        computeAndUpsertLine(db, run, employee);
         processed++;
       } catch (err) {
         skipped.push({ employeeCode: employee.employeeCode, reason: err.message || String(err) });
@@ -332,6 +349,18 @@
     run.status = "CALCULATED";
     run.processedAt = new Date().toISOString();
     return { processed, skipped };
+  }
+
+  /** Recalculates a single employee's line within an already-calculated run - e.g. after editing their LOP days / one-time bonus overrides. Throws the same way computeEmployeePayrollLine would if something's wrong (e.g. no active salary structure). */
+  function recalculateLine(db, runId, employeeId) {
+    const run = db.payrollRuns.find((r) => r.id === runId);
+    if (!run) throw new Error("Payroll run not found");
+    if (run.status === "LOCKED" || run.status === "PAID") {
+      throw new Error(`Payroll run is ${run.status} and cannot be recalculated. Use an adjustment instead.`);
+    }
+    const employee = db.employees.find((e) => e.id === employeeId);
+    if (!employee) throw new Error("Employee not found");
+    return computeAndUpsertLine(db, run, employee);
   }
 
   const TIMESTAMP_FIELD = { REVIEWED: "reviewedAt", APPROVED: "approvedAt", LOCKED: "lockedAt", PAID: "paidAt" };
@@ -482,6 +511,7 @@
     computeEmployeePayrollLine,
     isEmployeeEligibleForRun,
     processPayrollRun,
+    recalculateLine,
     advancePayrollStatus,
     addAdjustment,
     estimateRegimeComparison,

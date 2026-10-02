@@ -40,8 +40,8 @@ function createEmptyDb() {
  * db is already current.
  *   v1 -> v2: single `company` object -> `companies` array (multi-entity
  *   support); every Employee/PayrollRun gets a `companyId` backfilled to
- *   that one company; `employeePerquisites` and per-run `variablePay` are
- *   added as empty defaults.
+ *   that one company; `employeePerquisites` and per-run `overrides` (LOP
+ *   days / one-time taxable pay per employee) are added as empty defaults.
  */
 function migrateDb(db) {
   if (!db.schemaVersion || db.schemaVersion < 2) {
@@ -57,7 +57,8 @@ function migrateDb(db) {
   if (!db.companies) db.companies = [];
   if (!db.employeePerquisites) db.employeePerquisites = [];
   for (const r of db.payrollRuns || []) {
-    if (!r.variablePay) r.variablePay = {};
+    if (!r.overrides) r.overrides = {};
+    delete r.variablePay;
   }
   return db;
 }

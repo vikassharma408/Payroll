@@ -100,7 +100,7 @@ function renderPayrollRunsList(container) {
         paidAt: null,
         createdBy: "Payroll Admin",
         createdAt: new Date().toISOString(),
-        variablePay: {},
+        overrides: {},
         lines: [],
       };
       db.payrollRuns.push(run);
@@ -168,7 +168,7 @@ function renderPayrollRunDetail(container, runId) {
                       <a href="#/payroll-runs/${run.id}/slip/${l.id}"><button>Slip</button></a>
                     </td>
                   </tr>
-                  ${expandedLineId === l.id ? `<tr><td colspan="8">${renderLineDetail(l, emp)}</td></tr>` : ""}
+                  ${expandedLineId === l.id ? `<tr><td colspan="8">${renderLineDetail(l, emp, run)}</td></tr>` : ""}
                 `;
                 })
                 .join("") || `<tr><td colspan="8" class="text-muted">Not calculated yet. Click "Run Calculation" above.</td></tr>`
@@ -234,10 +234,37 @@ function renderPayrollRunDetail(container, runId) {
         }
       });
     });
+
+    container.querySelectorAll(".save-override").forEach((btn) => {
+      btn.addEventListener("click", async () => {
+        const employeeId = btn.getAttribute("data-employee-id");
+        const form = container.querySelector(`.override-form[data-employee-id="${employeeId}"]`);
+        const fd = new FormData(form);
+        const lopDays = num(fd.get("lopDays"));
+        const variablePay = {};
+        for (const code of ["BONUS", "INCENTIVE", "OVERTIME", "ARREARS", "OTHER_ALLOWANCE"]) {
+          const amt = num(fd.get(code));
+          if (amt) variablePay[code] = amt;
+        }
+        if (!run.overrides) run.overrides = {};
+        if (lopDays || Object.keys(variablePay).length) run.overrides[employeeId] = { lopDays, variablePay };
+        else delete run.overrides[employeeId];
+        try {
+          PayrollEngine.recalculateLine(db, run.id, employeeId);
+          await persist();
+          render();
+        } catch (err) {
+          alert(err.message);
+        }
+      });
+    });
   }
 
-  function renderLineDetail(line, emp) {
+  function renderLineDetail(line, emp, run) {
     const snap = line.taxCalcSnapshot[line.regimeUsed.toLowerCase()];
+    const override = (run.overrides && run.overrides[line.employeeId]) || {};
+    const vp = override.variablePay || {};
+    const canEdit = run.status !== "LOCKED" && run.status !== "PAID";
     return `
       <div class="card" style="margin:8px 0;">
         <div class="row between">
@@ -245,6 +272,19 @@ function renderPayrollRunDetail(container, runId) {
             <h3 style="margin-bottom:2px;">${emp ? escapeHtml(emp.fullName) : ""}</h3>
             <div class="text-muted">Days worked ${line.daysWorked}/${line.daysInMonth}${line.lopDays ? ` (LOP: ${line.lopDays})` : ""}</div>
           </div>
+        </div>
+        <div class="card" style="background:var(--ink); margin-top:12px;">
+          <h3>Leave Without Pay &amp; One-Time Pay (this month only)</h3>
+          <p class="text-muted" style="font-size:12px;">Set LOP days for this employee this month, or a one-time taxable Bonus/Incentive/Overtime/Arrears - these affect only this month's pay and tax, not the salary structure, and never carry over to future months.</p>
+          <form class="override-form form-grid" data-employee-id="${line.employeeId}">
+            <div><label>LOP Days</label><input type="number" min="0" name="lopDays" value="${override.lopDays || 0}" ${canEdit ? "" : "disabled"} /></div>
+            <div><label>Bonus</label><input type="number" min="0" name="BONUS" value="${vp.BONUS || 0}" ${canEdit ? "" : "disabled"} /></div>
+            <div><label>Incentive</label><input type="number" min="0" name="INCENTIVE" value="${vp.INCENTIVE || 0}" ${canEdit ? "" : "disabled"} /></div>
+            <div><label>Overtime</label><input type="number" min="0" name="OVERTIME" value="${vp.OVERTIME || 0}" ${canEdit ? "" : "disabled"} /></div>
+            <div><label>Arrears</label><input type="number" min="0" name="ARREARS" value="${vp.ARREARS || 0}" ${canEdit ? "" : "disabled"} /></div>
+            <div><label>Other Allowance</label><input type="number" min="0" name="OTHER_ALLOWANCE" value="${vp.OTHER_ALLOWANCE || 0}" ${canEdit ? "" : "disabled"} /></div>
+          </form>
+          ${canEdit ? `<div class="row gap-8 mt-16"><button class="primary save-override" data-employee-id="${line.employeeId}">Save &amp; Recalculate</button></div>` : `<p class="text-muted mt-16">This run is ${run.status.toLowerCase()} - LOP/one-time pay can no longer be changed here. Use a Manual Adjustment instead.</p>`}
         </div>
         <div class="card-grid mt-16">
           <div>
