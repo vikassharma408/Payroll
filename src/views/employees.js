@@ -29,6 +29,7 @@ registerDetailView("employees", (container, segments) => {
     return;
   }
   if (action === "edit") return renderEmployeeForm(container, employee);
+  if (action === "form16") return renderForm16(container, employee);
   renderEmployeeDetail(container, employee);
 });
 
@@ -841,15 +842,96 @@ function renderRegimeComparisonTab(container, employee, fy) {
     `;
   }
   container.innerHTML = `
-    <div class="card">
-      <p>Estimated annual gross salary: <strong>${rupees(estimate.annualGross)}</strong>. Based on the current active Salary Structure and Investment Declaration for FY ${fy.code}, projected for the full year.</p>
-      ${!estimate.hasDeclaration ? `<p class="text-bad">No Investment Declaration is on file yet - Old Regime figures assume zero Chapter VI-A deductions/HRA rent.</p>` : ""}
+    <div class="card row between">
+      <div>
+        <p style="margin:0;">Estimated annual gross salary: <strong>${rupees(estimate.annualGross)}</strong>. Based on the current active Salary Structure and Investment Declaration for FY ${fy.code}, projected for the full year.</p>
+        ${!estimate.hasDeclaration ? `<p class="text-bad">No Investment Declaration is on file yet - Old Regime figures assume zero Chapter VI-A deductions/HRA rent.</p>` : ""}
+      </div>
+      <a href="#/employees/${employee.id}/form16"><button>View Form 16 Part B Summary</button></a>
     </div>
     <div class="card-grid">
       ${col("OLD Regime", estimate.old)}
       ${col("NEW Regime", estimate.new)}
     </div>
   `;
+}
+
+// --- Form 16 Part B Summary ------------------------------------------------
+function renderForm16(container, employee) {
+  const fy = currentFy();
+  if (!fy) {
+    container.innerHTML = `<div class="card">No Financial Year configured.</div>`;
+    return;
+  }
+  const estimate = PayrollEngine.estimateRegimeComparison(db, employee.id, fy.id);
+  if (!estimate) {
+    container.innerHTML = `<div class="card">No active salary structure for FY ${fy.code} - add one under Salary Structure first. <a href="#/employees/${employee.id}">Back</a></div>`;
+    return;
+  }
+  const r = employee.taxRegime === "OLD" ? estimate.old : estimate.new;
+  const company = db.companies.find((c) => c.id === employee.companyId) || {};
+
+  container.innerHTML = `
+    <div class="row between no-print">
+      <a href="#/employees/${employee.id}"><button>&larr; Back to Employee</button></a>
+      <button id="btn-print-form16">Print / Save as PDF</button>
+    </div>
+    <div class="card mt-16">
+      <div class="row between" style="border-bottom:2px solid var(--line); padding-bottom:8px;">
+        <div>
+          <h2 style="margin-bottom:2px;">${escapeHtml(company.name || "")}</h2>
+          <div class="text-muted">PAN: ${company.pan || "-"}  TAN: ${company.tan || "-"}</div>
+        </div>
+        <div class="text-muted" style="text-align:right;">
+          <div>Annual Tax Computation Statement</div>
+          <div>FY ${fy.code} (${r.regime} Regime)</div>
+        </div>
+      </div>
+      <h2 style="text-align:center; text-transform:uppercase;">Form 16 Part B - Computation of Income &amp; Tax</h2>
+      <div class="card-grid">
+        <table>
+          <tr><td class="text-muted">Employee Code</td><td>${escapeHtml(employee.employeeCode)}</td></tr>
+          <tr><td class="text-muted">Employee Name</td><td>${escapeHtml(employee.fullName)}</td></tr>
+          <tr><td class="text-muted">PAN</td><td>${employee.pan || "-"}</td></tr>
+          <tr><td class="text-muted">Designation</td><td>${escapeHtml(employee.designation || "-")}</td></tr>
+        </table>
+        <table>
+          <tr><td class="text-muted">Financial Year</td><td>${fy.code}</td></tr>
+          <tr><td class="text-muted">Tax Regime</td><td>${r.regime}</td></tr>
+          <tr><td class="text-muted">Period</td><td>${fy.startDate} to ${fy.endDate}</td></tr>
+        </table>
+      </div>
+
+      <h3 class="mt-16">Computation of Income under the Head "Salaries"</h3>
+      <table>
+        <tbody>
+          ${r.steps.map((s) => `<tr><td>${escapeHtml(s.label)}${s.note ? ` <span class="text-muted">(${escapeHtml(s.note)})</span>` : ""}</td><td>${rupees(s.amount)}</td></tr>`).join("")}
+        </tbody>
+      </table>
+
+      <h3 class="mt-16">Chapter VI-A Deductions</h3>
+      <table>
+        <thead><tr><th>Section</th><th>Amount Claimed</th><th>Amount Allowed</th></tr></thead>
+        <tbody>
+          ${r.chapterVIABreakdown.map((d) => `<tr><td>${escapeHtml(d.label)}</td><td>${rupees(d.actual)}</td><td>${rupees(d.allowed)}</td></tr>`).join("") || `<tr><td colspan="3" class="text-muted">None (not applicable under this regime, or none declared).</td></tr>`}
+        </tbody>
+      </table>
+
+      <div class="row between" style="background:var(--ink); padding:10px 16px; border-radius:8px; margin-top:16px;">
+        <strong>Total Tax Liability</strong><strong>${rupees(r.totalTaxLiability)}</strong>
+      </div>
+      <div class="row between" style="padding:10px 16px;">
+        <span>Less: TDS Already Deducted</span><span>${rupees(r.tdsAlreadyDeducted)}</span>
+      </div>
+      <div class="row between" style="padding:10px 16px; font-weight:600;">
+        <span>Balance Tax Payable</span><span>${rupees(r.balanceTaxPayable)}</span>
+      </div>
+
+      ${r.warnings.length ? `<div class="text-muted mt-16" style="font-size:12px;">${r.warnings.map((w) => `<div>&#9888; ${escapeHtml(w)}</div>`).join("")}</div>` : ""}
+      <p class="text-muted mt-16" style="text-align:center; font-size:12px;">This is a system-generated tax computation summary (Form 16 Part B style), not an official Form 16 certificate requiring a TRACES-issued certificate number and digital signature.</p>
+    </div>
+  `;
+  document.getElementById("btn-print-form16").addEventListener("click", () => window.print());
 }
 
 // --- Full & Final Settlement ---------------------------------------------
