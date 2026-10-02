@@ -682,12 +682,38 @@ const INVESTMENT_FIELDS = [
     ["section80E", "80E Education Loan Interest"], ["section80EE", "80EE Home Loan Interest"], ["section80EEA", "80EEA Home Loan Interest"],
     ["section80UBelow80", "80U Self Disability (<80%)"], ["section80U80AndAbove", "80U Self Disability (80%+)"],
     ["section80DDBelow80", "80DD Dependent Disability (<80%)"], ["section80DD80AndAbove", "80DD Dependent Disability (80%+)"],
-    ["donations80G", "80G Donations"], ["otherDeductions", "Other Deductions"], ["ltaClaimed", "LTA Claimed"],
+    ["donations80G", "80G Donations"], ["otherDeductions", "Other Deductions"], ["ltaClaimed", "LTA Exempt Amount (Sec 10(5))"],
   ]],
   ["House Property", [
     ["homeLoanInterestSelfOccupied", "Home Loan Interest (Self-Occupied)"],
     ["letOutAnnualValue", "Let-Out: Annual Value"], ["letOutMunicipalTax", "Let-Out: Municipal Tax"], ["letOutHomeLoanInterest", "Let-Out: Home Loan Interest"],
   ]],
+];
+
+// Maximum deduction/exemption each field is capped at (old regime only) -
+// the app itself always applies these caps when computing tax (see
+// DEDUCTION_LIMITS in rule-configs.js and tax-engine.js), so entering more
+// than the limit is harmless - it's just shown here so the figures entered
+// can be sanity-checked against what the law actually allows. Re-verified
+// against current sources as of October 2026; Sec 80D's own figures also
+// confirmed unchanged under its Income-tax Act, 2025 renumbering (new
+// Sec 126 = old Sec 80D).
+const DEDUCTION_LIMIT_REFERENCE = [
+  ["LIC / EPF / PPF / ELSS / Life Insurance / Tuition Fees / Housing Loan Principal / 80CCC / 80CCD(1) (combined)", "Rs 1,50,000 total"],
+  ["80CCD(1B) Additional NPS", "Rs 50,000 (on top of the Rs 1,50,000 above - Rs 2,00,000 combined ceiling)"],
+  ["80D Self/Family (below 60)", "Rs 25,000 (includes up to Rs 5,000 for preventive health checkup, not in addition)"],
+  ["80D Self/Family (60+)", "Rs 50,000 (includes up to Rs 5,000 for preventive health checkup, not in addition)"],
+  ["80D Parents (below 60)", "Rs 25,000"],
+  ["80D Parents (60+)", "Rs 50,000"],
+  ["80DD / 80U Disability (<80%)", "Rs 75,000"],
+  ["80DD / 80U Disability (80%+, severe)", "Rs 1,25,000"],
+  ["80E Education Loan Interest", "No upper limit - full interest amount, for 8 years from first repayment"],
+  ["80EE Home Loan Interest (additional, first-time buyers)", "Rs 50,000"],
+  ["80EEA Home Loan Interest (affordable housing)", "Rs 1,50,000 - only for loans sanctioned 1 Apr 2019 to 31 Mar 2022"],
+  ["80G Donations", "50% or 100% of the donated amount depending on the institution, some subject to a 10%-of-income qualifying limit - enter the employee's own already-computed eligible amount"],
+  ["LTA Exempt Amount", "Limited to actual eligible travel cost incurred, for 2 journeys in a block of 4 calendar years (current block: 2026-2029) - not a flat rupee cap"],
+  ["Home Loan Interest (Self-Occupied)", "Rs 2,00,000"],
+  ["House Property Loss Set-Off (self-occupied + let-out combined)", "Rs 2,00,000 against other income per year; any excess carries forward (not tracked by this app)"],
 ];
 
 function renderInvestmentDeclarationTab(container, employee, fy, onSaved) {
@@ -705,6 +731,15 @@ function renderInvestmentDeclarationTab(container, employee, fy, onSaved) {
   ).join("");
 
   container.innerHTML = `
+    <div class="card">
+      <details>
+        <summary><strong>Deduction &amp; Exemption Limits (reference - old regime only)</strong></summary>
+        <table class="mt-16">
+          <thead><tr><th>Head</th><th>Maximum</th></tr></thead>
+          <tbody>${DEDUCTION_LIMIT_REFERENCE.map(([head, limit]) => `<tr><td>${escapeHtml(head)}</td><td>${escapeHtml(limit)}</td></tr>`).join("")}</tbody>
+        </table>
+      </details>
+    </div>
     <form id="investment-form">
       <div class="card">
         <h3>HRA / Rent</h3>

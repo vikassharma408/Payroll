@@ -128,6 +128,10 @@ function calculateTax(input, config) {
       totalSalaryIncome -= input.hraExemption;
       steps.push({ label: "Less: HRA Exemption u/s 10(13A)", amount: -input.hraExemption });
     }
+    if (input.ltaExemption > 0) {
+      totalSalaryIncome -= input.ltaExemption;
+      steps.push({ label: "Less: LTA Exemption u/s 10(5)", amount: -input.ltaExemption });
+    }
     if (input.professionalTaxPaid > 0) {
       totalSalaryIncome -= input.professionalTaxPaid;
       steps.push({ label: "Less: Profession Tax u/s 16(iii)", amount: -input.professionalTaxPaid });

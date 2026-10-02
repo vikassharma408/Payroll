@@ -46,15 +46,41 @@ const IMPORT_TEMPLATES = {
     columns: [
       { header: "Employee Code", field: "employeeCode", required: true, type: "string", example: "EMP101" },
       { header: "Tax Regime", field: "taxRegime", type: "enum", enumValues: ["OLD", "NEW"], example: "OLD" },
-      { header: "80C", field: "section80C", type: "number", example: 150000 },
-      { header: "80D", field: "section80D", type: "number", example: 25000 },
-      { header: "80CCD", field: "section80CCD", type: "number", example: 50000 },
-      { header: "Home Loan Interest", field: "homeLoanInterest", type: "number", example: 0 },
-      { header: "Education Loan Interest", field: "educationLoanInterest", type: "number", example: 0 },
-      { header: "Donations", field: "donations", type: "number", example: 0 },
-      { header: "HRA Rent", field: "monthlyRent", type: "number", example: 20000 },
-      { header: "LTA", field: "lta", type: "number", example: 0 },
-      { header: "Other Eligible Deductions", field: "otherDeductions", type: "number", example: 0 },
+      { header: "Monthly Rent", field: "monthlyRent", type: "number", example: 20000 },
+      { header: "Rent Start Date", field: "rentStartDate", type: "date", example: "2026-04-01" },
+      { header: "Rent End Date", field: "rentEndDate", type: "date", example: "" },
+      { header: "Rental Address", field: "rentalAddress", type: "string", example: "" },
+      { header: "Landlord Name", field: "landlordName", type: "string", example: "" },
+      { header: "Landlord PAN", field: "landlordPan", type: "string", example: "" },
+      { header: "LIC Premium", field: "lic", type: "number", example: 0, limit: "Rs 1,50,000 combined with the other 80C/80CCC/80CCD(1) rows below" },
+      { header: "EPF (Voluntary)", field: "epf", type: "number", example: 0, limit: "(same Rs 1,50,000 combined limit)" },
+      { header: "PPF", field: "ppf", type: "number", example: 0, limit: "(same Rs 1,50,000 combined limit)" },
+      { header: "ELSS", field: "elss", type: "number", example: 0, limit: "(same Rs 1,50,000 combined limit)" },
+      { header: "Life Insurance Premium", field: "lifeInsurance", type: "number", example: 0, limit: "(same Rs 1,50,000 combined limit)" },
+      { header: "Tuition Fees", field: "tuitionFees", type: "number", example: 0, limit: "(same Rs 1,50,000 combined limit; max 2 children)" },
+      { header: "Housing Loan Principal", field: "housingLoanPrincipal", type: "number", example: 0, limit: "(same Rs 1,50,000 combined limit)" },
+      { header: "Other 80C", field: "otherSection80C", type: "number", example: 0, limit: "(same Rs 1,50,000 combined limit)" },
+      { header: "80CCC Pension Fund", field: "section80CCC", type: "number", example: 0, limit: "(same Rs 1,50,000 combined limit)" },
+      { header: "80CCD(1) NPS Employee", field: "section80CCD1", type: "number", example: 0, limit: "(same Rs 1,50,000 combined limit)" },
+      { header: "80CCD(1B) Additional NPS", field: "section80CCD1B", type: "number", example: 0, limit: "Rs 50,000, on top of the Rs 1,50,000 80C ceiling above" },
+      { header: "80D Self/Family (below 60)", field: "section80DSelfBelow60", type: "number", example: 0, limit: "Rs 25,000 (incl. up to Rs 5,000 preventive checkup, not additional)" },
+      { header: "80D Self/Family (60+)", field: "section80DSelfAbove60", type: "number", example: 0, limit: "Rs 50,000 (incl. up to Rs 5,000 preventive checkup, not additional)" },
+      { header: "80D Parents (below 60)", field: "section80DParentsBelow60", type: "number", example: 0, limit: "Rs 25,000" },
+      { header: "80D Parents (60+)", field: "section80DParentsAbove60", type: "number", example: 0, limit: "Rs 50,000" },
+      { header: "80E Education Loan Interest", field: "section80E", type: "number", example: 0, limit: "No upper limit - full interest, for 8 years from first repayment" },
+      { header: "80EE Home Loan Interest", field: "section80EE", type: "number", example: 0, limit: "Rs 50,000 (first-time buyers, specific conditions)" },
+      { header: "80EEA Home Loan Interest", field: "section80EEA", type: "number", example: 0, limit: "Rs 1,50,000 (only loans sanctioned 1 Apr 2019 - 31 Mar 2022)" },
+      { header: "80U Self Disability (<80%)", field: "section80UBelow80", type: "number", example: 0, limit: "Rs 75,000" },
+      { header: "80U Self Disability (80%+)", field: "section80U80AndAbove", type: "number", example: 0, limit: "Rs 1,25,000" },
+      { header: "80DD Dependent Disability (<80%)", field: "section80DDBelow80", type: "number", example: 0, limit: "Rs 75,000" },
+      { header: "80DD Dependent Disability (80%+)", field: "section80DD80AndAbove", type: "number", example: 0, limit: "Rs 1,25,000" },
+      { header: "80G Donations", field: "donations80G", type: "number", example: 0, limit: "50% or 100% of donated amount depending on institution, some capped at 10% of adjusted gross income - enter the employee's own already-computed eligible amount" },
+      { header: "LTA Exempt Amount", field: "ltaClaimed", type: "number", example: 0, limit: "Limited to actual eligible travel cost, 2 journeys per 4-calendar-year block (current block 2026-2029) - not a flat cap" },
+      { header: "Home Loan Interest (Self-Occupied)", field: "homeLoanInterestSelfOccupied", type: "number", example: 0, limit: "Rs 2,00,000" },
+      { header: "Let-Out: Annual Value", field: "letOutAnnualValue", type: "number", example: 0, limit: "-" },
+      { header: "Let-Out: Municipal Tax", field: "letOutMunicipalTax", type: "number", example: 0, limit: "-" },
+      { header: "Let-Out: Home Loan Interest", field: "letOutHomeLoanInterest", type: "number", example: 0, limit: "House property loss set-off (self-occupied + let-out combined) capped at Rs 2,00,000/year against other income" },
+      { header: "Other Eligible Deductions", field: "otherDeductions", type: "number", example: 0, limit: "No limit modeled - use only for a deduction not covered by any column above" },
     ],
   },
   PREVIOUS_EMPLOYER: {
@@ -88,14 +114,14 @@ const IMPORT_TEMPLATES = {
 const INSTRUCTIONS_LINES = [
   "Payroll Register - Setup & Usage Guide",
   "",
-  "This one workbook has 4 data tabs (Employee Master, Salary Structure, Investment Declaration, Previous Employer) plus this Instructions tab. Columns marked with * are mandatory.",
+  "This one workbook has 4 data tabs (Employee Master, Salary Structure, Investment Declaration, Previous Employer), this Instructions tab, and an 'Investment - Field Guide' tab documenting every Investment Declaration column and its current statutory maximum. Columns marked with * are mandatory.",
   "",
   "TIP: For just ONE employee, you don't need Excel at all - in the app, go to Employees > + Add Employee, then fill in Salary Structure / Investment Declaration / Previous Employer directly on that employee's page. Use this workbook only when adding many employees at once.",
   "",
   "STEP 1 - Fill in your data in this workbook",
   "1. Go to the 'Employee Master' tab. Enter one row per employee. Employee Code is whatever short code you want to use (e.g. EMP101) - you'll reuse it on the other tabs.",
   "2. Go to the 'Salary Structure' tab. Enter each employee's MONTHLY amount for each salary component for the current financial year. Employee Code must match the Employee Master tab exactly.",
-  "3. Go to the 'Investment Declaration' tab for employees who have tax-saving investments, medical insurance, home loan interest, or HRA rent to declare. Employee Code must match.",
+  "3. Go to the 'Investment Declaration' tab for employees who have tax-saving investments, medical insurance, home loan interest, or HRA rent to declare. Employee Code must match. Each 80C/80D/etc. item has its own column (not one lump '80C' figure) so the app can apply the correct statutory cap per head - see the 'Investment - Field Guide' tab for what each column means and its current maximum. If rent is only paid for part of the year, fill in Rent Start Date (and Rent End Date if it stopped before the FY ended) so HRA exemption is only computed for those months.",
   "4. Go to the 'Previous Employer' tab ONLY for employees who joined partway through this financial year and have salary/TDS from a previous employer in the same year.",
   "5. Save this file when done.",
   "",
@@ -140,16 +166,22 @@ function buildDataSheet(spec) {
 }
 
 function buildFieldReferenceSheet(columns) {
+  const hasLimits = columns.some((c) => c.limit);
+  const header = hasLimits ? ["Column", "Required", "Type", "Notes", "Maximum (old regime)"] : ["Column", "Required", "Type", "Notes"];
   const ws = XLSX.utils.aoa_to_sheet([
-    ["Column", "Required", "Type", "Notes"],
-    ...columns.map((c) => [
-      c.header,
-      c.required ? "Yes (marked with * in the data tab)" : "No",
-      c.type === "enum" ? `One of: ${c.enumValues.join(", ")}` : c.type,
-      c.type === "boolean" ? "Y/N/Yes/No/True/False" : c.type === "date" ? "YYYY-MM-DD" : "",
-    ]),
+    header,
+    ...columns.map((c) => {
+      const row = [
+        c.header,
+        c.required ? "Yes (marked with * in the data tab)" : "No",
+        c.type === "enum" ? `One of: ${c.enumValues.join(", ")}` : c.type,
+        c.type === "boolean" ? "Y/N/Yes/No/True/False" : c.type === "date" ? "YYYY-MM-DD" : "",
+      ];
+      if (hasLimits) row.push(c.limit || "-");
+      return row;
+    }),
   ]);
-  ws["!cols"] = [{ wch: 28 }, { wch: 30 }, { wch: 24 }, { wch: 30 }];
+  ws["!cols"] = hasLimits ? [{ wch: 32 }, { wch: 30 }, { wch: 10 }, { wch: 22 }, { wch: 70 }] : [{ wch: 28 }, { wch: 30 }, { wch: 24 }, { wch: 30 }];
   return ws;
 }
 
@@ -174,6 +206,10 @@ function buildCombinedTemplateWorkbook() {
     const spec = IMPORT_TEMPLATES[type];
     XLSX.utils.book_append_sheet(wb, buildDataSheet(spec), spec.sheetName.slice(0, 31));
   }
+  // The Investment Declaration tab has many columns with statutory maximums
+  // (Sec 80C/80D/80DD/80U/etc.) - worth its own reference sheet even in the
+  // combined workbook, unlike the other tabs which don't have capped fields.
+  XLSX.utils.book_append_sheet(wb, buildFieldReferenceSheet(IMPORT_TEMPLATES.INVESTMENT.columns), "Investment - Field Guide");
   return XLSX.write(wb, { type: "array", bookType: "xlsx" });
 }
 
@@ -368,14 +404,40 @@ function importInvestmentDeclarations(db, rows, companyId) {
     if (regime !== employee.taxRegime) employee.taxRegime = regime;
 
     const values = {
-      otherSection80C: toNumberI(row["80C"]),
-      section80DSelfBelow60: toNumberI(row["80D"]),
-      section80CCD1B: toNumberI(row["80CCD"]),
-      homeLoanInterestSelfOccupied: toNumberI(row["Home Loan Interest"]),
-      section80E: toNumberI(row["Education Loan Interest"]),
-      donations80G: toNumberI(row["Donations"]),
-      monthlyRent: toNumberI(row["HRA Rent"]),
-      ltaClaimed: toNumberI(row["LTA"]),
+      monthlyRent: toNumberI(row["Monthly Rent"]),
+      rentStartDate: toDateOrNullI(row["Rent Start Date"]),
+      rentEndDate: toDateOrNullI(row["Rent End Date"]),
+      rentalAddress: String(row["Rental Address"] ?? "").trim() || null,
+      landlordName: String(row["Landlord Name"] ?? "").trim() || null,
+      landlordPan: String(row["Landlord PAN"] ?? "").trim() || null,
+      lic: toNumberI(row["LIC Premium"]),
+      epf: toNumberI(row["EPF (Voluntary)"]),
+      ppf: toNumberI(row["PPF"]),
+      elss: toNumberI(row["ELSS"]),
+      lifeInsurance: toNumberI(row["Life Insurance Premium"]),
+      tuitionFees: toNumberI(row["Tuition Fees"]),
+      housingLoanPrincipal: toNumberI(row["Housing Loan Principal"]),
+      otherSection80C: toNumberI(row["Other 80C"]),
+      section80CCC: toNumberI(row["80CCC Pension Fund"]),
+      section80CCD1: toNumberI(row["80CCD(1) NPS Employee"]),
+      section80CCD1B: toNumberI(row["80CCD(1B) Additional NPS"]),
+      section80DSelfBelow60: toNumberI(row["80D Self/Family (below 60)"]),
+      section80DSelfAbove60: toNumberI(row["80D Self/Family (60+)"]),
+      section80DParentsBelow60: toNumberI(row["80D Parents (below 60)"]),
+      section80DParentsAbove60: toNumberI(row["80D Parents (60+)"]),
+      section80E: toNumberI(row["Education Loan Interest"] ?? row["80E Education Loan Interest"]),
+      section80EE: toNumberI(row["80EE Home Loan Interest"]),
+      section80EEA: toNumberI(row["80EEA Home Loan Interest"]),
+      section80UBelow80: toNumberI(row["80U Self Disability (<80%)"]),
+      section80U80AndAbove: toNumberI(row["80U Self Disability (80%+)"]),
+      section80DDBelow80: toNumberI(row["80DD Dependent Disability (<80%)"]),
+      section80DD80AndAbove: toNumberI(row["80DD Dependent Disability (80%+)"]),
+      donations80G: toNumberI(row["80G Donations"] ?? row["Donations"]),
+      ltaClaimed: toNumberI(row["LTA Exempt Amount"] ?? row["LTA"]),
+      homeLoanInterestSelfOccupied: toNumberI(row["Home Loan Interest (Self-Occupied)"] ?? row["Home Loan Interest"]),
+      letOutAnnualValue: toNumberI(row["Let-Out: Annual Value"]),
+      letOutMunicipalTax: toNumberI(row["Let-Out: Municipal Tax"]),
+      letOutHomeLoanInterest: toNumberI(row["Let-Out: Home Loan Interest"]),
       otherDeductions: toNumberI(row["Other Eligible Deductions"]),
     };
     const existing = db.investmentDeclarations.find((d) => d.employeeId === employee.id && d.financialYearId === fy.id);
