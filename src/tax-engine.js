@@ -36,7 +36,8 @@ function computeSurcharge(taxableIncome, taxBeforeSurcharge, slabsDescending) {
 }
 
 /**
- * Section 10(13A) read with Rule 2A: HRA exemption is the least of
+ * HRA exemption (old Sec 10(13A), now a new Act Schedule provision - sources
+ * disagree on the exact Schedule number) read with Rule 2A: the least of
  * (a) actual HRA received, (b) rent paid minus 10% of Basic+DA,
  * (c) 50%/40% of Basic+DA (metro/non-metro).
  */
@@ -94,19 +95,19 @@ function calculateTax(input, config) {
   const perqExcess = Math.max(0, input.employerPfNpsSuperContribution - config.employerNpsPfPerqLimit);
   if (perqExcess > 0) {
     steps.push({
-      label: "Employer PF+NPS+Superannuation perquisite u/s 17(2)(vii)",
+      label: "Employer PF+NPS+Superannuation perquisite u/s 17 (old Sec 17(2)(vii))",
       amount: perqExcess,
       note: `Employer contribution ${_taxInr(input.employerPfNpsSuperContribution)} exceeds Rs 7,50,000 limit`,
     });
     if (input.employerNpsContribution > 0) {
       warnings.push(
-        "Employer PF+NPS+Superannuation contributions exceed the combined Rs 7.5 lakh threshold. The employer NPS contribution is fully included in salary u/s 17(1)(viii) and the excess over Rs 7.5 lakh is separately added as a perquisite u/s 17(2)(vii); in rare cases this can overlap for very high combined contributions - review manually.",
+        "Employer PF+NPS+Superannuation contributions exceed the combined Rs 7.5 lakh threshold. The employer NPS contribution is fully included in salary u/s 16 (old Sec 17(1)(viii)) and the excess over Rs 7.5 lakh is separately added as a perquisite u/s 17 (old Sec 17(2)(vii)); in rare cases this can overlap for very high combined contributions - review manually.",
       );
     }
   }
   if (input.employerNpsContribution > 0) {
     steps.push({
-      label: "Employer NPS Contribution (included in salary u/s 17(1)(viii))",
+      label: "Employer NPS Contribution (included in salary u/s 16, old Sec 17(1)(viii))",
       amount: input.employerNpsContribution,
     });
   }
@@ -126,19 +127,19 @@ function calculateTax(input, config) {
   if (isOld) {
     if (input.hraExemption > 0) {
       totalSalaryIncome -= input.hraExemption;
-      steps.push({ label: "Less: HRA Exemption u/s 10(13A)", amount: -input.hraExemption });
+      steps.push({ label: "Less: HRA Exemption (old Sec 10(13A) - now a new Act Schedule provision)", amount: -input.hraExemption });
     }
     if (input.ltaExemption > 0) {
       totalSalaryIncome -= input.ltaExemption;
-      steps.push({ label: "Less: LTA Exemption u/s 10(5)", amount: -input.ltaExemption });
+      steps.push({ label: "Less: LTA Exemption (old Sec 10(5))", amount: -input.ltaExemption });
     }
     if (input.professionalTaxPaid > 0) {
       totalSalaryIncome -= input.professionalTaxPaid;
-      steps.push({ label: "Less: Profession Tax u/s 16(iii)", amount: -input.professionalTaxPaid });
+      steps.push({ label: "Less: Profession Tax u/s 19 (old Sec 16(iii))", amount: -input.professionalTaxPaid });
     }
   }
   totalSalaryIncome -= config.standardDeduction;
-  steps.push({ label: "Less: Standard Deduction u/s 16(ia)", amount: -config.standardDeduction });
+  steps.push({ label: "Less: Standard Deduction u/s 19 (old Sec 16(ia))", amount: -config.standardDeduction });
   steps.push({ label: "Income from Salary", amount: totalSalaryIncome });
 
   // --- Income from House Property -----------------------------------------
@@ -147,7 +148,7 @@ function calculateTax(input, config) {
     const capped = Math.min(input.selfOccupiedHomeLoanInterest, config.deductionLimits.HOME_LOAN_SELF_OCCUPIED);
     houseProperty -= capped;
     steps.push({
-      label: "Income from House Property (Self-Occupied) - interest u/s 24(b)",
+      label: "Income from House Property (Self-Occupied) - interest u/s 24(b) (unchanged)",
       amount: -capped,
       note:
         capped < input.selfOccupiedHomeLoanInterest
@@ -182,7 +183,7 @@ function calculateTax(input, config) {
   const dl = config.deductionLimits;
   const d = input.deductions;
   const cappedNpsEmployer = Math.min(d.section80CCD2Employer, config.npsEmployerCapPercent * d.basicPlusDaAnnual);
-  chapterVIABreakdown.push({ label: "80CCD(2) - Employer NPS Contribution", actual: d.section80CCD2Employer, allowed: cappedNpsEmployer });
+  chapterVIABreakdown.push({ label: "Sec 124 (old 80CCD(2)) - Employer NPS Contribution", actual: d.section80CCD2Employer, allowed: cappedNpsEmployer });
 
   let totalDeductions = cappedNpsEmployer;
 
@@ -199,28 +200,28 @@ function calculateTax(input, config) {
     const capped80EEA = Math.min(d.section80EEA, dl["80EEA"]);
 
     chapterVIABreakdown.push(
-      { label: "80C / 80CCC / 80CCD(1)", actual: d.section80C, allowed: capped80C },
-      { label: "80CCD(1B) - Additional NPS", actual: d.section80CCD1B, allowed: capped80CCD1B },
-      { label: "80D - Medical Insurance", actual: d.section80DSelfBelow60 + d.section80DSelfAbove60 + d.section80DParentsBelow60 + d.section80DParentsAbove60, allowed: capped80DSelf + capped80DParents },
-      { label: "80E - Education Loan Interest", actual: d.section80E, allowed: d.section80E },
-      { label: "80EE - Home Loan Interest (additional)", actual: d.section80EE, allowed: capped80EE },
-      { label: "80EEA - Home Loan Interest (additional)", actual: d.section80EEA, allowed: capped80EEA },
-      { label: "80U - Self Disability", actual: d.section80UBelow80 + d.section80U80AndAbove, allowed: capped80U },
-      { label: "80DD - Dependent Disability", actual: d.section80DDBelow80 + d.section80DD80AndAbove, allowed: capped80DD },
-      { label: "80G - Donations", actual: d.donations80G, allowed: d.donations80G },
+      { label: "Sec 123 (old 80C / 80CCC / 80CCD(1))", actual: d.section80C, allowed: capped80C },
+      { label: "Sec 124 (old 80CCD(1B)) - Additional NPS", actual: d.section80CCD1B, allowed: capped80CCD1B },
+      { label: "Sec 126 (old 80D) - Medical Insurance", actual: d.section80DSelfBelow60 + d.section80DSelfAbove60 + d.section80DParentsBelow60 + d.section80DParentsAbove60, allowed: capped80DSelf + capped80DParents },
+      { label: "Sec 129 (old 80E) - Education Loan Interest", actual: d.section80E, allowed: d.section80E },
+      { label: "Sec 130 (old 80EE) - Home Loan Interest (additional)", actual: d.section80EE, allowed: capped80EE },
+      { label: "Sec 131 (old 80EEA) - Home Loan Interest (additional)", actual: d.section80EEA, allowed: capped80EEA },
+      { label: "Sec 154 (old 80U) - Self Disability", actual: d.section80UBelow80 + d.section80U80AndAbove, allowed: capped80U },
+      { label: "Sec 127 (old 80DD) - Dependent Disability", actual: d.section80DDBelow80 + d.section80DD80AndAbove, allowed: capped80DD },
+      { label: "Sec 133 (old 80G) - Donations", actual: d.donations80G, allowed: d.donations80G },
       { label: "Other Declared Deductions", actual: d.otherDeductions, allowed: d.otherDeductions },
     );
     totalDeductions +=
       capped80C + capped80CCD1B + capped80DSelf + capped80DParents + d.section80E + capped80EE + capped80EEA +
       capped80U + capped80DD + d.donations80G + d.otherDeductions;
   } else {
-    warnings.push("New regime: only Sec 80CCD(2) employer NPS contribution and the standard deduction are applied; all other Chapter VI-A deductions/exemptions are disallowed.");
+    warnings.push("New regime: only Sec 124 (old Sec 80CCD(2)) employer NPS contribution and the standard deduction are applied; all other Chapter VI-A deductions/exemptions are disallowed.");
   }
 
   steps.push({ label: "Total Deductions under Chapter VI-A", amount: totalDeductions });
   const taxableIncomeRaw = Math.max(0, grossTotalIncome - totalDeductions);
-  const taxableIncome = Math.round(taxableIncomeRaw / 10) * 10; // Sec 288A rounding
-  steps.push({ label: "Rounded Net Taxable Income u/s 288A", amount: taxableIncome });
+  const taxableIncome = Math.round(taxableIncomeRaw / 10) * 10; // rounding rule, old Sec 288A - new Act section number not found in research, not cited precisely
+  steps.push({ label: "Rounded Net Taxable Income (old Sec 288A)", amount: taxableIncome });
 
   // --- Slab-wise tax --------------------------------------------------------
   const { tax: taxRaw, breakdown: slabBreakdown } = _slabTax(taxableIncome, config.slabs, input.ageCategory);
@@ -248,7 +249,7 @@ function calculateTax(input, config) {
     }
   }
   rebate = Math.round(rebate);
-  if (rebate > 0) steps.push({ label: "Less: Rebate u/s 87A", amount: -rebate });
+  if (rebate > 0) steps.push({ label: "Less: Rebate u/s 156 (old Sec 87A)", amount: -rebate });
   const taxAfterRebate = taxBeforeRebate - rebate;
   steps.push({ label: "Tax after Rebate", amount: taxAfterRebate });
 

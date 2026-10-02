@@ -668,24 +668,24 @@ function renderSalaryStructureTab(container, employee, fy, onSaved) {
 
 // --- Investment Declaration -------------------------------------------------
 const INVESTMENT_FIELDS = [
-  ["Section 80C basket", [
+  ["Sec 123 basket (old 80C / 80CCC / 80CCD(1))", [
     ["lic", "LIC Premium"], ["epf", "EPF (voluntary)"], ["ppf", "PPF"], ["elss", "ELSS"],
     ["lifeInsurance", "Life Insurance"], ["tuitionFees", "Tuition Fees"], ["housingLoanPrincipal", "Housing Loan Principal"],
-    ["otherSection80C", "Other 80C"], ["section80CCC", "80CCC (Pension Fund)"], ["section80CCD1", "80CCD(1) NPS Employee"],
+    ["otherSection80C", "Other (old 80C)"], ["section80CCC", "Pension Fund (old 80CCC)"], ["section80CCD1", "NPS Employee (old 80CCD(1))"],
   ]],
-  ["Additional NPS", [["section80CCD1B", "80CCD(1B) Additional NPS"]]],
-  ["Section 80D (Medical Insurance)", [
+  ["Sec 124 - Additional NPS (old 80CCD(1B))", [["section80CCD1B", "Additional NPS"]]],
+  ["Sec 126 - Medical Insurance (old 80D)", [
     ["section80DSelfBelow60", "Self/Family (below 60)"], ["section80DParentsBelow60", "Parents (below 60)"],
     ["section80DSelfAbove60", "Self/Family (60+)"], ["section80DParentsAbove60", "Parents (60+)"],
   ]],
   ["Other Deductions", [
-    ["section80E", "80E Education Loan Interest"], ["section80EE", "80EE Home Loan Interest"], ["section80EEA", "80EEA Home Loan Interest"],
-    ["section80UBelow80", "80U Self Disability (<80%)"], ["section80U80AndAbove", "80U Self Disability (80%+)"],
-    ["section80DDBelow80", "80DD Dependent Disability (<80%)"], ["section80DD80AndAbove", "80DD Dependent Disability (80%+)"],
-    ["donations80G", "80G Donations"], ["otherDeductions", "Other Deductions"], ["ltaClaimed", "LTA Exempt Amount (Sec 10(5))"],
+    ["section80E", "Education Loan Interest (Sec 129, old 80E)"], ["section80EE", "Home Loan Interest (Sec 130, old 80EE)"], ["section80EEA", "Home Loan Interest (Sec 131, old 80EEA)"],
+    ["section80UBelow80", "Self Disability <80% (Sec 154, old 80U)"], ["section80U80AndAbove", "Self Disability 80%+ (Sec 154, old 80U)"],
+    ["section80DDBelow80", "Dependent Disability <80% (Sec 127, old 80DD)"], ["section80DD80AndAbove", "Dependent Disability 80%+ (Sec 127, old 80DD)"],
+    ["donations80G", "Donations (Sec 133, old 80G)"], ["otherDeductions", "Other Deductions"], ["ltaClaimed", "LTA Exempt Amount (old Sec 10(5))"],
   ]],
   ["House Property", [
-    ["homeLoanInterestSelfOccupied", "Home Loan Interest (Self-Occupied)"],
+    ["homeLoanInterestSelfOccupied", "Home Loan Interest (Self-Occupied, Sec 24(b))"],
     ["letOutAnnualValue", "Let-Out: Annual Value"], ["letOutMunicipalTax", "Let-Out: Municipal Tax"], ["letOutHomeLoanInterest", "Let-Out: Home Loan Interest"],
   ]],
 ];
@@ -694,26 +694,29 @@ const INVESTMENT_FIELDS = [
 // the app itself always applies these caps when computing tax (see
 // DEDUCTION_LIMITS in rule-configs.js and tax-engine.js), so entering more
 // than the limit is harmless - it's just shown here so the figures entered
-// can be sanity-checked against what the law actually allows. Re-verified
-// against current sources as of October 2026; Sec 80D's own figures also
-// confirmed unchanged under its Income-tax Act, 2025 renumbering (new
-// Sec 126 = old Sec 80D).
+// can be sanity-checked against what the law actually allows. Rupee limits
+// re-verified against current sources as of October 2026 - all unchanged
+// from the old Act. Section citations use the Income-tax Act, 2025
+// numbering (effective 1 April 2026 / Tax Year 2026-27), with the familiar
+// old Sec 80C/80D/etc. numbering in brackets; left uncited where research
+// couldn't confirm a specific new number (see rule-configs.js's header
+// comment for the full citation list and confidence notes).
 const DEDUCTION_LIMIT_REFERENCE = [
-  ["LIC / EPF / PPF / ELSS / Life Insurance / Tuition Fees / Housing Loan Principal / 80CCC / 80CCD(1) (combined)", "Rs 1,50,000 total"],
-  ["80CCD(1B) Additional NPS", "Rs 50,000 (on top of the Rs 1,50,000 above - Rs 2,00,000 combined ceiling)"],
-  ["80D Self/Family (below 60)", "Rs 25,000 (includes up to Rs 5,000 for preventive health checkup, not in addition)"],
-  ["80D Self/Family (60+)", "Rs 50,000 (includes up to Rs 5,000 for preventive health checkup, not in addition)"],
-  ["80D Parents (below 60)", "Rs 25,000"],
-  ["80D Parents (60+)", "Rs 50,000"],
-  ["80DD / 80U Disability (<80%)", "Rs 75,000"],
-  ["80DD / 80U Disability (80%+, severe)", "Rs 1,25,000"],
-  ["80E Education Loan Interest", "No upper limit - full interest amount, for 8 years from first repayment"],
-  ["80EE Home Loan Interest (additional, first-time buyers)", "Rs 50,000"],
-  ["80EEA Home Loan Interest (affordable housing)", "Rs 1,50,000 - only for loans sanctioned 1 Apr 2019 to 31 Mar 2022"],
-  ["80G Donations", "50% or 100% of the donated amount depending on the institution, some subject to a 10%-of-income qualifying limit - enter the employee's own already-computed eligible amount"],
-  ["LTA Exempt Amount", "Limited to actual eligible travel cost incurred, for 2 journeys in a block of 4 calendar years (current block: 2026-2029) - not a flat rupee cap"],
-  ["Home Loan Interest (Self-Occupied)", "Rs 2,00,000"],
-  ["House Property Loss Set-Off (self-occupied + let-out combined)", "Rs 2,00,000 against other income per year; any excess carries forward (not tracked by this app)"],
+  ["LIC / EPF / PPF / ELSS / Life Insurance / Tuition Fees / Housing Loan Principal / 80CCC / 80CCD(1) (combined) - Sec 123", "Rs 1,50,000 total"],
+  ["80CCD(1B) Additional NPS - Sec 124", "Rs 50,000 (on top of the Rs 1,50,000 above - Rs 2,00,000 combined ceiling)"],
+  ["80D Self/Family (below 60) - Sec 126", "Rs 25,000 (includes up to Rs 5,000 for preventive health checkup, not in addition)"],
+  ["80D Self/Family (60+) - Sec 126", "Rs 50,000 (includes up to Rs 5,000 for preventive health checkup, not in addition)"],
+  ["80D Parents (below 60) - Sec 126", "Rs 25,000"],
+  ["80D Parents (60+) - Sec 126", "Rs 50,000"],
+  ["80DD Dependent Disability (<80%) - Sec 127 / 80U Self Disability (<80%) - Sec 154", "Rs 75,000 (each)"],
+  ["80DD Dependent Disability (80%+) - Sec 127 / 80U Self Disability (80%+) - Sec 154", "Rs 1,25,000 (each)"],
+  ["80E Education Loan Interest - Sec 129", "No upper limit - full interest amount, for 8 years from first repayment"],
+  ["80EE Home Loan Interest (additional, first-time buyers) - Sec 130", "Rs 50,000"],
+  ["80EEA Home Loan Interest (affordable housing) - Sec 131", "Rs 1,50,000 - only for loans sanctioned 1 Apr 2019 to 31 Mar 2022"],
+  ["80G Donations - Sec 133", "50% or 100% of the donated amount depending on the institution, some subject to a 10%-of-income qualifying limit - enter the employee's own already-computed eligible amount"],
+  ["LTA Exempt Amount - old Sec 10(5) (new Act number not independently verified)", "Limited to actual eligible travel cost incurred, for 2 journeys in a block of 4 calendar years (current block: 2026-2029) - not a flat rupee cap"],
+  ["Home Loan Interest (Self-Occupied) - Sec 24(b)", "Rs 2,00,000"],
+  ["House Property Loss Set-Off (self-occupied + let-out combined) - old Sec 71(3A) (new Act number not independently verified)", "Rs 2,00,000 against other income per year; any excess carries forward (not tracked by this app)"],
 ];
 
 function renderInvestmentDeclarationTab(container, employee, fy, onSaved) {
@@ -1171,7 +1174,7 @@ function renderForm16(container, employee) {
 }
 
 // --- Full & Final Settlement ---------------------------------------------
-const GRATUITY_EXEMPTION_CAP = 2000000; // Sec 10(10): statutory ceiling for non-government employees (as of the last amendment raising it from Rs 10L to Rs 20L).
+const GRATUITY_EXEMPTION_CAP = 2000000; // New Sec 19 (old Sec 10(10)): statutory ceiling for non-government employees (as of the last amendment raising it from Rs 10L to Rs 20L).
 
 /** Completed years of service for gratuity, per Sec 4(2) of the Payment of Gratuity Act: a part-year of 6 months or more rounds up to a full year, less than 6 months rounds down. */
 function computeServiceYears(dateOfJoining, dateOfLeaving) {
@@ -1222,7 +1225,7 @@ function renderFnfTab(container, employee, fy, onSaved) {
       <div class="form-grid">
         <div><label>Gratuity to Pay</label><input type="number" min="0" id="fnf-gratuity" value="${gratuityEligible ? statutoryGratuity : 0}" /></div>
       </div>
-      <p class="text-muted mt-16" style="font-size:12px;">Exempt from tax up to the LEAST of: actual amount, Rs ${GRATUITY_EXEMPTION_CAP.toLocaleString("en-IN")} (lifetime, Sec 10(10)), or the statutory formula above. If you pay more than that exemption (an ex-gratia top-up), the excess is taxable salary income - add it separately via this employee's "LOP & Bonus" override on the final payroll run if so, since it isn't auto-added here.</p>
+      <p class="text-muted mt-16" style="font-size:12px;">Exempt from tax up to the LEAST of: actual amount, Rs ${GRATUITY_EXEMPTION_CAP.toLocaleString("en-IN")} (lifetime, new Sec 19 / old Sec 10(10)), or the statutory formula above. If you pay more than that exemption (an ex-gratia top-up), the excess is taxable salary income - add it separately via this employee's "LOP &amp; Bonus" override on the final payroll run if so, since it isn't auto-added here.</p>
     </div>
 
     <div class="card">
@@ -1231,7 +1234,7 @@ function renderFnfTab(container, employee, fy, onSaved) {
         <div><label>Leave Days to Encash</label><input type="number" min="0" id="fnf-leave-days" value="0" /></div>
         <div><label>Per-Day Rate</label><input type="number" min="0" id="fnf-leave-rate" value="${Math.round(basicPlusDaMonthly / 30)}" /></div>
       </div>
-      <p class="text-muted mt-16" style="font-size:12px;">Exempt under Sec 10(10AA) up to a lifetime limit (Rs 25,00,000 for non-government employees) - most ordinary encashment amounts are well within this; verify separately if this employee is close to that lifetime cap across employers.</p>
+      <p class="text-muted mt-16" style="font-size:12px;">Exempt under new Sec 19 (old Sec 10(10AA)) up to a lifetime limit (Rs 25,00,000 for non-government employees) - most ordinary encashment amounts are well within this; verify separately if this employee is close to that lifetime cap across employers.</p>
     </div>
 
     <div class="card">

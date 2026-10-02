@@ -1,5 +1,6 @@
-// Perquisite valuation - taxable under Sec 17(2)/Sec 17(1) of the salary
-// head. Covers the two most commonly declared types (gift vouchers,
+// Perquisite valuation - taxable under new Sec 17/Sec 16 (old Sec 17(2)/
+// Sec 17(1)) of the salary head. Covers the two most commonly declared
+// types (gift vouchers,
 // employer-provided car) plus a manual "Other" catch-all for anything else
 // (rent-free accommodation, ESOPs, interest-free loans, club membership,
 // etc.) that isn't separately modeled here - those still need the taxable

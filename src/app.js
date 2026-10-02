@@ -471,10 +471,10 @@ registerView("tax-rules", "Setup", "Tax Rules", (container) => {
     return `
       <div class="card" style="margin:8px 0;">
         <div class="card-grid">
-          <div><div class="stat-label">Rebate (Old Regime, Sec 87A)</div><div>Up to ${rupees(r.rebateMaxOld)} if taxable income &le; ${rupees(r.rebateLimitOld)}</div></div>
-          <div><div class="stat-label">Rebate (New Regime, Sec 87A)</div><div>Full rebate if taxable income &le; ${rupees(r.rebateLimitNew)}${r.marginalReliefNew ? ", with marginal relief just above it" : ""}</div></div>
-          <div><div class="stat-label">HRA Exemption (Sec 10(13A))</div><div>${pct(r.hraConfig.metroPercent)} of Basic+DA (metro) / ${pct(r.hraConfig.nonMetroPercent)} (non-metro)</div></div>
-          <div><div class="stat-label">Employer PF+NPS+Superannuation Perquisite Threshold (Sec 17(2)(vii))</div><div>${rupees(r.employerNpsPfPerqLimit)}/year combined</div></div>
+          <div><div class="stat-label">Rebate (Old Regime, Sec 156 / old 87A)</div><div>Up to ${rupees(r.rebateMaxOld)} if taxable income &le; ${rupees(r.rebateLimitOld)}</div></div>
+          <div><div class="stat-label">Rebate (New Regime, Sec 156 / old 87A)</div><div>Full rebate if taxable income &le; ${rupees(r.rebateLimitNew)}${r.marginalReliefNew ? ", with marginal relief just above it" : ""}</div></div>
+          <div><div class="stat-label">HRA Exemption (old Sec 10(13A), now a Schedule)</div><div>${pct(r.hraConfig.metroPercent)} of Basic+DA (metro) / ${pct(r.hraConfig.nonMetroPercent)} (non-metro)</div></div>
+          <div><div class="stat-label">Employer PF+NPS+Superannuation Perquisite Threshold (Sec 17 / old 17(2)(vii))</div><div>${rupees(r.employerNpsPfPerqLimit)}/year combined</div></div>
         </div>
 
         <h3 class="mt-16">Income Slabs by Age Category</h3>
