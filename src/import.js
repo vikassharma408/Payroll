@@ -94,7 +94,7 @@ const INSTRUCTIONS_LINES = [
   "",
   "STEP 1 - Fill in your data in this workbook",
   "1. Go to the 'Employee Master' tab. Enter one row per employee. Employee Code is whatever short code you want to use (e.g. EMP101) - you'll reuse it on the other tabs.",
-  "2. Go to the 'Salary Structure' tab. Enter each employee's ANNUAL amount for each salary component for the current financial year. Employee Code must match the Employee Master tab exactly.",
+  "2. Go to the 'Salary Structure' tab. Enter each employee's MONTHLY amount for each salary component for the current financial year. Employee Code must match the Employee Master tab exactly.",
   "3. Go to the 'Investment Declaration' tab for employees who have tax-saving investments, medical insurance, home loan interest, or HRA rent to declare. Employee Code must match.",
   "4. Go to the 'Previous Employer' tab ONLY for employees who joined partway through this financial year and have salary/TDS from a previous employer in the same year.",
   "5. Save this file when done.",
@@ -304,10 +304,10 @@ function importSalaryStructures(db, rows, companyId) {
 
     const amounts = [];
     for (const col of numericFields) {
-      const annual = toNumberI(row[col.header]);
-      if (Number.isNaN(annual)) rowErrors.push(`Invalid number for '${col.header}'`);
-      else if (annual < 0) rowErrors.push(`'${col.header}' cannot be negative`);
-      else if (annual > 0) amounts.push({ code: col.field, monthly: Math.round((annual / 12) * 100) / 100, annual });
+      const monthly = toNumberI(row[col.header]);
+      if (Number.isNaN(monthly)) rowErrors.push(`Invalid number for '${col.header}'`);
+      else if (monthly < 0) rowErrors.push(`'${col.header}' cannot be negative`);
+      else if (monthly > 0) amounts.push({ code: col.field, monthly });
     }
 
     if (rowErrors.length > 0) {
@@ -327,7 +327,7 @@ function importSalaryStructures(db, rows, companyId) {
       id: newId("ess"), employeeId: employee.id, financialYearId: fy.id, annualCTC, effectiveFrom: now, effectiveTo: null, isActive: true, createdAt: now,
       components: amounts.map((a) => {
         const comp = db.salaryComponents.find((c) => c.code === a.code);
-        return { componentId: comp.id, componentCode: a.code, category: comp.category, monthlyAmount: a.monthly, annualAmount: a.monthly * 12, formulaUsed: `Imported fixed amount: Rs ${(a.monthly * 12).toLocaleString("en-IN")}/year` };
+        return { componentId: comp.id, componentCode: a.code, category: comp.category, monthlyAmount: a.monthly, annualAmount: a.monthly * 12, formulaUsed: `Imported fixed monthly amount: Rs ${a.monthly.toLocaleString("en-IN")}/month` };
       }),
     });
     imported++;

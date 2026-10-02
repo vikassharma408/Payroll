@@ -334,12 +334,18 @@ function renderSalaryStructureTab(container, employee, fy, onSaved) {
     .filter((s) => s.employeeId === employee.id && s.financialYearId === fy.id && s.isActive)
     .sort((a, b) => new Date(b.effectiveFrom) - new Date(a.effectiveFrom))[0];
 
-  let ctc = active ? active.annualCTC : 0;
-  // Editable rows are re-derived from the stored components as fixed annual
-  // amounts (the formula trace is display-only, not re-parsed back into a
-  // formula string); the user can switch a row back to "Formula" mode and
-  // re-enter it if they want to keep it formula-driven going forward.
-  let rows = active ? active.components.map((c) => ({ componentId: c.componentId, componentCode: c.componentCode, isFormula: false, formula: "", fixedAnnualAmount: c.annualAmount })) : [];
+  // You enter each component's MONTHLY amount directly (matching how most
+  // payroll admins already think, and the source spreadsheet this app was
+  // built from); annual CTC is a read-only total computed from these, not a
+  // separate input - so there's nothing to keep in sync by hand.
+  let rows = active ? active.components.map((c) => ({ componentId: c.componentId, componentCode: c.componentCode, monthlyAmount: c.monthlyAmount })) : [];
+
+  function computedCtc() {
+    return rows.reduce((s, r) => {
+      const comp = db.salaryComponents.find((c) => c.id === r.componentId);
+      return comp && (comp.category === "EARNING" || comp.category === "EMPLOYER_CONTRIBUTION") ? s + r.monthlyAmount * 12 : s;
+    }, 0);
+  }
 
   function render() {
     const options = db.salaryComponents
@@ -350,11 +356,11 @@ function renderSalaryStructureTab(container, employee, fy, onSaved) {
 
     container.innerHTML = `
       <div class="card">
-        <div class="form-grid">
-          <div><label>Annual CTC</label><input type="number" id="ctc-input" value="${ctc}" min="0" /></div>
-        </div>
+        <div class="stat-label">Annual CTC (computed)</div>
+        <div class="stat-value" id="ctc-display">${rupees(computedCtc())}</div>
+        <p class="text-muted" style="font-size:12px;">Sum of all Earning + Employer Contribution components below, x12. Enter each component's MONTHLY amount; this total updates automatically.</p>
         <table class="mt-16">
-          <thead><tr><th>Component</th><th>Category</th><th>Mode</th><th>Value</th><th>Monthly (preview)</th><th></th></tr></thead>
+          <thead><tr><th>Component</th><th>Category</th><th>Monthly Amount</th><th>Annual</th><th></th></tr></thead>
           <tbody id="rows-body"></tbody>
         </table>
         <div class="row gap-8 mt-16">
@@ -373,15 +379,11 @@ function renderSalaryStructureTab(container, employee, fy, onSaved) {
       }
     `;
     renderRows();
-    document.getElementById("ctc-input").addEventListener("input", (e) => {
-      ctc = num(e.target.value);
-      renderRows();
-    });
     document.getElementById("btn-add-row").addEventListener("click", () => {
       const select = document.getElementById("add-component-select");
       const comp = db.salaryComponents.find((c) => c.id === select.value);
       if (!comp || rows.some((r) => r.componentId === comp.id)) return;
-      rows.push({ componentId: comp.id, componentCode: comp.code, isFormula: false, formula: "", fixedAnnualAmount: 0 });
+      rows.push({ componentId: comp.id, componentCode: comp.code, monthlyAmount: 0 });
       renderRows();
     });
     document.getElementById("btn-save-structure").addEventListener("click", async () => {
@@ -391,98 +393,68 @@ function renderSalaryStructureTab(container, employee, fy, onSaved) {
         errorEl.textContent = "Add at least one salary component.";
         return;
       }
-      try {
-        const defs = rows.map((r) => ({ code: r.componentCode, formula: r.isFormula ? r.formula : null, fixedAnnualAmount: r.isFormula ? undefined : r.fixedAnnualAmount || 0 }));
-        const resolved = resolveSalaryStructure(ctc, defs);
-        const now = new Date().toISOString();
-        for (const s of db.employeeSalaryStructures) {
-          if (s.employeeId === employee.id && s.financialYearId === fy.id && s.isActive) {
-            s.isActive = false;
-            s.effectiveTo = now;
-          }
+      const now = new Date().toISOString();
+      for (const s of db.employeeSalaryStructures) {
+        if (s.employeeId === employee.id && s.financialYearId === fy.id && s.isActive) {
+          s.isActive = false;
+          s.effectiveTo = now;
         }
-        const structure = {
-          id: newId("ess"),
-          employeeId: employee.id,
-          financialYearId: fy.id,
-          annualCTC: ctc,
-          effectiveFrom: now,
-          effectiveTo: null,
-          isActive: true,
-          createdAt: now,
-          components: rows.map((r) => {
-            const comp = db.salaryComponents.find((c) => c.id === r.componentId);
-            const res = resolved[r.componentCode];
-            return { componentId: r.componentId, componentCode: r.componentCode, category: comp.category, monthlyAmount: res.monthlyAmount, annualAmount: res.annualAmount, formulaUsed: res.formulaTrace };
-          }),
-        };
-        db.employeeSalaryStructures.push(structure);
-        await persist();
-        onSaved();
-      } catch (err) {
-        errorEl.textContent = err.message;
       }
+      const structure = {
+        id: newId("ess"),
+        employeeId: employee.id,
+        financialYearId: fy.id,
+        annualCTC: computedCtc(),
+        effectiveFrom: now,
+        effectiveTo: null,
+        isActive: true,
+        createdAt: now,
+        components: rows.map((r) => {
+          const comp = db.salaryComponents.find((c) => c.id === r.componentId);
+          return {
+            componentId: r.componentId,
+            componentCode: r.componentCode,
+            category: comp.category,
+            monthlyAmount: r.monthlyAmount,
+            annualAmount: r.monthlyAmount * 12,
+            formulaUsed: `Entered as fixed monthly amount: Rs ${r.monthlyAmount.toLocaleString("en-IN")}/month`,
+          };
+        }),
+      };
+      db.employeeSalaryStructures.push(structure);
+      await persist();
+      onSaved();
     });
   }
 
   function renderRows() {
     const tbody = document.getElementById("rows-body");
-    let preview = {};
-    try {
-      const defs = rows.map((r) => ({ code: r.componentCode, formula: r.isFormula ? r.formula : null, fixedAnnualAmount: r.isFormula ? undefined : r.fixedAnnualAmount || 0 }));
-      preview = resolveSalaryStructure(ctc, defs);
-    } catch {
-      preview = {};
-    }
     tbody.innerHTML = rows
       .map((r, i) => {
         const comp = db.salaryComponents.find((c) => c.id === r.componentId);
-        const monthly = preview[r.componentCode] ? money(preview[r.componentCode].monthlyAmount) : "-";
         return `
         <tr>
           <td>${comp.code} - ${comp.name}</td>
           <td>${comp.category}</td>
-          <td>
-            <select data-idx="${i}" class="mode-select">
-              <option value="fixed" ${!r.isFormula ? "selected" : ""}>Fixed (annual)</option>
-              <option value="formula" ${r.isFormula ? "selected" : ""}>Formula</option>
-            </select>
-          </td>
-          <td>
-            ${
-              r.isFormula
-                ? `<input data-idx="${i}" class="formula-input" placeholder="e.g. 40% of CTC" value="${escapeHtml(r.formula)}" />`
-                : `<input data-idx="${i}" type="number" class="fixed-input" value="${r.fixedAnnualAmount}" />`
-            }
-          </td>
-          <td>${monthly}</td>
+          <td><input data-idx="${i}" type="number" min="0" class="monthly-input" value="${r.monthlyAmount}" /></td>
+          <td>${rupees(r.monthlyAmount * 12)}</td>
           <td><button data-idx="${i}" class="danger remove-row">Remove</button></td>
         </tr>`;
       })
       .join("");
 
-    tbody.querySelectorAll(".mode-select").forEach((el) =>
-      el.addEventListener("change", (e) => {
-        rows[Number(e.target.dataset.idx)].isFormula = e.target.value === "formula";
-        renderRows();
-      }),
-    );
-    tbody.querySelectorAll(".formula-input").forEach((el) =>
+    tbody.querySelectorAll(".monthly-input").forEach((el) =>
       el.addEventListener("input", (e) => {
-        rows[Number(e.target.dataset.idx)].formula = e.target.value;
+        rows[Number(e.target.dataset.idx)].monthlyAmount = num(e.target.value);
         renderRows();
-      }),
-    );
-    tbody.querySelectorAll(".fixed-input").forEach((el) =>
-      el.addEventListener("input", (e) => {
-        rows[Number(e.target.dataset.idx)].fixedAnnualAmount = num(e.target.value);
-        renderRows();
+        document.getElementById("ctc-display").textContent = rupees(computedCtc());
       }),
     );
     tbody.querySelectorAll(".remove-row").forEach((el) =>
       el.addEventListener("click", (e) => {
         rows.splice(Number(e.target.dataset.idx), 1);
         renderRows();
+        document.getElementById("ctc-display").textContent = rupees(computedCtc());
       }),
     );
   }
