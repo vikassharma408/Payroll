@@ -241,6 +241,7 @@ function renderEmployeeDetail(container, employee) {
     ["salary", "Salary Structure"],
     ["investment", "Investment Declaration"],
     ["previous-employer", "Previous Employer"],
+    ["perquisites", "Perquisites"],
     ["regime", "Regime Comparison"],
   ];
 
@@ -297,6 +298,7 @@ function renderEmployeeDetail(container, employee) {
     else if (activeTab === "salary") renderSalaryStructureTab(tabContent, employee, fy, render);
     else if (activeTab === "investment") renderInvestmentDeclarationTab(tabContent, employee, fy, render);
     else if (activeTab === "previous-employer") renderPreviousEmployerTab(tabContent, employee, fy, render);
+    else if (activeTab === "perquisites") renderPerquisitesTab(tabContent, employee, fy, render);
     else if (activeTab === "regime") renderRegimeComparisonTab(tabContent, employee, fy);
   }
 
@@ -662,6 +664,154 @@ function renderPreviousEmployerTab(container, employee, fy, onSaved) {
     await persist();
     onSaved();
   });
+}
+
+// --- Perquisites -------------------------------------------------------------
+function renderPerquisitesTab(container, employee, fy, onSaved) {
+  const entries = db.employeePerquisites.filter((p) => p.employeeId === employee.id && p.financialYearId === fy.id);
+  const { total, breakdown } = computePerquisitesTotal(entries);
+  let type = "GIFT_VOUCHER";
+
+  function render() {
+    container.innerHTML = `
+      <div class="card">
+        <div class="stat-label">Total Taxable Perquisite Value (FY ${fy.code})</div>
+        <div class="stat-value">${rupees(total)}</div>
+      </div>
+      <div class="card">
+        <h3>Declared Perquisites</h3>
+        <table>
+          <thead><tr><th>Type</th><th>Details</th><th>Taxable Value</th><th></th></tr></thead>
+          <tbody>
+            ${
+              breakdown
+                .map((b) => `<tr><td>${PERQUISITE_TYPES.find((t) => t.key === b.type)?.label || b.type}</td><td>${escapeHtml(b.label)}<div class="text-muted" style="font-size:12px;">${escapeHtml(b.note)}</div></td><td>${rupees(b.taxableValue)}</td><td>${b.id ? `<button class="danger remove-perq" data-id="${b.id}">Remove</button>` : ""}</td></tr>`)
+                .join("") || `<tr><td colspan="4" class="text-muted">No perquisites declared for FY ${fy.code}.</td></tr>`
+            }
+          </tbody>
+        </table>
+      </div>
+      <form id="perquisite-form" class="card">
+        <h3>Add Perquisite</h3>
+        <div class="form-grid">
+          <div><label>Type</label>
+            <select id="perq-type-select">${PERQUISITE_TYPES.map((t) => `<option value="${t.key}" ${t.key === type ? "selected" : ""}>${t.label}</option>`).join("")}</select>
+          </div>
+        </div>
+        <div id="perq-type-fields" class="mt-16"></div>
+        <div id="perq-form-error" class="text-bad mt-16"></div>
+        <div class="row gap-8 mt-16"><button type="submit" class="primary">Add</button></div>
+      </form>
+    `;
+    renderTypeFields();
+    document.getElementById("perq-type-select").addEventListener("change", (e) => {
+      type = e.target.value;
+      renderTypeFields();
+    });
+    container.querySelectorAll(".remove-perq").forEach((btn) =>
+      btn.addEventListener("click", async () => {
+        db.employeePerquisites = db.employeePerquisites.filter((p) => p.id !== btn.dataset.id);
+        await persist();
+        onSaved();
+      }),
+    );
+    document.getElementById("perquisite-form").addEventListener("submit", async (evt) => {
+      evt.preventDefault();
+      const fd = new FormData(evt.target);
+      const errorEl = document.getElementById("perq-form-error");
+      let entry = { id: newId("perq"), employeeId: employee.id, financialYearId: fy.id, type, createdAt: new Date().toISOString() };
+      if (type === "GIFT_VOUCHER") {
+        const amount = num(fd.get("amount"));
+        if (amount <= 0) {
+          errorEl.textContent = "Enter the gift/voucher value.";
+          return;
+        }
+        entry.amount = amount;
+        entry.description = String(fd.get("description") || "") || null;
+      } else if (type === "CAR") {
+        entry.usageType = String(fd.get("usageType") || "PARTLY_PERSONAL");
+        entry.engineCategory = String(fd.get("engineCategory") || "UPTO_1600CC");
+        entry.hasDriver = fd.get("hasDriver") === "on";
+        entry.monthsUsed = num(fd.get("monthsUsed")) || 12;
+        entry.runningMaintenanceCost = num(fd.get("runningMaintenanceCost"));
+        entry.driverSalary = num(fd.get("driverSalary"));
+        entry.depreciationBase = num(fd.get("depreciationBase"));
+        entry.recoveredFromEmployee = num(fd.get("recoveredFromEmployee"));
+        entry.description = String(fd.get("description") || "") || null;
+      } else {
+        const taxableValue = num(fd.get("taxableValue"));
+        if (!String(fd.get("label") || "").trim()) {
+          errorEl.textContent = "Enter a label for this perquisite.";
+          return;
+        }
+        entry.label = String(fd.get("label"));
+        entry.taxableValue = taxableValue;
+        entry.note = String(fd.get("note") || "") || null;
+      }
+      db.employeePerquisites.push(entry);
+      await persist();
+      onSaved();
+    });
+  }
+
+  function renderTypeFields() {
+    const el = document.getElementById("perq-type-fields");
+    if (type === "GIFT_VOUCHER") {
+      el.innerHTML = `
+        <p class="text-muted" style="font-size:12px;">Gifts/vouchers are exempt up to Rs ${GIFT_EXEMPTION_THRESHOLD.toLocaleString("en-IN")} in aggregate per year - if the YEAR'S TOTAL across all gifts exceeds that, the full amount becomes taxable, not just the excess. Add one entry per gift; the total is computed automatically.</p>
+        <div class="form-grid">
+          <div><label>Value *</label><input type="number" min="0" name="amount" required /></div>
+          <div><label>Description</label><input name="description" placeholder="e.g. Diwali gift voucher" /></div>
+        </div>
+      `;
+    } else if (type === "CAR") {
+      el.innerHTML = `
+        <div class="form-grid">
+          <div><label>Description</label><input name="description" placeholder="e.g. Honda City, registration no." /></div>
+          <div><label>Usage Type</label>
+            <select name="usageType" id="car-usage-type">
+              <option value="PARTLY_PERSONAL">Partly official, partly personal (most common)</option>
+              <option value="OFFICIAL_ONLY">Wholly for official duties</option>
+              <option value="WHOLLY_PERSONAL">Wholly for personal use</option>
+            </select>
+          </div>
+          <div><label>Months Used This FY</label><input type="number" min="1" max="12" name="monthsUsed" value="12" /></div>
+        </div>
+        <div class="card" style="background:var(--ink); margin-top:12px;">
+          <p class="text-muted" style="font-size:12px;">Used only for "Partly official, partly personal" (flat monthly rate per Rule 3(2)(A)):</p>
+          <div class="form-grid">
+            <div><label>Engine Capacity</label>
+              <select name="engineCategory">
+                <option value="UPTO_1600CC">Up to 1.6 litre (Rs ${CAR_FLAT_MONTHLY_RATE.UPTO_1600CC}/month)</option>
+                <option value="ABOVE_1600CC">Above 1.6 litre (Rs ${CAR_FLAT_MONTHLY_RATE.ABOVE_1600CC}/month)</option>
+              </select>
+            </div>
+            <div style="display:flex;align-items:flex-end;"><label class="row gap-8" style="display:flex;align-items:center;"><input type="checkbox" name="hasDriver" style="width:auto;" /> Employer also provides a driver (+Rs ${CAR_DRIVER_FLAT_MONTHLY_RATE}/month)</label></div>
+          </div>
+        </div>
+        <div class="card" style="background:var(--ink); margin-top:12px;">
+          <p class="text-muted" style="font-size:12px;">Used only for "Wholly for personal use" (actual-cost method per Rule 3(2)(B)):</p>
+          <div class="form-grid">
+            <div><label>Running &amp; Maintenance Cost</label><input type="number" min="0" name="runningMaintenanceCost" value="0" /></div>
+            <div><label>Driver Salary</label><input type="number" min="0" name="driverSalary" value="0" /></div>
+            <div><label>Car Cost (for 10%/year depreciation)</label><input type="number" min="0" name="depreciationBase" value="0" /></div>
+            <div><label>Amount Recovered from Employee</label><input type="number" min="0" name="recoveredFromEmployee" value="0" /></div>
+          </div>
+        </div>
+      `;
+    } else {
+      el.innerHTML = `
+        <p class="text-bad" style="font-size:12px;">This covers anything not modeled above (rent-free accommodation, ESOPs, interest-free loans, club membership, etc.) - work out the taxable value yourself per the applicable Rule 3 provision and enter it directly.</p>
+        <div class="form-grid">
+          <div><label>Label *</label><input name="label" placeholder="e.g. Club membership" required /></div>
+          <div><label>Taxable Value *</label><input type="number" min="0" name="taxableValue" required /></div>
+          <div><label>Note</label><input name="note" placeholder="Optional - how you worked this out" /></div>
+        </div>
+      `;
+    }
+  }
+
+  render();
 }
 
 // --- Regime Comparison -------------------------------------------------------

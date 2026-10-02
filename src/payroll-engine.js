@@ -17,6 +17,7 @@
   const { deriveAgeCategory } = isNode ? require("./rule-configs.js") : { deriveAgeCategory: root.deriveAgeCategory };
   const { calendarToFyMonthIndex, daysInCalendarMonth, fyMonthIndexToCalendar } = isNode ? require("./dates.js") : { calendarToFyMonthIndex: root.calendarToFyMonthIndex, daysInCalendarMonth: root.daysInCalendarMonth, fyMonthIndexToCalendar: root.fyMonthIndexToCalendar };
   const { newId } = isNode ? require("./db.js") : { newId: root.newId };
+  const { computePerquisitesTotal } = isNode ? require("./perquisites.js") : { computePerquisitesTotal: root.computePerquisitesTotal };
 
   const PERQ_CHECK_CODES = ["EMPLOYER_PF", "EMPLOYER_NPS", "EMPLOYER_SUPERANNUATION"];
   const BASIC_DA_CODES = ["BASIC", "DA"];
@@ -149,6 +150,8 @@
 
     const declaration = db.investmentDeclarations.find((d) => d.employeeId === employeeId && d.financialYearId === fy.id) || null;
     const prevEmployer = db.previousEmployerIncomes.find((p) => p.employeeId === employeeId && p.financialYearId === fy.id) || null;
+    const perquisiteEntries = db.employeePerquisites.filter((p) => p.employeeId === employeeId && p.financialYearId === fy.id);
+    const perquisitesAnnual = computePerquisitesTotal(perquisiteEntries).total;
 
     const oldConfig = getTaxRuleSetConfig(db, fy.code, "OLD", currentMonthDateIso);
     const newConfig = getTaxRuleSetConfig(db, fy.code, "NEW", currentMonthDateIso);
@@ -224,7 +227,7 @@
         regime,
         ageCategory,
         grossSalaryCurrentEmployer: annualGross,
-        perquisitesOther: 0,
+        perquisitesOther: perquisitesAnnual,
         employerNpsContribution: annualEmployerNps,
         employerPfNpsSuperContribution: annualEmployerPfNpsSuper,
         previousEmployerTaxableSalary: prevEmployer?.taxableSalary ?? 0,
@@ -413,6 +416,7 @@
 
     const declaration = db.investmentDeclarations.find((d) => d.employeeId === employeeId && d.financialYearId === financialYearId) || null;
     const prevEmployerRows = db.previousEmployerIncomes.filter((p) => p.employeeId === employeeId && p.financialYearId === financialYearId);
+    const perquisitesAnnualForEstimate = computePerquisitesTotal(db.employeePerquisites.filter((p) => p.employeeId === employeeId && p.financialYearId === financialYearId)).total;
 
     const earningsAnnual = {}, employerAnnual = {}, deductionAnnual = {};
     for (const c of structure.components) {
@@ -456,7 +460,7 @@
         regime,
         ageCategory,
         grossSalaryCurrentEmployer: annualGross,
-        perquisitesOther: 0,
+        perquisitesOther: perquisitesAnnualForEstimate,
         employerNpsContribution: employerNpsAnnual,
         employerPfNpsSuperContribution: employerPfNpsSuperAnnual,
         previousEmployerTaxableSalary,
