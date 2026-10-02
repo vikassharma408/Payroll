@@ -201,6 +201,7 @@ function renderPayrollRunDetail(container, runId) {
       advanceBtn.addEventListener("click", async () => {
         try {
           PayrollEngine.advancePayrollStatus(db, run.id, nextStatus);
+          logAudit("PayrollRun", run.id, "STATUS_CHANGE", `${monthLabel(run)} marked as ${nextStatus}`);
           await persist();
           render();
         } catch (err) {
@@ -222,11 +223,10 @@ function renderPayrollRunDetail(container, runId) {
         evt.preventDefault();
         const fd = new FormData(evt.target);
         try {
-          PayrollEngine.addAdjustment(db, form.dataset.lineId, {
-            amount: num(fd.get("amount")),
-            reason: String(fd.get("reason") || ""),
-            enteredBy: String(fd.get("enteredBy") || ""),
-          });
+          const amount = num(fd.get("amount"));
+          const reason = String(fd.get("reason") || "");
+          PayrollEngine.addAdjustment(db, form.dataset.lineId, { amount, reason, enteredBy: String(fd.get("enteredBy") || "") });
+          logAudit("PayrollAdjustment", form.dataset.lineId, "CREATE", `${reason}: ${rupees(amount)}`);
           await persist();
           render();
         } catch (err) {

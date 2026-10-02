@@ -26,6 +26,11 @@ function escapeHtml(s) {
   return String(s ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
 }
 
+/** Records a change in db.auditLog - call before persist() so the log entry is saved along with the change itself. */
+function logAudit(entityType, entityId, action, detail) {
+  db.auditLog.push({ id: newId("log"), entityType, entityId, action, detail: detail || null, createdAt: new Date().toISOString() });
+}
+
 async function persist() {
   await Persistence.saveDb(db);
   let autoSaved = false;
@@ -94,7 +99,7 @@ const SIDEBAR = [
       ["import", "Import Wizard"],
     ],
   },
-  { section: "Insights", items: [["reports", "Reports"], ["reconciliation", "Reconciliation"]] },
+  { section: "Insights", items: [["reports", "Reports"], ["reconciliation", "Reconciliation"], ["audit-log", "Audit Log"]] },
   {
     section: "Setup",
     items: [

@@ -251,10 +251,12 @@ function renderEmployeeForm(container, employee) {
     if (isEdit) {
       Object.assign(employee, data);
       targetId = employee.id;
+      logAudit("Employee", targetId, "UPDATE", `Updated ${data.fullName} (${data.employeeCode})`);
     } else {
       const newEmployee = { id: newId("emp"), companyId, ageCategory: "BELOW_60", createdAt: new Date().toISOString(), updatedAt: new Date().toISOString(), ...data };
       db.employees.push(newEmployee);
       targetId = newEmployee.id;
+      logAudit("Employee", targetId, "CREATE", `Created ${data.fullName} (${data.employeeCode})`);
     }
     await persist();
     navigate(`employees/${targetId}`);
@@ -316,6 +318,7 @@ function renderEmployeeDetail(container, employee) {
       db.previousEmployerIncomes = db.previousEmployerIncomes.filter((p) => p.employeeId !== employee.id);
       db.employeeSalaryStructures = db.employeeSalaryStructures.filter((s) => s.employeeId !== employee.id);
       db.employees = db.employees.filter((e) => e.id !== employee.id);
+      logAudit("Employee", employee.id, "DELETE", `Deleted ${employee.fullName} (${employee.employeeCode})`);
       await persist();
       navigate("employees");
     });
@@ -451,6 +454,7 @@ function renderSalaryStructureTab(container, employee, fy, onSaved) {
         }),
       };
       db.employeeSalaryStructures.push(structure);
+      logAudit("EmployeeSalaryStructure", structure.id, "CREATE", `New salary structure for ${employee.fullName} (${employee.employeeCode}), CTC ${rupees(structure.annualCTC)}`);
       await persist();
       onSaved();
     });
@@ -1033,6 +1037,7 @@ function renderFnfTab(container, employee, fy, onSaved) {
         if (gratuity) PayrollEngine.addAdjustment(db, finalLine.id, { amount: gratuity, reason: `Gratuity (${service.roundedYears} years of service)`, enteredBy: "F&F Settlement" });
         if (leaveEncashment) PayrollEngine.addAdjustment(db, finalLine.id, { amount: leaveEncashment, reason: `Leave Encashment (${leaveDays} days @ ${rupees(leaveRate)})`, enteredBy: "F&F Settlement" });
         if (noticeRecovery) PayrollEngine.addAdjustment(db, finalLine.id, { amount: -noticeRecovery, reason: "Notice Pay Recovery", enteredBy: "F&F Settlement" });
+        logAudit("Employee", employee.id, "FNF_SETTLEMENT", `F&F posted for ${employee.fullName}: gratuity ${rupees(gratuity)}, leave encashment ${rupees(leaveEncashment)}, notice recovery ${rupees(noticeRecovery)}`);
         await persist();
         alert("Posted to the final payroll run. Open Payroll Runs to review and advance its status as usual.");
         onSaved();

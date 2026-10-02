@@ -139,4 +139,64 @@ registerView("reconciliation", "Insights", "Reconciliation", (container) => {
   render();
 });
 
+// --- Audit Log --------------------------------------------------------------
+registerView("audit-log", "Insights", "Audit Log", (container) => {
+  const company = activeCompany();
+
+  /** Whether a logged entry belongs to the active company - entries for an entity type that isn't company-specific (or whose referenced entity has since been deleted) are always shown rather than silently hidden. */
+  function belongsToActiveCompany(entry) {
+    if (!company) return true;
+    switch (entry.entityType) {
+      case "Company":
+        return entry.entityId === company.id;
+      case "Employee": {
+        const e = db.employees.find((x) => x.id === entry.entityId);
+        return !e || e.companyId === company.id;
+      }
+      case "EmployeeSalaryStructure": {
+        const s = db.employeeSalaryStructures.find((x) => x.id === entry.entityId);
+        const e = s && db.employees.find((x) => x.id === s.employeeId);
+        return !s || !e || e.companyId === company.id;
+      }
+      case "PayrollRun": {
+        const r = db.payrollRuns.find((x) => x.id === entry.entityId);
+        return !r || r.companyId === company.id;
+      }
+      case "PayrollAdjustment": {
+        const run = db.payrollRuns.find((x) => x.lines.some((l) => l.id === entry.entityId));
+        return !run || run.companyId === company.id;
+      }
+      default:
+        return true;
+    }
+  }
+
+  const entries = db.auditLog.filter(belongsToActiveCompany).slice().reverse();
+
+  const importRows = db.importBatches
+    .slice()
+    .reverse()
+    .map((b) => ({ createdAt: b.createdAt, entityType: "Import", action: b.templateType, detail: `${b.fileName}: ${b.importedRecords}/${b.totalRecords} imported, ${b.failedRecords} failed (${b.status})` }));
+
+  const combined = [...entries, ...importRows].sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt));
+
+  container.innerHTML = `
+    <div class="card">
+      <p class="text-muted">A running history of key changes: employees, companies, salary structures, payroll status changes, manual adjustments, F&amp;F settlements, and imports. Scoped to ${company ? escapeHtml(company.name) : "all companies"} where the entity is company-specific.</p>
+      <table>
+        <thead><tr><th>When</th><th>Type</th><th>Action</th><th>Detail</th></tr></thead>
+        <tbody>
+          ${
+            combined
+              .slice(0, 500)
+              .map((e) => `<tr><td>${e.createdAt.slice(0, 16).replace("T", " ")}</td><td>${escapeHtml(e.entityType)}</td><td>${escapeHtml(e.action)}</td><td>${escapeHtml(e.detail || "")}</td></tr>`)
+              .join("") || `<tr><td colspan="4" class="text-muted">No activity recorded yet.</td></tr>`
+          }
+        </tbody>
+      </table>
+      ${combined.length > 500 ? `<p class="text-muted mt-16">Showing the 500 most recent of ${combined.length} entries.</p>` : ""}
+    </div>
+  `;
+});
+
 // Company management now lives in views/companies.js (multi-entity).

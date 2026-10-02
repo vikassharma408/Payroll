@@ -89,11 +89,13 @@ function renderCompanyForm(container, company) {
     if (isEdit) {
       Object.assign(company, data);
       targetId = company.id;
+      logAudit("Company", targetId, "UPDATE", `Updated ${data.name}`);
     } else {
       const newCompany = { id: newId("co"), isActive: true, createdAt: new Date().toISOString(), ...data };
       db.companies.push(newCompany);
       targetId = newCompany.id;
       setActiveCompanyId(targetId);
+      logAudit("Company", targetId, "CREATE", `Created ${data.name}`);
     }
     await persist();
     navigate(`companies/${targetId}`);
@@ -122,6 +124,7 @@ function renderCompanyForm(container, company) {
       db.employees = db.employees.filter((e) => e.companyId !== company.id);
       db.companies = db.companies.filter((x) => x.id !== company.id);
       if (getActiveCompanyId() === company.id) setActiveCompanyId(db.companies[0].id);
+      logAudit("Company", company.id, "DELETE", `Deleted ${company.name} and its ${companyEmployeeIds.size} employee(s)`);
       await persist();
       navigate("companies");
     });
