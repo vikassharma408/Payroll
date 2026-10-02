@@ -494,16 +494,17 @@ registerView("pt-slabs", "Setup", "PT Slabs", (container) => {
           <td>${s.label}</td>
           <td>${s.type.replace(/_/g, " ")}</td>
           <td>${s.type === "MONTHLY" || s.type === "HALF_YEARLY" ? `up to ${rupees(s.slabs[s.slabs.length - 1].amount)}/month` : s.type === "FLAT" ? `${rupees(s.amount)}/month` : "-"}</td>
+          <td>${s.seniorExemptionAge != null ? `${s.seniorExemptionAge}+` : "-"}</td>
           <td><button data-key="${s.key}" class="toggle-pt-edit">${editingKey === s.key ? "Cancel" : "Edit"}</button></td>
         </tr>
-        ${editingKey === s.key ? `<tr><td colspan="4">${renderPtEditForm(s)}</td></tr>` : ""}`,
+        ${editingKey === s.key ? `<tr><td colspan="5">${renderPtEditForm(s)}</td></tr>` : ""}`,
       )
       .join("");
     container.innerHTML = `
       <div class="card">
-        <p class="text-muted">Professional Tax is levied under each state's own Act, so rates and thresholds vary by state - several states (Delhi, UP, Haryana, Rajasthan, Himachal Pradesh) levy none at all. Assign an employee's state on their Profile tab to auto-compute their monthly PT from gross salary instead of a fixed amount; leave it unset to keep using the Salary Structure's fixed PT component. Edit a state's slabs below if a rate changes.</p>
+        <p class="text-muted">Professional Tax is levied under each state's own Act, so rates and thresholds vary by state - several states (Delhi, UP, Haryana, Rajasthan, Himachal Pradesh) levy none at all. Assign an employee's state (and date of birth) on their Profile tab to auto-compute their monthly PT from gross salary instead of a fixed amount; leave state unset to keep using the Salary Structure's fixed PT component. Several states also fully exempt employees once they cross a certain age regardless of salary (e.g. Maharashtra and Gujarat at 65, Karnataka at 60) - set "Senior Citizen Exemption Age" below if a state you use has one; it's left blank for states we couldn't confirm an exact age for. Edit a state's slabs below if a rate changes.</p>
         <table>
-          <thead><tr><th>State</th><th>Type</th><th>Top Rate</th><th></th></tr></thead>
+          <thead><tr><th>State</th><th>Type</th><th>Top Rate</th><th>Senior Exemption</th><th></th></tr></thead>
           <tbody>${rows}</tbody>
         </table>
       </div>
@@ -537,6 +538,7 @@ registerView("pt-slabs", "Setup", "PT Slabs", (container) => {
               </select>
             </div>
             <div><label>Flat Monthly Amount (only used if Type = FLAT)</label><input type="number" min="0" name="amount" value="${s.amount || 0}" /></div>
+            <div><label>Senior Citizen Exemption Age (optional)</label><input type="number" min="0" name="seniorExemptionAge" value="${s.seniorExemptionAge ?? ""}" placeholder="e.g. 65 - leave blank if none" /></div>
           </div>
           <div><label class="mt-16">Note</label><textarea name="note" rows="2" style="width:100%;">${escapeHtml(s.note || "")}</textarea></div>
           <h3 class="mt-16">Slabs ${s.type === "HALF_YEARLY" ? "(on half-yearly gross; monthly PT = slab amount / 6)" : "(on monthly gross)"}</h3>
@@ -572,6 +574,8 @@ registerView("pt-slabs", "Setup", "PT Slabs", (container) => {
     s.type = String(fd.get("type"));
     s.amount = num(fd.get("amount"));
     s.note = String(fd.get("note") || "") || null;
+    const seniorAgeRaw = String(fd.get("seniorExemptionAge") || "").trim();
+    s.seniorExemptionAge = seniorAgeRaw === "" ? null : num(seniorAgeRaw);
     container.querySelectorAll(".pt-slab-upto").forEach((el) => {
       const row = s.slabs[Number(el.dataset.idx)];
       row.upTo = el.value === "" ? null : num(el.value);

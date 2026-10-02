@@ -45,6 +45,10 @@ function createEmptyDb() {
  *   days / one-time taxable pay per employee) are added as empty defaults.
  *   v2 -> v3: `ptSlabs` (editable state-wise Professional Tax slabs) seeded
  *   from pt-slabs.js's defaults if not already present.
+ * Runs unconditionally on every load, not just version-gated sections, so a
+ * newly added field in pt-slabs.js's defaults (e.g. the senior-citizen PT
+ * exemption age) backfills into an already-seeded db instead of silently
+ * staying missing forever.
  */
 function migrateDb(db) {
   if (!db.schemaVersion || db.schemaVersion < 2) {
@@ -65,6 +69,14 @@ function migrateDb(db) {
   if (!db.ptSlabs || db.ptSlabs.length === 0) {
     const ptSlabsMod = typeof module !== "undefined" && module.exports ? require("./pt-slabs.js") : { PT_STATES };
     db.ptSlabs = JSON.parse(JSON.stringify(ptSlabsMod.PT_STATES || []));
+  } else {
+    const ptSlabsMod = typeof module !== "undefined" && module.exports ? require("./pt-slabs.js") : { PT_STATES };
+    for (const s of db.ptSlabs) {
+      const defaults = (ptSlabsMod.PT_STATES || []).find((d) => d.key === s.key);
+      if (defaults && defaults.seniorExemptionAge != null && s.seniorExemptionAge == null) {
+        s.seniorExemptionAge = defaults.seniorExemptionAge;
+      }
+    }
   }
   for (const r of db.payrollRuns || []) {
     if (!r.overrides) r.overrides = {};

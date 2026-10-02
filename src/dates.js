@@ -16,6 +16,17 @@ function daysInCalendarMonth(calendarYear, calendarMonth) {
   return new Date(calendarYear, calendarMonth, 0).getDate();
 }
 
+/** Completed age in years as of a given date - null if no date of birth is known. */
+function computeAge(dobIso, asOfDateIso) {
+  if (!dobIso) return null;
+  const dob = new Date(dobIso);
+  const asOf = new Date(asOfDateIso);
+  let age = asOf.getFullYear() - dob.getFullYear();
+  const hasHadBirthday = asOf.getMonth() > dob.getMonth() || (asOf.getMonth() === dob.getMonth() && asOf.getDate() >= dob.getDate());
+  if (!hasHadBirthday) age -= 1;
+  return age;
+}
+
 if (typeof module !== "undefined" && module.exports) {
-  module.exports = { FY_MONTH_NAMES, fyMonthIndexToCalendar, calendarToFyMonthIndex, daysInCalendarMonth };
+  module.exports = { FY_MONTH_NAMES, fyMonthIndexToCalendar, calendarToFyMonthIndex, daysInCalendarMonth, computeAge };
 }

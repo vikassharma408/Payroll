@@ -15,7 +15,7 @@
   // still in its own temporal dead zone at that point.
   const { calculateTax, monthlyHraExemption } = isNode ? require("./tax-engine.js") : { calculateTax: root.calculateTax, monthlyHraExemption: root.monthlyHraExemption };
   const { deriveAgeCategory } = isNode ? require("./rule-configs.js") : { deriveAgeCategory: root.deriveAgeCategory };
-  const { calendarToFyMonthIndex, daysInCalendarMonth, fyMonthIndexToCalendar } = isNode ? require("./dates.js") : { calendarToFyMonthIndex: root.calendarToFyMonthIndex, daysInCalendarMonth: root.daysInCalendarMonth, fyMonthIndexToCalendar: root.fyMonthIndexToCalendar };
+  const { calendarToFyMonthIndex, daysInCalendarMonth, fyMonthIndexToCalendar, computeAge } = isNode ? require("./dates.js") : { calendarToFyMonthIndex: root.calendarToFyMonthIndex, daysInCalendarMonth: root.daysInCalendarMonth, fyMonthIndexToCalendar: root.fyMonthIndexToCalendar, computeAge: root.computeAge };
   const { newId } = isNode ? require("./db.js") : { newId: root.newId };
   const { computePerquisitesTotal } = isNode ? require("./perquisites.js") : { computePerquisitesTotal: root.computePerquisitesTotal };
   const { computeMonthlyPT } = isNode ? require("./pt-slabs.js") : { computeMonthlyPT: root.computeMonthlyPT };
@@ -150,7 +150,8 @@
     // salary structure's own fixed PT component said. Falls back to the
     // structure's figure for MANUAL/unrecognized states.
     if (employee.ptApplicable && employee.state) {
-      const autoPt = computeMonthlyPT(db.ptSlabs, employee.state, grossSalary);
+      const employeeAgeThisMonth = computeAge(employee.dob, currentMonthDateIso);
+      const autoPt = computeMonthlyPT(db.ptSlabs, employee.state, grossSalary, employeeAgeThisMonth);
       if (autoPt !== null) {
         const roundedPt = Math.round(autoPt);
         totalDeductionsExclTds += roundedPt - (deductions["PROFESSIONAL_TAX"] || 0);
