@@ -10,7 +10,7 @@
   --gold: #1fd6a8;
   --gold-dim: #149a79;
   --gold-hover: #3ee8c0;
-  --nav-active: #e8d9ae;
+  --nav-active: #3ee8c0; /* same teal-mint family as --gold/--gold-hover, not a separate warm-gold hue */
   --teal: #22b8d8;
   --clay: #e0a339;
   --good: #2ee696;
@@ -45,7 +45,7 @@
   --gold: #0b7a70;
   --gold-dim: #0f766e;
   --gold-hover: #14b8a6;
-  --nav-active: #8a6512;
+  --nav-active: #065f5a; /* same teal family as --gold/--gold-dim, darker for contrast on the light tinted background */
   --teal: #4f46e5;
   --clay: #b45309;
   --good: #157a3d;
