@@ -195,6 +195,7 @@ function pct(n) {
 
 registerView("tax-rules", "Setup", "Tax Rules", (container) => {
   let expandedId = null;
+  let editingId = null;
 
   function render() {
     const rows = db.taxRuleSets
@@ -208,14 +209,18 @@ registerView("tax-rules", "Setup", "Tax Rules", (container) => {
           <td>${pct(r.cessRate)}</td>
           <td>${pct(r.npsEmployerCapPercent)}</td>
           <td>${r.notes ? `<span class="badge neutral">${escapeHtml(r.notes.slice(0, 60))}${r.notes.length > 60 ? "..." : ""}</span>` : ""}</td>
-          <td><button data-id="${r.id}" class="toggle-rule-detail">${expandedId === r.id ? "Hide" : "View full logic"}</button></td>
+          <td class="row gap-8">
+            <button data-id="${r.id}" class="toggle-rule-detail">${expandedId === r.id ? "Hide" : "View full logic"}</button>
+            <button data-id="${r.id}" class="toggle-rule-edit">${editingId === r.id ? "Cancel Edit" : "Edit"}</button>
+          </td>
         </tr>
-        ${expandedId === r.id ? `<tr><td colspan="8">${renderRuleDetail(r)}</td></tr>` : ""}`,
+        ${editingId === r.id ? `<tr><td colspan="8">${renderRuleEditForm(r)}</td></tr>` : expandedId === r.id ? `<tr><td colspan="8">${renderRuleDetail(r)}</td></tr>` : ""}`,
       )
       .join("");
     container.innerHTML = `
       <div class="card">
-        <p class="text-muted">These are the tax parameters built into the app for each financial year and regime - every slab, rebate, surcharge, deduction cap and HRA percentage the engine actually uses. Click "View full logic" on any row to see everything behind that FY/regime's calculation. They are not editable from the UI - this keeps the calculations auditable and consistent with the underlying tax law research.</p>
+        <p class="text-muted">These are the tax parameters built into the app for each financial year and regime - every slab, rebate, surcharge, deduction cap and HRA percentage the engine actually uses. Click "View full logic" to see everything behind a FY/regime's calculation, or "Edit" to change it when the law changes.</p>
+        <p class="text-muted" style="font-size:12px;"><strong>Correcting a mistake</strong> (e.g. the provisional FY 2027-28 placeholder, once that year's real Budget is out)? Edit the rule set in place. <strong>A genuine mid-year law change?</strong> Use "Clone as new rule set" (inside Edit) with a later Effective From date instead - the engine always uses the latest rule set effective on or before the month being calculated, so earlier months keep using the old rule and nothing already paid/locked is retroactively affected.</p>
         <table>
           <thead><tr><th>FY</th><th>Regime</th><th>Effective From</th><th>Standard Deduction</th><th>Cess</th><th>Employer NPS Cap</th><th>Notes</th><th></th></tr></thead>
           <tbody>${rows}</tbody>
@@ -229,6 +234,170 @@ registerView("tax-rules", "Setup", "Tax Rules", (container) => {
         render();
       });
     });
+    container.querySelectorAll(".toggle-rule-edit").forEach((btn) => {
+      btn.addEventListener("click", () => {
+        const id = btn.getAttribute("data-id");
+        editingId = editingId === id ? null : id;
+        expandedId = null;
+        render();
+      });
+    });
+
+    const editForm = container.querySelector("#rule-edit-form");
+    if (editForm) {
+      const r = db.taxRuleSets.find((x) => x.id === editForm.dataset.id);
+
+      container.querySelectorAll(".remove-slab").forEach((btn) =>
+        btn.addEventListener("click", async () => {
+          r.slabs.splice(Number(btn.dataset.idx), 1);
+          await persist();
+          render();
+        }),
+      );
+      document.getElementById("btn-add-slab").addEventListener("click", async () => {
+        const ageCategory = document.getElementById("add-slab-age").value;
+        r.slabs.push({ minIncome: 0, maxIncome: null, rate: 0, order: r.slabs.length + 1, ageCategory });
+        await persist();
+        render();
+      });
+      container.querySelectorAll(".remove-surcharge").forEach((btn) =>
+        btn.addEventListener("click", async () => {
+          r.surchargeConfig.splice(Number(btn.dataset.idx), 1);
+          await persist();
+          render();
+        }),
+      );
+      document.getElementById("btn-add-surcharge").addEventListener("click", async () => {
+        r.surchargeConfig.push({ threshold: 0, rate: 0 });
+        await persist();
+        render();
+      });
+
+      document.getElementById("btn-clone-rule").addEventListener("click", async () => {
+        const clone = JSON.parse(JSON.stringify(r));
+        clone.id = newId("trs");
+        const original = new Date(r.effectiveFrom);
+        original.setDate(original.getDate() + 1);
+        clone.effectiveFrom = original.toISOString();
+        clone.notes = `Cloned from a rule set effective ${r.effectiveFrom.slice(0, 10)} - set the correct Effective From date for this amendment, then Save.`;
+        db.taxRuleSets.push(clone);
+        await persist();
+        editingId = clone.id;
+        render();
+      });
+
+      editForm.addEventListener("submit", async (evt) => {
+        evt.preventDefault();
+        const fd = new FormData(evt.target);
+        const errorEl = document.getElementById("rule-edit-error");
+        errorEl.textContent = "";
+        try {
+          r.effectiveFrom = new Date(String(fd.get("effectiveFrom"))).toISOString();
+          r.standardDeduction = num(fd.get("standardDeduction"));
+          r.cessRate = num(fd.get("cessRate")) / 100;
+          r.npsEmployerCapPercent = num(fd.get("npsEmployerCapPercent")) / 100;
+          r.employerNpsPfPerqLimit = num(fd.get("employerNpsPfPerqLimit"));
+          r.rebateLimitOld = num(fd.get("rebateLimitOld"));
+          r.rebateMaxOld = num(fd.get("rebateMaxOld"));
+          r.rebateLimitNew = num(fd.get("rebateLimitNew"));
+          r.marginalReliefNew = fd.get("marginalReliefNew") === "on";
+          r.hraConfig.metroPercent = num(fd.get("hraMetroPercent")) / 100;
+          r.hraConfig.nonMetroPercent = num(fd.get("hraNonMetroPercent")) / 100;
+          r.notes = String(fd.get("notes") || "") || null;
+
+          container.querySelectorAll(".slab-min").forEach((el) => (r.slabs[Number(el.dataset.idx)].minIncome = num(el.value)));
+          container.querySelectorAll(".slab-max").forEach((el) => (r.slabs[Number(el.dataset.idx)].maxIncome = el.value === "" ? null : num(el.value)));
+          container.querySelectorAll(".slab-rate").forEach((el) => (r.slabs[Number(el.dataset.idx)].rate = num(el.value) / 100));
+          container.querySelectorAll(".surcharge-threshold").forEach((el) => (r.surchargeConfig[Number(el.dataset.idx)].threshold = num(el.value)));
+          container.querySelectorAll(".surcharge-rate").forEach((el) => (r.surchargeConfig[Number(el.dataset.idx)].rate = num(el.value) / 100));
+          container.querySelectorAll(".deduction-limit").forEach((el) => (r.deductionLimits[el.dataset.key] = num(el.value)));
+
+          await persist();
+          editingId = null;
+          render();
+        } catch (err) {
+          errorEl.textContent = err.message;
+        }
+      });
+    }
+  }
+
+  function renderRuleEditForm(r) {
+    const slabRows = r.slabs
+      .map(
+        (s, i) => `
+        <tr>
+          <td>${s.ageCategory.replace(/_/g, " ")}</td>
+          <td><input type="number" min="0" class="slab-min" data-idx="${i}" value="${s.minIncome}" /></td>
+          <td><input type="number" min="0" class="slab-max" data-idx="${i}" value="${s.maxIncome ?? ""}" placeholder="(no limit)" /></td>
+          <td><input type="number" min="0" step="0.01" class="slab-rate" data-idx="${i}" value="${s.rate * 100}" /> %</td>
+          <td><button type="button" class="danger remove-slab" data-idx="${i}">Remove</button></td>
+        </tr>`,
+      )
+      .join("");
+
+    const surchargeRows = r.surchargeConfig
+      .map(
+        (s, i) => `
+        <tr>
+          <td><input type="number" min="0" class="surcharge-threshold" data-idx="${i}" value="${s.threshold}" /></td>
+          <td><input type="number" min="0" step="0.01" class="surcharge-rate" data-idx="${i}" value="${s.rate * 100}" /> %</td>
+          <td><button type="button" class="danger remove-surcharge" data-idx="${i}">Remove</button></td>
+        </tr>`,
+      )
+      .join("");
+
+    const deductionRows = Object.entries(r.deductionLimits)
+      .map(([k, v]) => `<tr><td>${k.replace(/_/g, " ")}</td><td><input type="number" min="0" class="deduction-limit" data-key="${k}" value="${v}" /></td></tr>`)
+      .join("");
+
+    return `
+      <div class="card" style="margin:8px 0;">
+        <h3>Editing ${r.financialYearCode} - ${r.regime} Regime</h3>
+        <form id="rule-edit-form" data-id="${r.id}">
+          <div class="form-grid">
+            <div><label>Effective From</label><input type="date" name="effectiveFrom" value="${r.effectiveFrom.slice(0, 10)}" /></div>
+            <div><label>Standard Deduction</label><input type="number" min="0" name="standardDeduction" value="${r.standardDeduction}" /></div>
+            <div><label>Cess Rate (%)</label><input type="number" min="0" step="0.01" name="cessRate" value="${r.cessRate * 100}" /></div>
+            <div><label>Employer NPS Cap (% of Basic+DA)</label><input type="number" min="0" step="0.01" name="npsEmployerCapPercent" value="${r.npsEmployerCapPercent * 100}" /></div>
+            <div><label>Employer PF+NPS+Superannuation Perquisite Threshold</label><input type="number" min="0" name="employerNpsPfPerqLimit" value="${r.employerNpsPfPerqLimit}" /></div>
+            <div><label>Rebate Limit (Old Regime)</label><input type="number" min="0" name="rebateLimitOld" value="${r.rebateLimitOld}" /></div>
+            <div><label>Rebate Max Amount (Old Regime)</label><input type="number" min="0" name="rebateMaxOld" value="${r.rebateMaxOld}" /></div>
+            <div><label>Rebate Limit (New Regime)</label><input type="number" min="0" name="rebateLimitNew" value="${r.rebateLimitNew}" /></div>
+            <div style="display:flex;align-items:flex-end;"><label class="row gap-8" style="display:flex;align-items:center;"><input type="checkbox" name="marginalReliefNew" ${r.marginalReliefNew ? "checked" : ""} style="width:auto;" /> Marginal relief (New Regime)</label></div>
+            <div><label>HRA % (Metro)</label><input type="number" min="0" step="0.01" name="hraMetroPercent" value="${r.hraConfig.metroPercent * 100}" /></div>
+            <div><label>HRA % (Non-Metro)</label><input type="number" min="0" step="0.01" name="hraNonMetroPercent" value="${r.hraConfig.nonMetroPercent * 100}" /></div>
+          </div>
+          <div><label class="mt-16">Notes</label><textarea name="notes" rows="2" style="width:100%;">${escapeHtml(r.notes || "")}</textarea></div>
+
+          <h3 class="mt-16">Income Slabs</h3>
+          <table><thead><tr><th>Age Category</th><th>Min Income</th><th>Max Income</th><th>Rate</th><th></th></tr></thead><tbody id="slab-rows">${slabRows}</tbody></table>
+          <div class="row gap-8 mt-16">
+            <select id="add-slab-age">
+              <option value="BELOW_60">BELOW 60</option>
+              <option value="SENIOR_60_79">SENIOR 60-79</option>
+              <option value="SUPER_SENIOR_80_PLUS">SUPER SENIOR 80+</option>
+            </select>
+            <button type="button" id="btn-add-slab">+ Add Slab Row</button>
+          </div>
+
+          <h3 class="mt-16">Surcharge</h3>
+          <table><thead><tr><th>Threshold</th><th>Rate</th><th></th></tr></thead><tbody id="surcharge-rows">${surchargeRows}</tbody></table>
+          <div class="row gap-8 mt-16"><button type="button" id="btn-add-surcharge">+ Add Surcharge Row</button></div>
+
+          <h3 class="mt-16">Chapter VI-A Deduction Limits</h3>
+          <table><thead><tr><th>Section</th><th>Limit</th></tr></thead><tbody>${deductionRows}</tbody></table>
+
+          <p class="text-muted mt-16" style="font-size:12px;">Note: edits here never change already-calculated payroll lines (their tax snapshot is frozen at calculation time) - only future (re)calculations use the new values. The "Full Rule Catalog" reference text in "View full logic" may not reflect an edit until you reopen it; the figures and tables on this edit screen are always current.</p>
+
+          <div id="rule-edit-error" class="text-bad mt-16"></div>
+          <div class="row gap-8 mt-16">
+            <button type="submit" class="primary">Save</button>
+            <button type="button" id="btn-clone-rule">Clone as New Rule Set</button>
+          </div>
+        </form>
+      </div>
+    `;
   }
 
   function renderRuleDetail(r) {
