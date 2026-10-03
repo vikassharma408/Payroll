@@ -167,7 +167,7 @@ function getReportData(db, key, params) {
       };
     }
     case "employee-ytd": {
-      const lines = db.payrollRuns.filter((r) => r.financialYearId === params.financialYearId && r.companyId === params.companyId).flatMap((r) => r.lines);
+      const lines = db.payrollRuns.filter((r) => r.financialYearId === params.financialYearId && params.companyIds.includes(r.companyId)).flatMap((r) => r.lines);
       const byEmployee = new Map();
       for (const line of lines) {
         const e = db.employees.find((x) => x.id === line.employeeId) || {};
@@ -178,7 +178,7 @@ function getReportData(db, key, params) {
       return { columns: ["Employee Code", "Employee Name", "Months Processed", "Gross Salary (YTD)", "Total Deductions (YTD)", "TDS (YTD)", "Net Salary (YTD)"], rows: [...byEmployee.entries()].map(([code, g]) => [code, g.name, g.months, g.gross, g.ded, g.tds, g.net]) };
     }
     case "investment-declaration": {
-      const decls = db.investmentDeclarations.filter((d) => d.financialYearId === params.financialYearId && (db.employees.find((e) => e.id === d.employeeId) || {}).companyId === params.companyId);
+      const decls = db.investmentDeclarations.filter((d) => d.financialYearId === params.financialYearId && params.companyIds.includes((db.employees.find((e) => e.id === d.employeeId) || {}).companyId));
       return {
         columns: ["Employee Code", "Employee Name", "80C (declared)", "80D", "80CCD(1B)", "Home Loan Interest", "HRA Rent (monthly)", "Donations 80G", "Proof Status"],
         rows: decls.map((d) => {
@@ -193,7 +193,7 @@ function getReportData(db, key, params) {
       };
     }
     case "investment-proof-status": {
-      const decls = db.investmentDeclarations.filter((d) => d.financialYearId === params.financialYearId && (db.employees.find((e) => e.id === d.employeeId) || {}).companyId === params.companyId);
+      const decls = db.investmentDeclarations.filter((d) => d.financialYearId === params.financialYearId && params.companyIds.includes((db.employees.find((e) => e.id === d.employeeId) || {}).companyId));
       const counts = new Map();
       for (const d of decls) counts.set(d.proofStatus, (counts.get(d.proofStatus) || 0) + 1);
       return { columns: ["Proof Status", "Count"], rows: [...counts.entries()] };

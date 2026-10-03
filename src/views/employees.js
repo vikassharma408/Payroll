@@ -34,8 +34,7 @@ registerDetailView("employees", (container, segments) => {
 });
 
 function renderEmployeesList(container) {
-  const company = activeCompany();
-  if (!company) {
+  if (!activeCompany()) {
     container.innerHTML = `<div class="card"><p class="text-muted">No company set up yet. <a href="#/companies/new">Add your first company</a> to get started.</p></div>`;
     return;
   }
@@ -43,7 +42,9 @@ function renderEmployeesList(container) {
   let selected = new Set();
 
   function render() {
-    const companyEmployees = db.employees.filter((e) => e.companyId === company.id).sort((a, b) => a.employeeCode.localeCompare(b.employeeCode));
+    const viewCompanyIds = filteredCompanyIds();
+    const showCompanyColumn = viewCompanyIds.length > 1;
+    const companyEmployees = db.employees.filter((e) => viewCompanyIds.includes(e.companyId)).sort((a, b) => a.employeeCode.localeCompare(b.employeeCode));
     const q = search.trim().toLowerCase();
     const filtered = q
       ? companyEmployees.filter((e) => [e.employeeCode, e.fullName, e.department, e.designation].some((v) => (v || "").toLowerCase().includes(q)))
@@ -58,6 +59,7 @@ function renderEmployeesList(container) {
           <td><input type="checkbox" class="row-select" data-id="${e.id}" ${selected.has(e.id) ? "checked" : ""} /></td>
           <td><a href="#/employees/${e.id}">${escapeHtml(e.employeeCode)}</a></td>
           <td><a href="#/employees/${e.id}">${escapeHtml(e.fullName)}</a></td>
+          ${showCompanyColumn ? `<td>${escapeHtml((db.companies.find((c) => c.id === e.companyId) || {}).name || "-")}</td>` : ""}
           <td>${escapeHtml(e.designation || "-")}</td>
           <td>${escapeHtml(e.department || "-")}</td>
           <td>${sentenceCase(e.taxRegime)}</td>
@@ -67,7 +69,7 @@ function renderEmployeesList(container) {
       .join("");
     container.innerHTML = `
       <div class="row between mt-16" style="margin-bottom:16px;">
-        <span class="text-muted">${company.name}: ${filtered.length} of ${companyEmployees.length} employee(s)</span>
+        <span class="text-muted">${escapeHtml(companyFilterLabel())}: ${filtered.length} of ${companyEmployees.length} employee(s)</span>
         <a href="#/employees/new"><button class="primary">+ Add Employee</button></a>
       </div>
       ${
@@ -90,8 +92,8 @@ function renderEmployeesList(container) {
       <div class="card">
         <input type="search" id="employee-search" placeholder="Search by code, name, department, or designation..." value="${escapeHtml(search)}" style="width:100%; margin-bottom:12px;" />
         <table>
-          <thead><tr><th><input type="checkbox" id="select-all" ${allSelected ? "checked" : ""} /></th><th>Code</th><th>Name</th><th>Designation</th><th>Department</th><th>Regime</th><th>Status</th></tr></thead>
-          <tbody>${rows || `<tr><td colspan="7" class="text-muted">${companyEmployees.length === 0 ? "No employees yet." : "No employees match your search."}</td></tr>`}</tbody>
+          <thead><tr><th><input type="checkbox" id="select-all" ${allSelected ? "checked" : ""} /></th><th>Code</th><th>Name</th>${showCompanyColumn ? "<th>Company</th>" : ""}<th>Designation</th><th>Department</th><th>Regime</th><th>Status</th></tr></thead>
+          <tbody>${rows || `<tr><td colspan="${showCompanyColumn ? 8 : 7}" class="text-muted">${companyEmployees.length === 0 ? "No employees yet." : "No employees match your search."}</td></tr>`}</tbody>
         </table>
       </div>
     `;

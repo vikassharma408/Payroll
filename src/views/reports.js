@@ -17,20 +17,21 @@ registerView("reports", "Insights", "Reports", (container) => {
   let selectedRunId = "";
 
   function render() {
-    const company = activeCompany();
-    if (!company) {
+    if (!activeCompany()) {
       container.innerHTML = `<div class="card"><p class="text-muted">No company set up yet. <a href="#/companies/new">Add your first company</a> to get started.</p></div>`;
       return;
     }
     const fy = currentFy();
-    const runsForFy = fy ? db.payrollRuns.filter((r) => r.financialYearId === fy.id && r.companyId === company.id).sort((a, b) => b.payrollMonthIndex - a.payrollMonthIndex) : [];
+    const viewCompanyIds = filteredCompanyIds();
+    const showCompanyInLabel = viewCompanyIds.length > 1;
+    const runsForFy = fy ? db.payrollRuns.filter((r) => r.financialYearId === fy.id && viewCompanyIds.includes(r.companyId)).sort((a, b) => b.payrollMonthIndex - a.payrollMonthIndex) : [];
     if (!selectedRunId || !runsForFy.some((r) => r.id === selectedRunId)) selectedRunId = runsForFy[0] ? runsForFy[0].id : "";
     const reportDef = REPORT_TYPES.find((r) => r.key === selectedKey);
     let result = { columns: [], rows: [] };
     let unavailable = "";
     if (reportDef.needsRun && !selectedRunId) unavailable = "Select a payroll run above to view this report.";
     else if (!fy) unavailable = "No Financial Year configured.";
-    else result = getReportData(db, selectedKey, { runId: selectedRunId, financialYearId: fy.id, companyId: company.id });
+    else result = getReportData(db, selectedKey, { runId: selectedRunId, financialYearId: fy.id, companyIds: viewCompanyIds });
 
     container.innerHTML = `
       <div class="card no-print">
@@ -41,7 +42,7 @@ registerView("reports", "Insights", "Reports", (container) => {
           ${
             reportDef.needsRun
               ? `<div><label>Payroll Run</label>
-                <select id="run-select">${runsForFy.map((r) => `<option value="${r.id}" ${r.id === selectedRunId ? "selected" : ""}>${monthLabel(r)}${r.payrollGroup ? " - " + r.payrollGroup : ""}</option>`).join("") || `<option value="">No runs yet</option>`}</select>
+                <select id="run-select">${runsForFy.map((r) => `<option value="${r.id}" ${r.id === selectedRunId ? "selected" : ""}>${monthLabel(r)}${r.payrollGroup ? " - " + r.payrollGroup : ""}${showCompanyInLabel ? ` (${(db.companies.find((c) => c.id === r.companyId) || {}).name || "-"})` : ""}</option>`).join("") || `<option value="">No runs yet</option>`}</select>
               </div>`
               : ""
           }
@@ -81,26 +82,28 @@ registerView("reconciliation", "Insights", "Reconciliation", (container) => {
   let previousRunId = "";
 
   function render() {
-    const company = activeCompany();
-    if (!company) {
+    if (!activeCompany()) {
       container.innerHTML = `<div class="card"><p class="text-muted">No company set up yet. <a href="#/companies/new">Add your first company</a> to get started.</p></div>`;
       return;
     }
     const fy = currentFy();
-    const runs = fy ? db.payrollRuns.filter((r) => r.financialYearId === fy.id && r.companyId === company.id).sort((a, b) => b.payrollMonthIndex - a.payrollMonthIndex) : [];
+    const viewCompanyIds = filteredCompanyIds();
+    const showCompanyInLabel = viewCompanyIds.length > 1;
+    const runLabel = (r) => `${monthLabel(r)}${showCompanyInLabel ? ` (${(db.companies.find((c) => c.id === r.companyId) || {}).name || "-"})` : ""}`;
+    const runs = fy ? db.payrollRuns.filter((r) => r.financialYearId === fy.id && viewCompanyIds.includes(r.companyId)).sort((a, b) => b.payrollMonthIndex - a.payrollMonthIndex) : [];
     if (!currentRunId || !runs.some((r) => r.id === currentRunId)) currentRunId = runs[0] ? runs[0].id : "";
     if (previousRunId && !runs.some((r) => r.id === previousRunId)) previousRunId = "";
     if (!previousRunId) {
       const currentRun = runs.find((r) => r.id === currentRunId);
-      const prior = currentRun && runs.find((r) => r.payrollMonthIndex === currentRun.payrollMonthIndex - 1);
+      const prior = currentRun && runs.find((r) => r.payrollMonthIndex === currentRun.payrollMonthIndex - 1 && r.companyId === currentRun.companyId);
       previousRunId = prior ? prior.id : "";
     }
 
     container.innerHTML = `
       <div class="card no-print">
         <div class="form-grid">
-          <div><label>Current Run</label><select id="current-run">${runs.map((r) => `<option value="${r.id}" ${r.id === currentRunId ? "selected" : ""}>${monthLabel(r)}</option>`).join("")}</select></div>
-          <div><label>Compare Against</label><select id="previous-run"><option value="">(none)</option>${runs.filter((r) => r.id !== currentRunId).map((r) => `<option value="${r.id}" ${r.id === previousRunId ? "selected" : ""}>${monthLabel(r)}</option>`).join("")}</select></div>
+          <div><label>Current Run</label><select id="current-run">${runs.map((r) => `<option value="${r.id}" ${r.id === currentRunId ? "selected" : ""}>${runLabel(r)}</option>`).join("")}</select></div>
+          <div><label>Compare Against</label><select id="previous-run"><option value="">(none)</option>${runs.filter((r) => r.id !== currentRunId).map((r) => `<option value="${r.id}" ${r.id === previousRunId ? "selected" : ""}>${runLabel(r)}</option>`).join("")}</select></div>
         </div>
       </div>
       ${!currentRunId ? `<div class="card text-muted">No payroll runs yet.</div>` : renderComparison()}
@@ -141,37 +144,36 @@ registerView("reconciliation", "Insights", "Reconciliation", (container) => {
 
 // --- Audit Log --------------------------------------------------------------
 registerView("audit-log", "Insights", "Audit Log", (container) => {
-  const company = activeCompany();
+  const viewCompanyIds = filteredCompanyIds();
 
-  /** Whether a logged entry belongs to the active company - entries for an entity type that isn't company-specific (or whose referenced entity has since been deleted) are always shown rather than silently hidden. */
-  function belongsToActiveCompany(entry) {
-    if (!company) return true;
+  /** Whether a logged entry belongs to one of the filtered companies - entries for an entity type that isn't company-specific (or whose referenced entity has since been deleted) are always shown rather than silently hidden. */
+  function belongsToFilteredCompanies(entry) {
     switch (entry.entityType) {
       case "Company":
-        return entry.entityId === company.id;
+        return viewCompanyIds.includes(entry.entityId);
       case "Employee": {
         const e = db.employees.find((x) => x.id === entry.entityId);
-        return !e || e.companyId === company.id;
+        return !e || viewCompanyIds.includes(e.companyId);
       }
       case "EmployeeSalaryStructure": {
         const s = db.employeeSalaryStructures.find((x) => x.id === entry.entityId);
         const e = s && db.employees.find((x) => x.id === s.employeeId);
-        return !s || !e || e.companyId === company.id;
+        return !s || !e || viewCompanyIds.includes(e.companyId);
       }
       case "PayrollRun": {
         const r = db.payrollRuns.find((x) => x.id === entry.entityId);
-        return !r || r.companyId === company.id;
+        return !r || viewCompanyIds.includes(r.companyId);
       }
       case "PayrollAdjustment": {
         const run = db.payrollRuns.find((x) => x.lines.some((l) => l.id === entry.entityId));
-        return !run || run.companyId === company.id;
+        return !run || viewCompanyIds.includes(run.companyId);
       }
       default:
         return true;
     }
   }
 
-  const entries = db.auditLog.filter(belongsToActiveCompany).slice().reverse();
+  const entries = db.auditLog.filter(belongsToFilteredCompanies).slice().reverse();
 
   const importRows = db.importBatches
     .slice()
@@ -182,7 +184,7 @@ registerView("audit-log", "Insights", "Audit Log", (container) => {
 
   container.innerHTML = `
     <div class="card">
-      <p class="text-muted">A running history of key changes: employees, companies, salary structures, payroll status changes, manual adjustments, F&amp;F settlements, and imports. Scoped to ${company ? escapeHtml(company.name) : "all companies"} where the entity is company-specific.</p>
+      <p class="text-muted">A running history of key changes: employees, companies, salary structures, payroll status changes, manual adjustments, F&amp;F settlements, and imports. Scoped to ${escapeHtml(companyFilterLabel())} where the entity is company-specific.</p>
       <table>
         <thead><tr><th>When</th><th>Type</th><th>Action</th><th>Detail</th></tr></thead>
         <tbody>

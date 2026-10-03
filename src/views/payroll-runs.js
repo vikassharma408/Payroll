@@ -24,8 +24,10 @@ function renderPayrollRunsList(container) {
     return;
   }
   const fy = currentFy();
+  const viewCompanyIds = filteredCompanyIds();
+  const showCompanyColumn = viewCompanyIds.length > 1;
   const runs = db.payrollRuns
-    .filter((r) => r.companyId === company.id)
+    .filter((r) => viewCompanyIds.includes(r.companyId))
     .slice()
     .sort((a, b) => b.payrollMonthIndex - a.payrollMonthIndex);
 
@@ -36,6 +38,7 @@ function renderPayrollRunsList(container) {
       return `
       <tr>
         <td><a href="#/payroll-runs/${r.id}">${fyOfRun ? fyOfRun.code : "-"} - ${monthLabel(r)}</a></td>
+        ${showCompanyColumn ? `<td>${escapeHtml((db.companies.find((c) => c.id === r.companyId) || {}).name || "-")}</td>` : ""}
         <td>${r.payrollGroup || "All"}</td>
         <td><span class="badge ${r.status === "PAID" ? "good" : r.status === "DRAFT" ? "neutral" : "good"}">${sentenceCase(r.status)}</span></td>
         <td>${r.lines.length}</td>
@@ -64,8 +67,8 @@ function renderPayrollRunsList(container) {
     }
     <div class="card">
       <table>
-        <thead><tr><th>Period</th><th>Group</th><th>Status</th><th>Employees</th><th>Total Net Pay</th></tr></thead>
-        <tbody>${rows || `<tr><td colspan="5" class="text-muted">No payroll runs yet.</td></tr>`}</tbody>
+        <thead><tr><th>Period</th>${showCompanyColumn ? "<th>Company</th>" : ""}<th>Group</th><th>Status</th><th>Employees</th><th>Total Net Pay</th></tr></thead>
+        <tbody>${rows || `<tr><td colspan="${showCompanyColumn ? 6 : 5}" class="text-muted">No payroll runs yet.</td></tr>`}</tbody>
       </table>
     </div>
   `;

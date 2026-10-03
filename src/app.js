@@ -80,12 +80,114 @@ function renderCompanySwitcher() {
     return;
   }
   const activeId = getActiveCompanyId();
-  el.innerHTML = `<select id="company-switcher-select">${db.companies.map((c) => `<option value="${c.id}" ${c.id === activeId ? "selected" : ""}>${escapeHtml(c.name)}</option>`).join("")}</select>`;
+  el.innerHTML = `<select id="company-switcher-select" title="Active company - where new employees, payroll runs, templates etc. are created">${db.companies.map((c) => `<option value="${c.id}" ${c.id === activeId ? "selected" : ""}>${escapeHtml(c.name)}</option>`).join("")}</select>`;
   document.getElementById("company-switcher-select").addEventListener("change", (e) => {
     setActiveCompanyId(e.target.value);
     route();
   });
 }
+
+// --- Company view filter -----------------------------------------------
+// Separate from the Active Company above (which decides where NEW records
+// get created): this controls which companies' data shows up in list/report
+// screens. Defaults to "all" so a fresh install or a single-entity user sees
+// everything with no setup; a multi-entity user can narrow it to one or more
+// specific companies. Stored independently so switching the Active Company
+// (to create something under a different entity) never silently changes
+// what you're currently browsing.
+const COMPANY_FILTER_KEY = "companyFilter";
+function getCompanyFilter() {
+  try {
+    const raw = localStorage.getItem(COMPANY_FILTER_KEY);
+    if (raw) {
+      const parsed = JSON.parse(raw);
+      if (parsed && parsed.mode === "selected" && Array.isArray(parsed.ids)) {
+        const validIds = parsed.ids.filter((id) => db.companies.some((c) => c.id === id));
+        if (validIds.length > 0 && validIds.length < db.companies.length) return { mode: "selected", ids: validIds };
+      }
+    }
+  } catch (err) {
+    // Malformed/missing - fall through to the "all" default below.
+  }
+  return { mode: "all" };
+}
+function setCompanyFilter(filter) {
+  localStorage.setItem(COMPANY_FILTER_KEY, JSON.stringify(filter));
+}
+/** Every company currently in scope for viewing - all of them by default. */
+function filteredCompanies() {
+  const filter = getCompanyFilter();
+  return filter.mode === "all" ? db.companies : db.companies.filter((c) => filter.ids.includes(c.id));
+}
+function filteredCompanyIds() {
+  return filteredCompanies().map((c) => c.id);
+}
+function isCompanyInFilter(companyId) {
+  const filter = getCompanyFilter();
+  return filter.mode === "all" || filter.ids.includes(companyId);
+}
+function companyFilterLabel() {
+  const filter = getCompanyFilter();
+  if (filter.mode === "all") return "All Companies";
+  const names = filter.ids.map((id) => db.companies.find((c) => c.id === id)).filter(Boolean).map((c) => c.name);
+  if (names.length === 0) return "All Companies";
+  if (names.length === 1) return names[0];
+  if (names.length === 2) return names.join(", ");
+  return `${names[0]} +${names.length - 1} more`;
+}
+
+function renderCompanyFilterControl() {
+  const el = document.getElementById("company-filter");
+  if (!el) return;
+  if (db.companies.length <= 1) {
+    el.innerHTML = "";
+    return;
+  }
+
+  function draw() {
+    const filter = getCompanyFilter();
+    const selectedIds = filteredCompanyIds();
+    el.innerHTML = `
+      <div style="position:relative;display:inline-block;">
+        <button type="button" id="company-filter-btn" title="Which companies' data to show in lists and reports">&#128065; ${escapeHtml(companyFilterLabel())} &#9662;</button>
+        <div id="company-filter-panel" class="card" style="display:none;position:absolute;right:0;top:calc(100% + 4px);z-index:100;min-width:240px;max-height:320px;overflow-y:auto;">
+          <label class="row gap-8" style="display:flex;align-items:center;"><input type="checkbox" id="company-filter-all" ${filter.mode === "all" ? "checked" : ""} /><strong>All Companies</strong></label>
+          <hr style="border-color:var(--line);margin:8px 0;" />
+          ${db.companies.map((c) => `<label class="row gap-8" style="display:flex;align-items:center;"><input type="checkbox" class="company-filter-item" value="${c.id}" ${selectedIds.includes(c.id) ? "checked" : ""} /> ${escapeHtml(c.name)}</label>`).join("")}
+        </div>
+      </div>
+    `;
+    document.getElementById("company-filter-btn").addEventListener("click", (e) => {
+      e.stopPropagation();
+      const panel = document.getElementById("company-filter-panel");
+      panel.style.display = panel.style.display === "block" ? "none" : "block";
+    });
+    document.getElementById("company-filter-all").addEventListener("change", () => {
+      setCompanyFilter({ mode: "all" });
+      draw();
+      document.getElementById("company-filter-panel").style.display = "block";
+      route();
+    });
+    el.querySelectorAll(".company-filter-item").forEach((cb) => {
+      cb.addEventListener("change", () => {
+        const next = new Set(filteredCompanyIds());
+        if (cb.checked) next.add(cb.value);
+        else next.delete(cb.value);
+        setCompanyFilter(next.size === 0 || next.size === db.companies.length ? { mode: "all" } : { mode: "selected", ids: [...next] });
+        draw();
+        document.getElementById("company-filter-panel").style.display = "block";
+        route();
+      });
+    });
+  }
+  draw();
+}
+document.addEventListener("click", (e) => {
+  const panel = document.getElementById("company-filter-panel");
+  if (panel && panel.style.display === "block" && !panel.contains(e.target) && e.target.id !== "company-filter-btn") {
+    panel.style.display = "none";
+  }
+});
 
 function updateBackupStatus(justAutoSaved) {
   const el = document.getElementById("backup-status");
@@ -159,6 +261,7 @@ function route() {
   const segments = hash.split("/");
   document.getElementById("sidebar").innerHTML = renderSidebar(segments[0]);
   renderCompanySwitcher();
+  renderCompanyFilterControl();
   const container = document.getElementById("content");
   container.innerHTML = "";
 
@@ -178,31 +281,35 @@ function navigate(path) {
 
 // --- Dashboard ---------------------------------------------------------
 registerView("dashboard", "Overview", "Dashboard", (container) => {
-  const company = activeCompany();
-  if (!company) {
+  if (db.companies.length === 0) {
     container.innerHTML = `<div class="card"><p class="text-muted">No company set up yet. <a href="#/companies/new">Add your first company</a> to get started.</p></div>`;
     return;
   }
-  const companyEmployees = db.employees.filter((e) => e.companyId === company.id);
+  const viewCompanyIds = filteredCompanyIds();
+  const companyEmployees = db.employees.filter((e) => viewCompanyIds.includes(e.companyId));
   const activeEmployees = companyEmployees.filter((e) => e.status !== "INACTIVE").length;
   const currentFy = db.financialYears.find((f) => f.isCurrent) || db.financialYears[0];
-  const runsThisFy = currentFy ? db.payrollRuns.filter((r) => r.financialYearId === currentFy.id && r.companyId === company.id) : [];
-  const latestRun = runsThisFy.slice().sort((a, b) => b.payrollMonthIndex - a.payrollMonthIndex)[0];
+  const runsThisFy = currentFy ? db.payrollRuns.filter((r) => r.financialYearId === currentFy.id && viewCompanyIds.includes(r.companyId)) : [];
+  // "Latest" only makes unambiguous sense within one company when several
+  // are in view (different entities' payroll calendars needn't line up) -
+  // pick the most recently processed run overall, labeled with its company.
+  const latestRun = runsThisFy.slice().sort((a, b) => new Date(b.processedAt || 0) - new Date(a.processedAt || 0) || b.payrollMonthIndex - a.payrollMonthIndex)[0];
   const latestNet = latestRun ? latestRun.lines.reduce((s, l) => s + l.netSalary, 0) : 0;
+  const latestRunCompany = latestRun ? db.companies.find((c) => c.id === latestRun.companyId) : null;
   const pendingDeclarations = currentFy
     ? companyEmployees.filter((e) => e.status !== "INACTIVE" && !db.investmentDeclarations.some((d) => d.employeeId === e.id && d.financialYearId === currentFy.id)).length
     : 0;
 
   container.innerHTML = `
     <div class="card-grid">
-      <div class="card"><div class="stat-label">Active Employees</div><div class="stat-value">${activeEmployees}</div></div>
+      <div class="card"><div class="stat-label">Active Employees${viewCompanyIds.length > 1 ? ` (${companyFilterLabel()})` : ""}</div><div class="stat-value">${activeEmployees}</div></div>
       <div class="card"><div class="stat-label">Financial Year</div><div class="stat-value">${currentFy ? currentFy.code : "-"}</div></div>
-      <div class="card"><div class="stat-label">Latest Payroll Run Net Pay</div><div class="stat-value">${rupees(latestNet)}</div></div>
+      <div class="card"><div class="stat-label">Latest Payroll Run Net Pay${latestRunCompany && viewCompanyIds.length > 1 ? ` (${escapeHtml(latestRunCompany.name)})` : ""}</div><div class="stat-value">${rupees(latestNet)}</div></div>
       <div class="card"><div class="stat-label">Pending Investment Declarations</div><div class="stat-value ${pendingDeclarations > 0 ? "text-bad" : "text-good"}">${pendingDeclarations}</div></div>
     </div>
     <div class="card">
       <h3>Getting started</h3>
-      <p class="text-muted">Add employees, define their salary structure, and process a monthly payroll run from the sidebar. Use the company switcher at the top to work on a different entity, and <a href="#/backup">Backup &amp; Restore</a> to keep your data safe - this app stores everything locally in your browser.</p>
+      <p class="text-muted">Add employees, define their salary structure, and process a monthly payroll run from the sidebar. The Active Company switcher at the top decides where new records are created; the eye icon next to it controls which compan${db.companies.length > 1 ? "ies you're viewing here" : "y you're viewing"}. <a href="#/backup">Backup &amp; Restore</a> keeps your data safe - this app stores everything locally in your browser.</p>
     </div>
   `;
 });

@@ -22,17 +22,19 @@ registerDetailView("salary-templates", (container, segments) => {
 });
 
 function renderTemplatesList(container) {
-  const company = activeCompany();
-  if (!company) {
+  if (!activeCompany()) {
     container.innerHTML = `<div class="card"><p class="text-muted">No company set up yet. <a href="#/companies/new">Add your first company</a> to get started.</p></div>`;
     return;
   }
-  const templates = db.salaryStructureTemplates.filter((t) => t.companyId === company.id);
+  const viewCompanyIds = filteredCompanyIds();
+  const showCompanyColumn = viewCompanyIds.length > 1;
+  const templates = db.salaryStructureTemplates.filter((t) => viewCompanyIds.includes(t.companyId));
   const rows = templates
     .map(
       (t) => `
       <tr>
         <td><a href="#/salary-templates/${t.id}">${escapeHtml(t.name)}</a></td>
+        ${showCompanyColumn ? `<td>${escapeHtml((db.companies.find((c) => c.id === t.companyId) || {}).name || "-")}</td>` : ""}
         <td>${t.components.length}</td>
         <td>${t.includeGratuityInCTC ? "Included in CTC" : "Added on top of CTC"}</td>
       </tr>`,
@@ -40,13 +42,13 @@ function renderTemplatesList(container) {
     .join("");
   container.innerHTML = `
     <div class="row between" style="margin-bottom:16px;">
-      <span class="text-muted">Define a reusable CTC breakup once; generate any employee's monthly + annual Salary Structure from it by entering just their CTC (see the Salary Structure tab on an Employee).</span>
+      <span class="text-muted">Define a reusable CTC breakup once; generate any employee's monthly + annual Salary Structure from it by entering just their CTC (see the Salary Structure tab on an Employee). New templates are created under the Active Company (topbar).</span>
       <a href="#/salary-templates/new"><button class="primary">+ New Template</button></a>
     </div>
     <div class="card">
       <table>
-        <thead><tr><th>Name</th><th>Components</th><th>Gratuity</th></tr></thead>
-        <tbody>${rows || `<tr><td colspan="3" class="text-muted">No templates yet for ${escapeHtml(company.name)}.</td></tr>`}</tbody>
+        <thead><tr><th>Name</th>${showCompanyColumn ? "<th>Company</th>" : ""}<th>Components</th><th>Gratuity</th></tr></thead>
+        <tbody>${rows || `<tr><td colspan="${showCompanyColumn ? 4 : 3}" class="text-muted">No templates yet for ${escapeHtml(companyFilterLabel())}.</td></tr>`}</tbody>
       </table>
     </div>
   `;
