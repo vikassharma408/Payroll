@@ -591,6 +591,189 @@
     return recalculateLine(db, targetRunId, employeeId);
   }
 
+  /** Completed years of service for gratuity, per Sec 4(2) of the Payment of Gratuity Act: a part-year of 6 months or more rounds up to a full year, less than 6 months rounds down. */
+  function computeServiceYears(dateOfJoiningIso, dateOfLeavingIso) {
+    const start = new Date(dateOfJoiningIso);
+    const end = new Date(dateOfLeavingIso);
+    let totalMonths = (end.getFullYear() - start.getFullYear()) * 12 + (end.getMonth() - start.getMonth());
+    if (end.getDate() < start.getDate()) totalMonths -= 1;
+    totalMonths = Math.max(0, totalMonths);
+    const completedYears = Math.floor(totalMonths / 12);
+    const extraMonths = totalMonths % 12;
+    const roundedYears = extraMonths >= 6 ? completedYears + 1 : completedYears;
+    return { completedYears, extraMonths, roundedYears, totalMonths };
+  }
+
+  /**
+   * Average Basic+DA actually paid over the up-to-10 processed payroll
+   * months immediately preceding (strictly before) the given month, for an
+   * employee - the base figure Sec 19 (old Sec 10(10AA)) uses for leave
+   * encashment exemption ("10 months' average salary immediately preceding
+   * retirement/resignation"). Falls back to fewer months (flagged via
+   * `monthsUsed`) if fewer than 10 processed months exist.
+   */
+  function computeAverageBasicDaLast10Months(db, employeeId, asOfDateIso) {
+    const asOf = new Date(asOfDateIso);
+    const cutoff = new Date(asOf.getFullYear(), asOf.getMonth(), 1);
+    const monthly = [];
+    for (const run of db.payrollRuns) {
+      const line = run.lines.find((l) => l.employeeId === employeeId);
+      if (!line) continue;
+      const runDate = new Date(run.calendarYear, run.calendarMonth - 1, 1);
+      if (runDate >= cutoff) continue;
+      monthly.push({ runDate, amount: sumCodes(line.earnings, BASIC_DA_CODES) });
+    }
+    monthly.sort((a, b) => b.runDate - a.runDate);
+    const last10 = monthly.slice(0, 10);
+    if (last10.length === 0) return { average: 0, monthsUsed: 0 };
+    return { average: last10.reduce((s, m) => s + m.amount, 0) / last10.length, monthsUsed: last10.length };
+  }
+
+  /**
+   * Gratuity exemption under Sec 19 (old Sec 10(10)). For an employee
+   * covered by the Payment of Gratuity Act, 1972 (the default assumption
+   * here - most shops/establishments/factories with 10+ employees):
+   * exemption = LEAST of actual gratuity received, the statutory formula
+   * (15 days' Basic+DA x completed/rounded years of service), and the
+   * statutory ceiling (an editable Tax Rule Set field, Rs 20 lakh by
+   * default). Government employees are fully exempt with no ceiling.
+   */
+  function computeGratuityExemption(db, params) {
+    const { employee, actualGratuity, basicPlusDaMonthly, serviceYears, financialYearCode, asOfDateIso } = params;
+    if (employee.isGovernmentEmployee) {
+      return { actual: actualGratuity, exempt: actualGratuity, taxable: 0, statutoryFormula: actualGratuity, cap: null, basis: "Government employee: fully exempt, no ceiling (Sec 19 / old Sec 10(10))." };
+    }
+    const config = getTaxRuleSetConfig(db, financialYearCode, employee.taxRegime || "OLD", asOfDateIso);
+    const cap = config.deductionLimits.GRATUITY_EXEMPTION;
+    const statutoryFormula = Math.round(((basicPlusDaMonthly * 15) / 26) * serviceYears);
+    const exempt = Math.max(0, Math.min(actualGratuity, statutoryFormula, cap));
+    const taxable = Math.max(0, actualGratuity - exempt);
+    return {
+      actual: actualGratuity,
+      exempt,
+      taxable,
+      statutoryFormula,
+      cap,
+      basis: `Least of actual (${actualGratuity}), 15/26 x Basic+DA x ${serviceYears} year(s) of service (${statutoryFormula}), and the Rs ${cap.toLocaleString("en-IN")} statutory ceiling (Sec 19 / old Sec 10(10)).`,
+    };
+  }
+
+  /**
+   * Leave encashment exemption under Sec 19 (old Sec 10(10AA)), for a
+   * non-government employee on resignation/retirement: exemption = LEAST of
+   * actual amount received, 10 months' average Basic+DA, the cash
+   * equivalent of earned leave (max 30 days per completed year of service),
+   * and the statutory ceiling (an editable Tax Rule Set field, Rs 25 lakh by
+   * default - a LIFETIME AGGREGATE across all employers that this app
+   * cannot track beyond the current employment, so it is applied here
+   * per-settlement only). Government employees are fully exempt with no
+   * ceiling.
+   */
+  function computeLeaveEncashmentExemption(db, params) {
+    const { employee, actualLeaveEncashment, leaveDaysEncashed, perDayRate, financialYearCode, asOfDateIso } = params;
+    if (employee.isGovernmentEmployee) {
+      return { actual: actualLeaveEncashment, exempt: actualLeaveEncashment, taxable: 0, cap: null, basis: "Government employee: fully exempt, no ceiling (Sec 19 / old Sec 10(10AA))." };
+    }
+    const config = getTaxRuleSetConfig(db, financialYearCode, employee.taxRegime || "OLD", asOfDateIso);
+    const cap = config.deductionLimits.LEAVE_ENCASHMENT_EXEMPTION;
+    const service = computeServiceYears(employee.dateOfJoining, employee.dateOfLeaving);
+    const { average: avgBasicDa, monthsUsed } = computeAverageBasicDaLast10Months(db, employee.id, asOfDateIso);
+    const tenMonthAverage = Math.round(avgBasicDa * 10);
+    const maxEncashableDays = Math.min(leaveDaysEncashed, service.completedYears * 30);
+    const cashEquivalentOfEarnedLeave = Math.round(maxEncashableDays * perDayRate);
+    const exempt = Math.max(0, Math.min(actualLeaveEncashment, tenMonthAverage, cashEquivalentOfEarnedLeave, cap));
+    const taxable = Math.max(0, actualLeaveEncashment - exempt);
+    return {
+      actual: actualLeaveEncashment,
+      exempt,
+      taxable,
+      tenMonthAverage,
+      monthsUsedForAverage: monthsUsed,
+      cashEquivalentOfEarnedLeave,
+      cap,
+      basis: `Least of actual (${actualLeaveEncashment}), 10 months' average Basic+DA (${tenMonthAverage}, from ${monthsUsed} processed month(s) of data), cash equivalent of earned leave capped at 30 days/completed year (${cashEquivalentOfEarnedLeave}), and the Rs ${cap.toLocaleString("en-IN")} lifetime statutory ceiling (Sec 19 / old Sec 10(10AA)), applied per-settlement - this app does not track exemption already used at other employers.`,
+    };
+  }
+
+  /**
+   * Posts a Full & Final Settlement to the given (still-open) payroll run
+   * line: gratuity and leave encashment are split into their statutorily
+   * EXEMPT portion (posted as a tax-free Manual Adjustment to net pay, same
+   * as before) and any TAXABLE EXCESS over the exemption (routed through
+   * the run's variablePay override - GRATUITY_TAXABLE / LEAVE_ENCASHMENT_TAXABLE -
+   * so it is correctly taxed, same mechanism as Bonus/Arrears). Notice pay
+   * recovery is unaffected - a plain net-pay deduction either way.
+   */
+  function applyFnfSettlement(db, employeeId, targetRunId, input) {
+    const employee = db.employees.find((e) => e.id === employeeId);
+    if (!employee) throw new Error("Employee not found");
+    const targetRun = db.payrollRuns.find((r) => r.id === targetRunId);
+    if (!targetRun) throw new Error("Target payroll run not found");
+    if (targetRun.status === "LOCKED" || targetRun.status === "PAID") {
+      throw new Error(`That run is ${targetRun.status.toLowerCase()} - choose a run that's still open to receive the F&F settlement.`);
+    }
+    const fy = db.financialYears.find((f) => f.id === targetRun.financialYearId);
+    const asOfDateIso = employee.dateOfLeaving || new Date().toISOString();
+
+    const result = { gratuity: null, leaveEncashment: null };
+    let taxableAdded = 0;
+
+    if (!targetRun.overrides) targetRun.overrides = {};
+    const existing = targetRun.overrides[employeeId] || {};
+    const variablePay = { ...(existing.variablePay || {}) };
+
+    if (input.gratuity) {
+      const ex = computeGratuityExemption(db, {
+        employee,
+        actualGratuity: input.gratuity,
+        basicPlusDaMonthly: input.basicPlusDaMonthly,
+        serviceYears: input.serviceYears,
+        financialYearCode: fy.code,
+        asOfDateIso,
+      });
+      result.gratuity = ex;
+      if (ex.taxable) {
+        variablePay.GRATUITY_TAXABLE = (variablePay.GRATUITY_TAXABLE || 0) + ex.taxable;
+        taxableAdded += ex.taxable;
+      }
+    }
+    if (input.leaveEncashment) {
+      const ex = computeLeaveEncashmentExemption(db, {
+        employee,
+        actualLeaveEncashment: input.leaveEncashment,
+        leaveDaysEncashed: input.leaveDays,
+        perDayRate: input.leaveRate,
+        financialYearCode: fy.code,
+        asOfDateIso,
+      });
+      result.leaveEncashment = ex;
+      if (ex.taxable) {
+        variablePay.LEAVE_ENCASHMENT_TAXABLE = (variablePay.LEAVE_ENCASHMENT_TAXABLE || 0) + ex.taxable;
+        taxableAdded += ex.taxable;
+      }
+    }
+
+    if (taxableAdded > 0) {
+      targetRun.overrides[employeeId] = { lopDays: existing.lopDays, variablePay };
+      recalculateLine(db, targetRunId, employeeId);
+    }
+
+    const line = targetRun.lines.find((l) => l.employeeId === employeeId);
+    if (!line) throw new Error("That run hasn't been calculated for this employee yet. Open it and click \"Run Calculation\" first.");
+
+    if (result.gratuity && result.gratuity.exempt) {
+      addAdjustment(db, line.id, { amount: result.gratuity.exempt, reason: `Gratuity - exempt portion (${result.gratuity.basis})`, enteredBy: "F&F Settlement" });
+    }
+    if (result.leaveEncashment && result.leaveEncashment.exempt) {
+      addAdjustment(db, line.id, { amount: result.leaveEncashment.exempt, reason: `Leave Encashment - exempt portion (${result.leaveEncashment.basis})`, enteredBy: "F&F Settlement" });
+    }
+    if (input.noticeRecovery) {
+      addAdjustment(db, line.id, { amount: -input.noticeRecovery, reason: "Notice Pay Recovery", enteredBy: "F&F Settlement" });
+    }
+
+    return result;
+  }
+
   /**
    * Previews the effect of switching an employee's TDS regime from the next
    * payroll run onward: the law lets an employee revise the regime they've
@@ -790,6 +973,11 @@
     addAdjustment,
     computeArrears,
     applyArrears,
+    computeServiceYears,
+    computeAverageBasicDaLast10Months,
+    computeGratuityExemption,
+    computeLeaveEncashmentExemption,
+    applyFnfSettlement,
     previewRegimeSwitch,
     applyRegimeSwitch,
     estimateRegimeComparison,

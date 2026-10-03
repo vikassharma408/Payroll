@@ -516,8 +516,8 @@ registerView("tax-rules", "Setup", "Tax Rules", (container) => {
           <table><thead><tr><th>Threshold</th><th>Rate</th><th></th></tr></thead><tbody id="surcharge-rows">${surchargeRows}</tbody></table>
           <div class="row gap-8 mt-16"><button type="button" id="btn-add-surcharge">+ Add Surcharge Row</button></div>
 
-          <h3 class="mt-16">Chapter VI-A Deduction Limits</h3>
-          <table><thead><tr><th>Section</th><th>Limit</th></tr></thead><tbody>${deductionRows}</tbody></table>
+          <h3 class="mt-16">Deduction &amp; Exemption Limits</h3>
+          <table><thead><tr><th>Item</th><th>Limit</th></tr></thead><tbody>${deductionRows}</tbody></table>
 
           <p class="text-muted mt-16" style="font-size:12px;">Note: edits here never change already-calculated payroll lines (their tax snapshot is frozen at calculation time) - only future (re)calculations use the new values. The "Full Rule Catalog" reference text in "View full logic" may not reflect an edit until you reopen it; the figures and tables on this edit screen are always current.</p>
 

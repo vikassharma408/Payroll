@@ -244,8 +244,13 @@ function renderPayrollRunDetail(container, runId) {
         const form = container.querySelector(`.override-form[data-employee-id="${employeeId}"]`);
         const fd = new FormData(form);
         const lopDays = num(fd.get("lopDays"));
-        const variablePay = {};
-        for (const code of ["BONUS", "INCENTIVE", "OVERTIME", "ARREARS", "OTHER_ALLOWANCE"]) {
+        const editableCodes = ["BONUS", "INCENTIVE", "OVERTIME", "ARREARS", "OTHER_ALLOWANCE"];
+        // Preserve any variablePay entries this form doesn't edit (e.g.
+        // GRATUITY_TAXABLE/LEAVE_ENCASHMENT_TAXABLE posted by F&F Settlement)
+        // rather than wiping them out just because this form was saved.
+        const existingVp = (run.overrides && run.overrides[employeeId] && run.overrides[employeeId].variablePay) || {};
+        const variablePay = Object.fromEntries(Object.entries(existingVp).filter(([code]) => !editableCodes.includes(code)));
+        for (const code of editableCodes) {
           const amt = num(fd.get(code));
           if (amt) variablePay[code] = amt;
         }
@@ -410,6 +415,7 @@ const SLIP_COMPONENT_LABELS = {
   LTA: "LTA / LTC", BONUS: "Bonus", INCENTIVE: "Incentive", COMMISSION: "Commission", OVERTIME: "Overtime", ARREARS: "Arrears",
   PERFORMANCE_PAY: "Performance Pay", OTHER_ALLOWANCE: "Other Allowances", EMPLOYER_PF: "Employer PF", EMPLOYER_NPS: "Employer NPS",
   EMPLOYER_SUPERANNUATION: "Employer Superannuation", GRATUITY: "Gratuity", OTHER_EMPLOYER_BENEFIT: "Other Employer Benefits",
+  GRATUITY_TAXABLE: "Gratuity (Taxable Excess)", LEAVE_ENCASHMENT_TAXABLE: "Leave Encashment (Taxable Excess)",
   EMPLOYEE_PF: "Employee PF", EMPLOYEE_ESI: "Employee ESI", PROFESSIONAL_TAX: "Professional Tax", LWF: "Labour Welfare Fund",
   SALARY_ADVANCE: "Salary Advance Recovery", LOAN_RECOVERY: "Loan Recovery", OTHER_DEDUCTION: "Other Deductions",
 };

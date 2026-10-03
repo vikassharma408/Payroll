@@ -73,6 +73,15 @@ const DEDUCTION_LIMITS = {
   "80EEA": 150000,
   HOME_LOAN_SELF_OCCUPIED: 200000,
   HOUSE_PROPERTY_LOSS_SETOFF: 200000,
+  // Terminal-benefit exemption ceilings (new Sec 19, old Sec 10(10) / 10(10AA)) -
+  // these apply identically under BOTH regimes (unlike HRA/LTA/Chapter VI-A),
+  // so they live here rather than only in the OLD-regime rule block below.
+  // Gratuity: Rs 20L w.e.f. 29-Mar-2018 (Payment of Gratuity Act, 1972 employees).
+  GRATUITY_EXEMPTION: 2000000,
+  // Leave encashment: Rs 25L w.e.f. 1-Apr-2023 (Finance Act 2023), LIFETIME
+  // AGGREGATE across all employers - this app only tracks the current
+  // employment, so it is applied here per-settlement only (see the F&F tab).
+  LEAVE_ENCASHMENT_EXEMPTION: 2500000,
 };
 
 const HRA_CONFIG = { metroPercent: 0.5, nonMetroPercent: 0.4 };
@@ -145,6 +154,20 @@ function commonRules(regime, cessRate) {
     section: "Sec 17 (old Sec 17(2)(vii))",
     calculationMethod: "Employer contribution to PF + NPS + Superannuation fund in excess of Rs 7.5 lakh in a year is a taxable perquisite (both regimes).",
     limitValue: 750000,
+  });
+  rules.push({
+    name: "Gratuity Exemption",
+    section: "Sec 19 (old Sec 10(10))",
+    calculationMethod:
+      "Least of: actual gratuity received; 15 days' Basic+DA x completed years of service (6+ months rounds up), for employees covered by the Payment of Gratuity Act, 1972; the statutory ceiling below. Fully exempt with no ceiling for government employees. Allowed under both regimes.",
+    limitValue: DEDUCTION_LIMITS.GRATUITY_EXEMPTION,
+  });
+  rules.push({
+    name: "Leave Encashment Exemption",
+    section: "Sec 19 (old Sec 10(10AA))",
+    calculationMethod:
+      "Least of: actual amount received; 10 months' average Basic+DA; cash equivalent of earned leave (max 30 days per completed year of service); the statutory ceiling below. The ceiling is a LIFETIME AGGREGATE across all employers - this app cannot track usage at other employers, so it is applied per-settlement only. Fully exempt with no ceiling for government employees. Allowed under both regimes.",
+    limitValue: DEDUCTION_LIMITS.LEAVE_ENCASHMENT_EXEMPTION,
   });
   return rules;
 }

@@ -624,7 +624,12 @@ function importMonthlyPayroll(db, rows) {
     }
 
     try {
-      const variablePay = {};
+      // Preserve any variablePay entries this import doesn't touch (e.g.
+      // GRATUITY_TAXABLE/LEAVE_ENCASHMENT_TAXABLE posted by F&F Settlement
+      // for an employee's final month) rather than wiping them out.
+      const importCodes = VARIABLE_FIELDS.map(([, code]) => code);
+      const existingVp = (run.overrides && run.overrides[employee.id] && run.overrides[employee.id].variablePay) || {};
+      const variablePay = Object.fromEntries(Object.entries(existingVp).filter(([code]) => !importCodes.includes(code)));
       for (const [header, code] of VARIABLE_FIELDS) {
         const amt = toNumberI(row[header]);
         if (amt) variablePay[code] = (variablePay[code] || 0) + amt;

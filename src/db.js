@@ -106,6 +106,16 @@ function migrateDb(db) {
       if (d.employeeId === e.id && d.isMetroCity == null) d.isMetroCity = true;
     }
   }
+  // Backfill the new editable Gratuity/Leave Encashment exemption ceilings
+  // (Sec 19, old Sec 10(10)/10(10AA)) into any tax rule set saved before
+  // they existed - same statutory defaults as a freshly seeded rule set, so
+  // existing installs compute the exemption correctly instead of hitting
+  // an undefined cap.
+  for (const r of db.taxRuleSets || []) {
+    if (!r.deductionLimits) r.deductionLimits = {};
+    if (r.deductionLimits.GRATUITY_EXEMPTION == null) r.deductionLimits.GRATUITY_EXEMPTION = 2000000;
+    if (r.deductionLimits.LEAVE_ENCASHMENT_EXEMPTION == null) r.deductionLimits.LEAVE_ENCASHMENT_EXEMPTION = 2500000;
+  }
   return db;
 }
 

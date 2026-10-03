@@ -1350,20 +1350,6 @@ function renderForm16(container, employee) {
 }
 
 // --- Full & Final Settlement ---------------------------------------------
-const GRATUITY_EXEMPTION_CAP = 2000000; // New Sec 19 (old Sec 10(10)): statutory ceiling for non-government employees (as of the last amendment raising it from Rs 10L to Rs 20L).
-
-/** Completed years of service for gratuity, per Sec 4(2) of the Payment of Gratuity Act: a part-year of 6 months or more rounds up to a full year, less than 6 months rounds down. */
-function computeServiceYears(dateOfJoining, dateOfLeaving) {
-  const start = new Date(dateOfJoining);
-  const end = new Date(dateOfLeaving);
-  let totalMonths = (end.getFullYear() - start.getFullYear()) * 12 + (end.getMonth() - start.getMonth());
-  if (end.getDate() < start.getDate()) totalMonths -= 1;
-  totalMonths = Math.max(0, totalMonths);
-  const completedYears = Math.floor(totalMonths / 12);
-  const extraMonths = totalMonths % 12;
-  const roundedYears = extraMonths >= 6 ? completedYears + 1 : completedYears;
-  return { completedYears, extraMonths, roundedYears, totalMonths };
-}
 
 function renderFnfTab(container, employee, fy, onSaved) {
   const activeStructure = db.employeeSalaryStructures
@@ -1371,21 +1357,32 @@ function renderFnfTab(container, employee, fy, onSaved) {
     .sort((a, b) => new Date(b.effectiveFrom) - new Date(a.effectiveFrom))[0];
   const basicPlusDaMonthly = activeStructure ? activeStructure.components.filter((c) => c.componentCode === "BASIC" || c.componentCode === "DA").reduce((s, c) => s + c.monthlyAmount, 0) : 0;
 
-  const service = computeServiceYears(employee.dateOfJoining, employee.dateOfLeaving);
+  const service = PayrollEngine.computeServiceYears(employee.dateOfJoining, employee.dateOfLeaving);
   const gratuityEligible = service.roundedYears >= 5;
   const statutoryGratuity = Math.round(((basicPlusDaMonthly * 15) / 26) * service.roundedYears);
+  const asOfDateIso = employee.dateOfLeaving;
+  const avg10mo = PayrollEngine.computeAverageBasicDaLast10Months(db, employee.id, asOfDateIso);
 
   const leaveDate = new Date(employee.dateOfLeaving);
   const lastWorkingFyMonthIndex = calendarToFyMonthIndex(leaveDate.getFullYear(), leaveDate.getMonth() + 1);
   const finalRun = db.payrollRuns.find((r) => r.companyId === employee.companyId && r.financialYearId === fy.id && r.payrollMonthIndex === lastWorkingFyMonthIndex && !r.payrollGroup);
   const finalLine = finalRun ? finalRun.lines.find((l) => l.employeeId === employee.id) : null;
 
+  function exemptionPreviewHtml(ex, label) {
+    if (!ex.actual) return "";
+    return `<p class="text-muted mt-16" style="font-size:12px;">
+      <strong>Exempt: ${rupees(ex.exempt)}</strong> &middot; <strong class="${ex.taxable ? "text-bad" : ""}">Taxable: ${rupees(ex.taxable)}</strong>
+      ${ex.taxable ? `<br/>The taxable excess will be added to this month's earnings and taxed, via a "${label}" one-time pay item - same mechanism as Bonus/Arrears.` : ""}
+      <br/>${escapeHtml(ex.basis)}
+    </p>`;
+  }
+
   container.innerHTML = `
     <div class="card">
       <h3>Service Summary</h3>
       <div class="card-grid">
-        <div><div class="stat-label">Date of Joining</div><div>${employee.dateOfJoining}</div></div>
-        <div><div class="stat-label">Date of Leaving</div><div>${employee.dateOfLeaving}</div></div>
+        <div><div class="stat-label">Date of Joining</div><div>${formatDateDisplay(employee.dateOfJoining)}</div></div>
+        <div><div class="stat-label">Date of Leaving</div><div>${formatDateDisplay(employee.dateOfLeaving)}</div></div>
         <div><div class="stat-label">Service Period</div><div>${service.roundedYears} year(s) (${service.completedYears}y ${service.extraMonths}m exact)</div></div>
         <div><div class="stat-label">Last Drawn Basic+DA (monthly)</div><div>${rupees(basicPlusDaMonthly)}</div></div>
       </div>
@@ -1401,7 +1398,8 @@ function renderFnfTab(container, employee, fy, onSaved) {
       <div class="form-grid">
         <div><label>Gratuity to Pay</label><input type="number" min="0" id="fnf-gratuity" value="${gratuityEligible ? statutoryGratuity : 0}" /></div>
       </div>
-      <p class="text-muted mt-16" style="font-size:12px;">Exempt from tax up to the LEAST of: actual amount, Rs ${GRATUITY_EXEMPTION_CAP.toLocaleString("en-IN")} (lifetime, new Sec 19 / old Sec 10(10)), or the statutory formula above. If you pay more than that exemption (an ex-gratia top-up), the excess is taxable salary income - add it separately via this employee's "LOP &amp; Bonus" override on the final payroll run if so, since it isn't auto-added here.</p>
+      <div id="fnf-gratuity-preview"></div>
+      <p class="text-muted mt-16" style="font-size:12px;">Assumes this employee is covered by the Payment of Gratuity Act, 1972 (most shops/establishments/factories with 10+ employees) and is not a government employee. The exempt portion is posted as a tax-free Manual Adjustment; any excess (e.g. an ex-gratia top-up beyond the statutory formula or cap) is automatically taxed.</p>
     </div>
 
     <div class="card">
@@ -1410,7 +1408,8 @@ function renderFnfTab(container, employee, fy, onSaved) {
         <div><label>Leave Days to Encash</label><input type="number" min="0" id="fnf-leave-days" value="0" /></div>
         <div><label>Per-Day Rate</label><input type="number" min="0" id="fnf-leave-rate" value="${Math.round(basicPlusDaMonthly / 30)}" /></div>
       </div>
-      <p class="text-muted mt-16" style="font-size:12px;">Exempt under new Sec 19 (old Sec 10(10AA)) up to a lifetime limit (Rs 25,00,000 for non-government employees) - most ordinary encashment amounts are well within this; verify separately if this employee is close to that lifetime cap across employers.</p>
+      <div id="fnf-leave-preview"></div>
+      <p class="text-muted mt-16" style="font-size:12px;">10-month average Basic+DA used for the exemption formula: ${rupees(Math.round(avg10mo.average))} (from ${avg10mo.monthsUsed} processed payroll month(s)${avg10mo.monthsUsed < 10 ? " - fewer than 10 months of processed payroll data exist for this employee, so the average is based on what's available; this may slightly overstate or understate the true 10-month average" : ""}). The Rs 25,00,000 cap (editable under Tax Rules) is a LIFETIME AGGREGATE across all employers - this app only tracks the current employment, so it cannot verify exemption already used elsewhere; check separately if relevant.</p>
     </div>
 
     <div class="card">
@@ -1427,12 +1426,34 @@ function renderFnfTab(container, employee, fy, onSaved) {
           ? `<p class="text-bad">No payroll run exists yet for their last working month (FY month ${lastWorkingFyMonthIndex}). <a href="#/payroll-runs">Create and calculate it first</a>, then come back here.</p>`
           : !finalLine
             ? `<p class="text-bad">That run exists but hasn't been calculated for this employee yet. Open it and click "Run Calculation" first.</p>`
-            : `<p class="text-muted">Will post Gratuity and Leave Encashment as additions, and Notice Pay Recovery as a deduction, to ${escapeHtml(employee.fullName)}'s line on the ${finalRun.calendarMonth}/${finalRun.calendarYear} run - each as a labeled, audited Manual Adjustment.</p>
+            : `<p class="text-muted">Will post the exempt portion of Gratuity and Leave Encashment as tax-free additions, any taxable excess as taxed one-time pay, and Notice Pay Recovery as a deduction, to ${escapeHtml(employee.fullName)}'s line on the ${finalRun.calendarMonth}/${finalRun.calendarYear} run - each labeled and audited.</p>
               <div class="row gap-8 mt-16"><button class="primary" id="btn-post-fnf">Post to Final Payroll Run</button></div>`
       }
       <div id="fnf-error" class="text-bad mt-16"></div>
     </div>
   `;
+
+  function updateGratuityPreview() {
+    const gratuity = num(document.getElementById("fnf-gratuity").value);
+    const ex = PayrollEngine.computeGratuityExemption(db, {
+      employee, actualGratuity: gratuity, basicPlusDaMonthly, serviceYears: service.roundedYears, financialYearCode: fy.code, asOfDateIso,
+    });
+    document.getElementById("fnf-gratuity-preview").innerHTML = exemptionPreviewHtml(ex, "GRATUITY_TAXABLE");
+  }
+  function updateLeavePreview() {
+    const leaveDays = num(document.getElementById("fnf-leave-days").value);
+    const leaveRate = num(document.getElementById("fnf-leave-rate").value);
+    const leaveEncashment = Math.round(leaveDays * leaveRate);
+    const ex = PayrollEngine.computeLeaveEncashmentExemption(db, {
+      employee, actualLeaveEncashment: leaveEncashment, leaveDaysEncashed: leaveDays, perDayRate: leaveRate, financialYearCode: fy.code, asOfDateIso,
+    });
+    document.getElementById("fnf-leave-preview").innerHTML = exemptionPreviewHtml(ex, "LEAVE_ENCASHMENT_TAXABLE");
+  }
+  document.getElementById("fnf-gratuity").addEventListener("input", updateGratuityPreview);
+  document.getElementById("fnf-leave-days").addEventListener("input", updateLeavePreview);
+  document.getElementById("fnf-leave-rate").addEventListener("input", updateLeavePreview);
+  updateGratuityPreview();
+  updateLeavePreview();
 
   const postBtn = document.getElementById("btn-post-fnf");
   if (postBtn) {
@@ -1445,10 +1466,16 @@ function renderFnfTab(container, employee, fy, onSaved) {
       const leaveEncashment = Math.round(leaveDays * leaveRate);
       const noticeRecovery = num(document.getElementById("fnf-notice-recovery").value);
       try {
-        if (gratuity) PayrollEngine.addAdjustment(db, finalLine.id, { amount: gratuity, reason: `Gratuity (${service.roundedYears} years of service)`, enteredBy: "F&F Settlement" });
-        if (leaveEncashment) PayrollEngine.addAdjustment(db, finalLine.id, { amount: leaveEncashment, reason: `Leave Encashment (${leaveDays} days @ ${rupees(leaveRate)})`, enteredBy: "F&F Settlement" });
-        if (noticeRecovery) PayrollEngine.addAdjustment(db, finalLine.id, { amount: -noticeRecovery, reason: "Notice Pay Recovery", enteredBy: "F&F Settlement" });
-        logAudit("Employee", employee.id, "FNF_SETTLEMENT", `F&F posted for ${employee.fullName}: gratuity ${rupees(gratuity)}, leave encashment ${rupees(leaveEncashment)}, notice recovery ${rupees(noticeRecovery)}`);
+        const result = PayrollEngine.applyFnfSettlement(db, employee.id, finalRun.id, {
+          gratuity, basicPlusDaMonthly, serviceYears: service.roundedYears,
+          leaveEncashment, leaveDays, leaveRate,
+          noticeRecovery,
+        });
+        logAudit(
+          "Employee", employee.id, "FNF_SETTLEMENT",
+          `F&F posted for ${employee.fullName}: gratuity ${rupees(gratuity)} (exempt ${rupees(result.gratuity?.exempt ?? 0)}, taxable ${rupees(result.gratuity?.taxable ?? 0)}), ` +
+          `leave encashment ${rupees(leaveEncashment)} (exempt ${rupees(result.leaveEncashment?.exempt ?? 0)}, taxable ${rupees(result.leaveEncashment?.taxable ?? 0)}), notice recovery ${rupees(noticeRecovery)}`,
+        );
         await persist();
         alert("Posted to the final payroll run. Open Payroll Runs to review and advance its status as usual.");
         onSaved();
