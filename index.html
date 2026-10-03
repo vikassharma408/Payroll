@@ -17,7 +17,6 @@
         <h2 id="page-title" style="margin:0;">Dashboard</h2>
         <div class="row gap-8">
           <span id="company-filter"></span>
-          <span id="company-switcher"></span>
           <span id="backup-status" class="text-muted" style="font-size:12px;"></span>
           <button class="theme-toggle" id="theme-toggle-btn" title="Toggle dark/light theme">&#127761;</button>
         </div>
@@ -26,8 +25,9 @@
     </div>
   </div>
 
-  <!-- Vendored third-party library (works fully offline, no CDN needed) -->
+  <!-- Vendored third-party libraries (work fully offline, no CDN needed) -->
   <script src="vendor/xlsx.full.min.js"></script>
+  <script src="vendor/jszip.min.js"></script>
   <!-- Ported engine + data layer (order matters: later files reference earlier
        files' top-level globals) -->
   <script src="src/rule-configs.js"></script>
@@ -42,6 +42,7 @@
   <script src="src/perquisites.js"></script>
   <script src="src/payroll-engine.js"></script>
   <script src="src/reports.js"></script>
+  <script src="src/xlsx-validations.js"></script>
   <script src="src/import.js"></script>
   <!-- App shell -->
   <script src="src/app.js"></script>

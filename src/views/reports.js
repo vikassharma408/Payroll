@@ -17,7 +17,7 @@ registerView("reports", "Insights", "Reports", (container) => {
   let selectedRunId = "";
 
   function render() {
-    if (!activeCompany()) {
+    if (db.companies.length === 0) {
       container.innerHTML = `<div class="card"><p class="text-muted">No company set up yet. <a href="#/companies/new">Add your first company</a> to get started.</p></div>`;
       return;
     }
@@ -82,7 +82,7 @@ registerView("reconciliation", "Insights", "Reconciliation", (container) => {
   let previousRunId = "";
 
   function render() {
-    if (!activeCompany()) {
+    if (db.companies.length === 0) {
       container.innerHTML = `<div class="card"><p class="text-muted">No company set up yet. <a href="#/companies/new">Add your first company</a> to get started.</p></div>`;
       return;
     }

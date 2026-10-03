@@ -7,7 +7,7 @@
 
 registerView("salary-templates", "Setup", "Salary Structure Templates", renderTemplatesList);
 registerDetailView("salary-templates", (container, segments) => {
-  if (!activeCompany()) {
+  if (db.companies.length === 0) {
     container.innerHTML = `<div class="card"><p class="text-muted">No company set up yet. <a href="#/companies/new">Add your first company</a> first.</p></div>`;
     return;
   }
@@ -22,7 +22,7 @@ registerDetailView("salary-templates", (container, segments) => {
 });
 
 function renderTemplatesList(container) {
-  if (!activeCompany()) {
+  if (db.companies.length === 0) {
     container.innerHTML = `<div class="card"><p class="text-muted">No company set up yet. <a href="#/companies/new">Add your first company</a> to get started.</p></div>`;
     return;
   }
@@ -42,7 +42,7 @@ function renderTemplatesList(container) {
     .join("");
   container.innerHTML = `
     <div class="row between" style="margin-bottom:16px;">
-      <span class="text-muted">Define a reusable CTC breakup once; generate any employee's monthly + annual Salary Structure from it by entering just their CTC (see the Salary Structure tab on an Employee). New templates are created under the Active Company (topbar).</span>
+      <span class="text-muted">Define a reusable CTC breakup once; generate any employee's monthly + annual Salary Structure from it by entering just their CTC (see the Salary Structure tab on an Employee). Pick the Legal Entity when creating a new template.</span>
       <a href="#/salary-templates/new"><button class="primary">+ New Template</button></a>
     </div>
     <div class="card">
@@ -56,7 +56,7 @@ function renderTemplatesList(container) {
 
 function renderTemplateForm(container, template) {
   const isEdit = !!template;
-  const company = activeCompany();
+  let companyId = isEdit ? template.companyId : getActiveCompanyId();
   let name = template ? template.name : "";
   let includeGratuityInCTC = template ? !!template.includeGratuityInCTC : true;
   let rows = template ? template.components.map((c) => ({ ...c })) : [];
@@ -74,6 +74,14 @@ function renderTemplateForm(container, template) {
         <h3>${isEdit ? "Edit" : "New"} Salary Structure Template</h3>
         <div class="form-grid">
           <div><label>Template Name *</label><input id="tpl-name" value="${escapeHtml(name)}" placeholder="e.g. Standard - Grade A" /></div>
+          <div>
+            <label>Legal Entity *</label>
+            ${
+              isEdit
+                ? `<input value="${escapeHtml((db.companies.find((c) => c.id === companyId) || {}).name || "-")}" disabled title="A template's Legal Entity can't be changed after creation." />`
+                : `<select id="tpl-company-select">${db.companies.map((c) => `<option value="${c.id}" ${c.id === companyId ? "selected" : ""}>${escapeHtml(c.name)}</option>`).join("")}</select>`
+            }
+          </div>
         </div>
         <label class="row gap-8 mt-16" style="display:flex;align-items:center;">
           <input type="checkbox" id="tpl-gratuity-toggle" ${includeGratuityInCTC ? "checked" : ""} style="width:auto;" /> Include Gratuity in CTC
@@ -114,6 +122,8 @@ function renderTemplateForm(container, template) {
     renderRows();
 
     document.getElementById("tpl-name").addEventListener("input", (e) => { name = e.target.value; });
+    const companySelectEl = document.getElementById("tpl-company-select");
+    if (companySelectEl) companySelectEl.addEventListener("change", (e) => { companyId = e.target.value; setActiveCompanyId(companyId); });
     document.getElementById("tpl-gratuity-toggle").addEventListener("change", (e) => { includeGratuityInCTC = e.target.checked; });
     document.getElementById("tpl-btn-add-row").addEventListener("click", () => {
       const code = document.getElementById("tpl-add-component").value;
@@ -154,6 +164,10 @@ function renderTemplateForm(container, template) {
         errorEl.textContent = "Add at least one component.";
         return;
       }
+      if (!isEdit && !companyId) {
+        errorEl.textContent = "Select a Legal Entity.";
+        return;
+      }
       const data = { name: name.trim(), includeGratuityInCTC, components: rows.map((r) => ({ componentCode: r.componentCode, formula: r.formula || "", fixedAnnualAmount: num(r.fixedAnnualAmount) })) };
       let targetId;
       if (isEdit) {
@@ -161,7 +175,7 @@ function renderTemplateForm(container, template) {
         targetId = template.id;
         logAudit("SalaryStructureTemplate", targetId, "UPDATE", `Updated template "${data.name}"`);
       } else {
-        const newTemplate = { id: newId("sst"), companyId: company.id, createdAt: new Date().toISOString(), ...data };
+        const newTemplate = { id: newId("sst"), companyId, createdAt: new Date().toISOString(), ...data };
         db.salaryStructureTemplates.push(newTemplate);
         targetId = newTemplate.id;
         logAudit("SalaryStructureTemplate", targetId, "CREATE", `Created template "${data.name}"`);

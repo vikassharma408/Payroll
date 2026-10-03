@@ -18,8 +18,7 @@ function monthLabel(run) {
 }
 
 function renderPayrollRunsList(container) {
-  const company = activeCompany();
-  if (!company) {
+  if (db.companies.length === 0) {
     container.innerHTML = `<div class="card"><p class="text-muted">No company set up yet. <a href="#/companies/new">Add your first company</a> to get started.</p></div>`;
     return;
   }
@@ -54,6 +53,9 @@ function renderPayrollRunsList(container) {
         : `<form id="new-run-form" class="card">
       <h3>Create Payroll Run</h3>
       <div class="form-grid">
+        <div><label>Legal Entity</label>
+          <select name="companyId">${db.companies.map((c) => `<option value="${c.id}" ${c.id === getActiveCompanyId() ? "selected" : ""}>${escapeHtml(c.name)}</option>`).join("")}</select>
+        </div>
         <div><label>Financial Year</label><input value="${fy.code}" disabled /></div>
         <div><label>Month</label>
           <select name="payrollMonthIndex">
@@ -78,10 +80,12 @@ function renderPayrollRunsList(container) {
     form.addEventListener("submit", async (evt) => {
       evt.preventDefault();
       const fd = new FormData(evt.target);
+      const companyId = String(fd.get("companyId") || "");
       const payrollMonthIndex = Number(fd.get("payrollMonthIndex"));
       const payrollGroup = String(fd.get("payrollGroup") || "").trim() || null;
+      setActiveCompanyId(companyId);
 
-      const existing = db.payrollRuns.find((r) => r.companyId === company.id && r.financialYearId === fy.id && r.payrollMonthIndex === payrollMonthIndex && r.payrollGroup === payrollGroup);
+      const existing = db.payrollRuns.find((r) => r.companyId === companyId && r.financialYearId === fy.id && r.payrollMonthIndex === payrollMonthIndex && r.payrollGroup === payrollGroup);
       if (existing) {
         navigate(`payroll-runs/${existing.id}`);
         return;
@@ -89,7 +93,7 @@ function renderPayrollRunsList(container) {
       const { calendarYear, calendarMonth } = fyMonthIndexToCalendar(payrollMonthIndex, new Date(fy.startDate).getFullYear());
       const run = {
         id: newId("run"),
-        companyId: company.id,
+        companyId,
         financialYearId: fy.id,
         payrollMonthIndex,
         calendarYear,

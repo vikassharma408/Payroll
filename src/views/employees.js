@@ -17,7 +17,7 @@ function num(v) {
 
 registerView("employees", "Payroll", "Employees", renderEmployeesList);
 registerDetailView("employees", (container, segments) => {
-  if (!activeCompany()) {
+  if (db.companies.length === 0) {
     container.innerHTML = `<div class="card"><p class="text-muted">No company set up yet. <a href="#/companies/new">Add your first company</a> before adding employees.</p></div>`;
     return;
   }
@@ -34,7 +34,7 @@ registerDetailView("employees", (container, segments) => {
 });
 
 function renderEmployeesList(container) {
-  if (!activeCompany()) {
+  if (db.companies.length === 0) {
     container.innerHTML = `<div class="card"><p class="text-muted">No company set up yet. <a href="#/companies/new">Add your first company</a> to get started.</p></div>`;
     return;
   }
@@ -188,6 +188,13 @@ function renderEmployeeForm(container, employee) {
       <h3>${isEdit ? "Edit Employee" : "Add Employee"}</h3>
       <div class="form-grid">
         <div><label>Employee Code *</label><input name="employeeCode" required value="${escapeHtml(e.employeeCode)}" /></div>
+        <div><label>Legal Entity *</label>
+          ${
+            isEdit
+              ? `<input value="${escapeHtml((db.companies.find((c) => c.id === employee.companyId) || {}).name || "-")}" disabled title="An employee's Legal Entity can't be changed after creation." />`
+              : `<select name="companyId">${db.companies.map((c) => `<option value="${c.id}" ${c.id === getActiveCompanyId() ? "selected" : ""}>${escapeHtml(c.name)}</option>`).join("")}</select>`
+          }
+        </div>
         <div><label>Full Name *</label><input name="fullName" required value="${escapeHtml(e.fullName)}" /></div>
         <div><label>Date of Birth</label>${dateField("dob", e.dob)}</div>
         <div><label>Gender</label>
@@ -276,7 +283,12 @@ function renderEmployeeForm(container, employee) {
       errorEl.textContent = "IFSC must match AAAA0999999 format.";
       return;
     }
-    const companyId = isEdit ? employee.companyId : getActiveCompanyId();
+    const companyId = isEdit ? employee.companyId : String(fd.get("companyId") || "");
+    if (!isEdit && !companyId) {
+      errorEl.textContent = "Select a Legal Entity.";
+      return;
+    }
+    if (!isEdit) setActiveCompanyId(companyId);
     const dup = db.employees.find((x) => x.companyId === companyId && x.employeeCode === employeeCode && (!isEdit || x.id !== employee.id));
     if (dup) {
       errorEl.textContent = `Employee code '${employeeCode}' already exists in this company.`;

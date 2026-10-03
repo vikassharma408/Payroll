@@ -58,6 +58,14 @@ async function persist() {
   updateBackupStatus(autoSaved);
 }
 
+// There is no "active company" switcher in the topbar any more - every
+// create-form (Employee, Payroll Run, Template, Import) has its own
+// explicit Legal Entity/Company select instead, so which company a new
+// record belongs to is always a deliberate, visible choice on that form.
+// getActiveCompanyId/setActiveCompanyId survive purely as a "remember my
+// last choice" convenience - each of those selects defaults to whatever
+// was picked last time, and updates it again on change - never as a
+// standing, durable "current company" concept of its own.
 const ACTIVE_COMPANY_KEY = "activeCompanyId";
 function getActiveCompanyId() {
   const stored = localStorage.getItem(ACTIVE_COMPANY_KEY);
@@ -67,34 +75,15 @@ function getActiveCompanyId() {
 function setActiveCompanyId(id) {
   localStorage.setItem(ACTIVE_COMPANY_KEY, id);
 }
-function activeCompany() {
-  const id = getActiveCompanyId();
-  return db.companies.find((c) => c.id === id) || null;
-}
-
-function renderCompanySwitcher() {
-  const el = document.getElementById("company-switcher");
-  if (!el) return;
-  if (db.companies.length === 0) {
-    el.innerHTML = `<a href="#/companies"><button>+ Add Company</button></a>`;
-    return;
-  }
-  const activeId = getActiveCompanyId();
-  el.innerHTML = `<select id="company-switcher-select" title="Active company - where new employees, payroll runs, templates etc. are created">${db.companies.map((c) => `<option value="${c.id}" ${c.id === activeId ? "selected" : ""}>${escapeHtml(c.name)}</option>`).join("")}</select>`;
-  document.getElementById("company-switcher-select").addEventListener("change", (e) => {
-    setActiveCompanyId(e.target.value);
-    route();
-  });
-}
 
 // --- Company view filter -----------------------------------------------
-// Separate from the Active Company above (which decides where NEW records
-// get created): this controls which companies' data shows up in list/report
-// screens. Defaults to "all" so a fresh install or a single-entity user sees
-// everything with no setup; a multi-entity user can narrow it to one or more
-// specific companies. Stored independently so switching the Active Company
-// (to create something under a different entity) never silently changes
-// what you're currently browsing.
+// Separate from each create-form's own Legal Entity select (which decides
+// where that one new record goes): this controls which companies' data
+// shows up in list/report screens. Defaults to "all" so a fresh install or
+// a single-entity user sees everything with no setup; a multi-entity user
+// can narrow it to one or more specific companies. Stored independently so
+// creating a record under a different entity never silently changes what
+// you're currently browsing.
 const COMPANY_FILTER_KEY = "companyFilter";
 function getCompanyFilter() {
   try {
@@ -260,7 +249,6 @@ function route() {
   const hash = location.hash.replace(/^#\/?/, "") || "dashboard";
   const segments = hash.split("/");
   document.getElementById("sidebar").innerHTML = renderSidebar(segments[0]);
-  renderCompanySwitcher();
   renderCompanyFilterControl();
   const container = document.getElementById("content");
   container.innerHTML = "";
@@ -309,7 +297,7 @@ registerView("dashboard", "Overview", "Dashboard", (container) => {
     </div>
     <div class="card">
       <h3>Getting started</h3>
-      <p class="text-muted">Add employees, define their salary structure, and process a monthly payroll run from the sidebar. The Active Company switcher at the top decides where new records are created; the eye icon next to it controls which compan${db.companies.length > 1 ? "ies you're viewing here" : "y you're viewing"}. <a href="#/backup">Backup &amp; Restore</a> keeps your data safe - this app stores everything locally in your browser.</p>
+      <p class="text-muted">Add employees, define their salary structure, and process a monthly payroll run from the sidebar - each "New"/"Create" form has its own Legal Entity field for a multi-company setup. The eye icon at the top controls which compan${db.companies.length > 1 ? "ies you're viewing here" : "y you're viewing"}. <a href="#/backup">Backup &amp; Restore</a> keeps your data safe - this app stores everything locally in your browser.</p>
     </div>
   `;
 });

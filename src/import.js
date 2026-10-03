@@ -7,16 +7,16 @@ const IMPORT_TEMPLATES = {
     sheetName: "Employee Master",
     columns: [
       { header: "Employee Code", field: "employeeCode", required: true, type: "string", example: "EMP101" },
-      { header: "Legal Entity", field: "companyId", type: "string", example: "My Company Pvt Ltd", note: "Which Company (legal entity) this employee belongs to, for a multi-entity setup. If it matches an existing company's name (from Setup > Companies) that company is used; if not, a new company is created automatically with that exact name (PAN/TAN/bank details can be filled in afterwards under Setup > Companies). Leave blank to use whichever company is active in the app when you run the import (fine if you only ever import one entity at a time)." },
+      { header: "Legal Entity", field: "companyId", type: "string", example: "My Company Pvt Ltd", dropdownSource: "COMPANY", note: "Which Company (legal entity) this employee belongs to, for a multi-entity setup. Pick one from the dropdown (built from Setup > Companies as of when you downloaded this template); typing a name not in the list creates a new company automatically with that exact name (PAN/TAN/bank details can be filled in afterwards under Setup > Companies). Leave blank to use the Default Company selected on the Import Wizard screen (fine if you only ever import one entity at a time)." },
       { header: "Employee Name", field: "fullName", required: true, type: "string", example: "Ravi Kumar" },
       { header: "PAN", field: "pan", type: "string", example: "ABCPK1234A" },
       { header: "DOB", field: "dob", type: "date", example: "31/Jan/1990" },
-      { header: "Gender", field: "gender", type: "string", example: "Male" },
+      { header: "Gender", field: "gender", type: "string", example: "Male", dropdownValues: ["Male", "Female", "Other"] },
       { header: "Date of Joining", field: "dateOfJoining", required: true, type: "date", example: "01/Jun/2024" },
       { header: "Department", field: "department", type: "string", example: "Finance" },
       { header: "Designation", field: "designation", type: "string", example: "Executive" },
       { header: "Location", field: "location", type: "string", example: "Mumbai" },
-      { header: "State", field: "state", type: "string", example: "Maharashtra", note: "Must match a state name from the in-app PT Slabs screen (e.g. Maharashtra, Karnataka, Delhi). Drives auto-calculated Professional Tax (see Professional Tax Applicable) and is used for the senior-citizen PT exemption. Leave blank if PT should always come from a fixed amount in the Salary Structure instead." },
+      { header: "State", field: "state", type: "string", example: "Maharashtra", dropdownSource: "STATE", note: "Pick a state from the dropdown (built from the in-app PT Slabs screen). Drives auto-calculated Professional Tax (see Professional Tax Applicable) and is used for the senior-citizen PT exemption. Leave blank if PT should always come from a fixed amount in the Salary Structure instead." },
       { header: "Bank Name", field: "bankName", type: "string", example: "HDFC Bank" },
       { header: "Account Number", field: "bankAccountNo", type: "string", example: "50100123456789" },
       { header: "IFSC", field: "bankIfsc", type: "string", example: "HDFC0000123" },
@@ -109,8 +109,8 @@ const IMPORT_TEMPLATES = {
     sheetName: "Monthly Payroll Input",
     columns: [
       { header: "Employee Code", field: "employeeCode", required: true, type: "string", example: "EMP101" },
-      { header: "Legal Entity", field: "companyId", type: "string", example: "My Company Pvt Ltd", note: "Only needed in a multi-entity setup if the same Employee Code happens to exist under more than one company - otherwise leave blank. Must match a company name from Setup > Companies." },
-      { header: "Payroll Month", field: "payrollMonth", required: true, type: "string", example: "April" },
+      { header: "Legal Entity", field: "companyId", type: "string", example: "My Company Pvt Ltd", dropdownSource: "COMPANY", note: "Only needed in a multi-entity setup if the same Employee Code happens to exist under more than one company - otherwise leave blank. Pick one from the dropdown (built from Setup > Companies)." },
+      { header: "Payroll Month", field: "payrollMonth", required: true, type: "string", example: "April", dropdownSource: "MONTH" },
       { header: "Bonus", field: "bonus", type: "number", example: 0 },
       { header: "Incentive", field: "incentive", type: "number", example: 0 },
       { header: "Overtime", field: "overtime", type: "number", example: 0 },
@@ -178,6 +178,74 @@ function buildDataSheet(spec) {
   return ws;
 }
 
+// --- Dropdown (data validation) support -----------------------------------
+// Excel dropdowns for every column with a closed set of valid values, so a
+// typo (e.g. "Yy" instead of "Y") is caught at data-entry time instead of
+// failing the import later. The vendored SheetJS build cannot write these
+// itself (see xlsx-validations.js) - that module patches them in afterwards.
+
+/** Which dropdown (if any) a column should get: a short static list (written inline) or a named db-driven source (resolved via the hidden "Lists" helper sheet). */
+function getColumnDropdown(c) {
+  if (c.dropdownSource) return { source: c.dropdownSource };
+  if (c.type === "boolean") return { values: ["Y", "N"] };
+  if (c.type === "enum") return { values: c.enumValues };
+  if (c.dropdownValues) return { values: c.dropdownValues };
+  return null;
+}
+
+/** Live option lists for the db-driven dropdown sources, as of right now (a template is a point-in-time snapshot - re-download after adding a company/state if you need it in the list). */
+function buildDynamicDropdownLists(db) {
+  return {
+    STATE: (db.ptSlabs || []).map((s) => s.label).filter(Boolean),
+    COMPANY: (db.companies || []).map((c) => c.name).filter(Boolean),
+    MONTH: FY_MONTH_NAMES.slice(),
+  };
+}
+
+/** The dataValidations config (see xlsx-validations.js) for one data sheet's columns. */
+function buildSheetValidations(columns, dynamicLists, listSheetColumns) {
+  const entries = [];
+  columns.forEach((c, colIndex) => {
+    const dd = getColumnDropdown(c);
+    if (!dd) return;
+    if (dd.source) {
+      const values = dynamicLists[dd.source];
+      if (!values || values.length === 0) return; // nothing to offer yet (e.g. no companies) - skip rather than write an empty/invalid range
+      entries.push({ colIndex, kind: "range", sheetName: "Lists", listColIndex: listSheetColumns[dd.source], count: values.length });
+    } else if (dd.values && dd.values.length > 0) {
+      entries.push({ colIndex, kind: "inline", values: dd.values });
+    }
+  });
+  return entries;
+}
+
+/**
+ * A hidden helper sheet holding one column per db-driven dropdown source
+ * actually used by the sheets being built (State, Legal Entity names,
+ * Payroll Month) - Excel's list validation can reference another sheet's
+ * range but not an inline array of arbitrary/dynamic length, so this is
+ * where that range lives. Returns null if nothing dynamic is needed (e.g.
+ * building just the Salary Structure template on its own).
+ */
+function buildListsSheet(dynamicLists, sourcesNeeded) {
+  const sources = [...sourcesNeeded].filter((s) => dynamicLists[s] && dynamicLists[s].length > 0);
+  if (sources.length === 0) return null;
+  const maxLen = Math.max(...sources.map((s) => dynamicLists[s].length));
+  const rows = [sources.slice()];
+  for (let i = 0; i < maxLen; i++) rows.push(sources.map((s) => dynamicLists[s][i] ?? ""));
+  const sheet = XLSX.utils.aoa_to_sheet(rows);
+  sheet["!cols"] = sources.map(() => ({ wch: 24 }));
+  return { sheet, listSheetColumns: Object.fromEntries(sources.map((s, i) => [s, i])) };
+}
+
+function hideSheet(wb, sheetName) {
+  const idx = wb.SheetNames.indexOf(sheetName);
+  if (idx < 0) return;
+  wb.Workbook = wb.Workbook || {};
+  wb.Workbook.Sheets = wb.Workbook.Sheets || [];
+  wb.Workbook.Sheets[idx] = { Hidden: 1 };
+}
+
 function buildFieldReferenceSheet(columns) {
   const hasLimits = columns.some((c) => c.limit);
   const header = hasLimits ? ["Column", "Required", "Type", "Notes", "Maximum (old regime)"] : ["Column", "Required", "Type", "Notes"];
@@ -205,20 +273,42 @@ function buildInstructionsSheet() {
   return ws;
 }
 
-function buildTemplateWorkbook(type) {
+async function buildTemplateWorkbook(type, db) {
   const spec = IMPORT_TEMPLATES[type];
+  const sheetName = spec.sheetName.slice(0, 31);
+  const dynamicLists = buildDynamicDropdownLists(db);
+  const sourcesNeeded = new Set(spec.columns.map((c) => c.dropdownSource).filter(Boolean));
+  const listsInfo = buildListsSheet(dynamicLists, sourcesNeeded);
+
   const wb = XLSX.utils.book_new();
-  XLSX.utils.book_append_sheet(wb, buildDataSheet(spec), spec.sheetName.slice(0, 31));
+  XLSX.utils.book_append_sheet(wb, buildDataSheet(spec), sheetName);
   XLSX.utils.book_append_sheet(wb, buildFieldReferenceSheet(spec.columns), "Field Reference");
-  return XLSX.write(wb, { type: "array", bookType: "xlsx" });
+  if (listsInfo) {
+    XLSX.utils.book_append_sheet(wb, listsInfo.sheet, "Lists");
+    hideSheet(wb, "Lists");
+  }
+  const buf = XLSX.write(wb, { type: "array", bookType: "xlsx" });
+
+  const validations = listsInfo ? buildSheetValidations(spec.columns, dynamicLists, listsInfo.listSheetColumns) : buildSheetValidations(spec.columns, dynamicLists, {});
+  if (validations.length === 0) return buf;
+  return addDataValidations(buf, { [sheetName]: validations }, 1000);
 }
 
-function buildCombinedTemplateWorkbook() {
+async function buildCombinedTemplateWorkbook(db) {
+  const types = ["EMPLOYEE", "SALARY_STRUCTURE", "INVESTMENT", "PREVIOUS_EMPLOYER"];
+  const dynamicLists = buildDynamicDropdownLists(db);
+  const sourcesNeeded = new Set(types.flatMap((t) => IMPORT_TEMPLATES[t].columns.map((c) => c.dropdownSource)).filter(Boolean));
+  const listsInfo = buildListsSheet(dynamicLists, sourcesNeeded);
+
   const wb = XLSX.utils.book_new();
   XLSX.utils.book_append_sheet(wb, buildInstructionsSheet(), "Instructions");
-  for (const type of ["EMPLOYEE", "SALARY_STRUCTURE", "INVESTMENT", "PREVIOUS_EMPLOYER"]) {
+  const sheetValidations = {};
+  for (const type of types) {
     const spec = IMPORT_TEMPLATES[type];
-    XLSX.utils.book_append_sheet(wb, buildDataSheet(spec), spec.sheetName.slice(0, 31));
+    const sheetName = spec.sheetName.slice(0, 31);
+    XLSX.utils.book_append_sheet(wb, buildDataSheet(spec), sheetName);
+    const validations = buildSheetValidations(spec.columns, dynamicLists, listsInfo ? listsInfo.listSheetColumns : {});
+    if (validations.length > 0) sheetValidations[sheetName] = validations;
   }
   // The Investment Declaration tab has many columns with statutory maximums
   // (Sec 80C/80D/80DD/80U/etc.), and the Employee Master tab has several
@@ -227,7 +317,14 @@ function buildCombinedTemplateWorkbook() {
   // sheet even in the combined workbook.
   XLSX.utils.book_append_sheet(wb, buildFieldReferenceSheet(IMPORT_TEMPLATES.EMPLOYEE.columns), "Employee - Field Guide");
   XLSX.utils.book_append_sheet(wb, buildFieldReferenceSheet(IMPORT_TEMPLATES.INVESTMENT.columns), "Investment - Field Guide");
-  return XLSX.write(wb, { type: "array", bookType: "xlsx" });
+  if (listsInfo) {
+    XLSX.utils.book_append_sheet(wb, listsInfo.sheet, "Lists");
+    hideSheet(wb, "Lists");
+  }
+  const buf = XLSX.write(wb, { type: "array", bookType: "xlsx" });
+
+  if (Object.keys(sheetValidations).length === 0) return buf;
+  return addDataValidations(buf, sheetValidations, 1000);
 }
 
 function normalizeKey(key) {
@@ -687,5 +784,8 @@ function runCombinedImport(db, arrayBuffer, fileName, companyId) {
 }
 
 if (typeof module !== "undefined" && module.exports) {
-  module.exports = { IMPORT_TEMPLATES, INSTRUCTIONS_LINES, buildTemplateWorkbook, buildCombinedTemplateWorkbook, parseWorkbookRows, runSingleImport, runCombinedImport };
+  module.exports = {
+    IMPORT_TEMPLATES, INSTRUCTIONS_LINES, buildTemplateWorkbook, buildCombinedTemplateWorkbook, parseWorkbookRows, runSingleImport, runCombinedImport,
+    getColumnDropdown, buildDynamicDropdownLists,
+  };
 }

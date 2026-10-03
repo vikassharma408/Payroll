@@ -1,8 +1,9 @@
 // Companies: multi-entity support. Each Company is a separate legal entity
 // (own PAN/TAN/bank account); Employees and Payroll Runs each belong to
-// exactly one Company via companyId. The topbar's company switcher
-// (app.js: getActiveCompanyId/activeCompany) decides which one every other
-// screen filters to.
+// exactly one Company via companyId, chosen explicitly on each create-form
+// (Employee, Payroll Run, Template, Import). The topbar's eye-icon filter
+// (app.js: getCompanyFilter/filteredCompanies) decides which company(ies)
+// list/report screens show.
 
 registerView("companies", "Setup", "Companies", renderCompaniesList);
 registerDetailView("companies", (container, segments) => {

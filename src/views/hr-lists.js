@@ -4,8 +4,8 @@
 // though the underlying data was fully functional via each employee's own
 // detail-page tab. These give a single place to see who's set up and who
 // isn't, with each row linking straight to the matching tab for detail/edit.
-// Scoped to the company view filter (topbar eye icon), not the single
-// Active Company - so these can show one, several, or all companies at once.
+// Scoped to the company view filter (topbar eye icon) - so these can show
+// one, several, or all companies at once.
 
 registerView("salary-structures", "Payroll", "Salary Structures", renderSalaryStructuresList);
 registerView("investment-declarations", "Payroll", "Investment Declarations", renderInvestmentDeclarationsList);
@@ -17,7 +17,7 @@ function companyNameOf(companyId) {
 }
 
 function renderSalaryStructuresList(container) {
-  if (!activeCompany()) {
+  if (db.companies.length === 0) {
     container.innerHTML = `<div class="card"><p class="text-muted">No company set up yet. <a href="#/companies/new">Add your first company</a> to get started.</p></div>`;
     return;
   }
@@ -57,7 +57,7 @@ function renderSalaryStructuresList(container) {
 }
 
 function renderInvestmentDeclarationsList(container) {
-  if (!activeCompany()) {
+  if (db.companies.length === 0) {
     container.innerHTML = `<div class="card"><p class="text-muted">No company set up yet. <a href="#/companies/new">Add your first company</a> to get started.</p></div>`;
     return;
   }
@@ -92,7 +92,7 @@ function renderInvestmentDeclarationsList(container) {
 }
 
 function renderPreviousEmployerList(container) {
-  if (!activeCompany()) {
+  if (db.companies.length === 0) {
     container.innerHTML = `<div class="card"><p class="text-muted">No company set up yet. <a href="#/companies/new">Add your first company</a> to get started.</p></div>`;
     return;
   }
