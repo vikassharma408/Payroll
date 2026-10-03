@@ -120,6 +120,7 @@ const SIDEBAR = [
     section: "Setup",
     items: [
       ["companies", "Companies"],
+      ["salary-templates", "Salary Structure Templates"],
       ["tax-rules", "Tax Rules"],
       ["pt-slabs", "PT Slabs"],
       ["backup", "Backup & Restore"],

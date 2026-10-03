@@ -13,7 +13,7 @@ function newId(prefix) {
   return `${prefix}_${Date.now().toString(36)}${_seq.toString(36)}${rand}`;
 }
 
-const SCHEMA_VERSION = 3;
+const SCHEMA_VERSION = 4;
 
 function createEmptyDb() {
   return {
@@ -26,6 +26,7 @@ function createEmptyDb() {
     ptSlabs: [],
     employees: [],
     employeeSalaryStructures: [],
+    salaryStructureTemplates: [],
     investmentDeclarations: [],
     previousEmployerIncomes: [],
     employeePerquisites: [],
@@ -45,6 +46,9 @@ function createEmptyDb() {
  *   days / one-time taxable pay per employee) are added as empty defaults.
  *   v2 -> v3: `ptSlabs` (editable state-wise Professional Tax slabs) seeded
  *   from pt-slabs.js's defaults if not already present.
+ *   v3 -> v4: `salaryStructureTemplates` (company-level CTC breakup rules,
+ *   used to auto-generate an employee's salary structure from a target CTC)
+ *   added as an empty array.
  * Runs unconditionally on every load, not just version-gated sections, so a
  * newly added field in pt-slabs.js's defaults (e.g. the senior-citizen PT
  * exemption age) backfills into an already-seeded db instead of silently
@@ -64,8 +68,12 @@ function migrateDb(db) {
   if (db.schemaVersion < 3) {
     db.schemaVersion = 3;
   }
+  if (db.schemaVersion < 4) {
+    db.schemaVersion = 4;
+  }
   if (!db.companies) db.companies = [];
   if (!db.employeePerquisites) db.employeePerquisites = [];
+  if (!db.salaryStructureTemplates) db.salaryStructureTemplates = [];
   if (!db.ptSlabs || db.ptSlabs.length === 0) {
     const ptSlabsMod = typeof module !== "undefined" && module.exports ? require("./pt-slabs.js") : { PT_STATES };
     db.ptSlabs = JSON.parse(JSON.stringify(ptSlabsMod.PT_STATES || []));

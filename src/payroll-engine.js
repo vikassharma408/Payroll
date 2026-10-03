@@ -19,6 +19,7 @@
   const { newId } = isNode ? require("./db.js") : { newId: root.newId };
   const { computePerquisitesTotal } = isNode ? require("./perquisites.js") : { computePerquisitesTotal: root.computePerquisitesTotal };
   const { computeMonthlyPT } = isNode ? require("./pt-slabs.js") : { computeMonthlyPT: root.computeMonthlyPT };
+  const { resolveSalaryStructure } = isNode ? require("./formula-engine.js") : { resolveSalaryStructure: root.resolveSalaryStructure };
 
   const PERQ_CHECK_CODES = ["EMPLOYER_PF", "EMPLOYER_NPS", "EMPLOYER_SUPERANNUATION"];
   const BASIC_DA_CODES = ["BASIC", "DA"];
@@ -27,6 +28,18 @@
 
   function sumCodes(map, codes) {
     return codes.reduce((s, code) => s + (map[code] ?? 0), 0);
+  }
+
+  // PF Applicable / ESI Applicable on the employee master are the on/off
+  // switch for these payheads: when unchecked, they're skipped even if the
+  // salary structure (often populated from a shared company template) still
+  // has a PF/ESI line - e.g. an employee exempt under the PF wage ceiling,
+  // or on a contract with no ESI cover, without needing a one-off structure
+  // just for them.
+  function isComponentSuppressed(employee, code) {
+    if (employee && !employee.pfApplicable && (code === "EMPLOYEE_PF" || code === "EMPLOYER_PF")) return true;
+    if (employee && !employee.esiApplicable && code === "EMPLOYEE_ESI") return true;
+    return false;
   }
 
   /** Whether a declared rent period (start/end dates, either optional) covers any part of the given calendar month - so HRA exemption only applies for months rent was actually being paid. */
@@ -65,9 +78,69 @@
     if (candidates.length === 0) return null;
     candidates.sort((a, b) => new Date(b.effectiveFrom) - new Date(a.effectiveFrom));
     const structure = candidates[0];
+    const employee = db.employees.find((e) => e.id === employeeId);
     return {
       annualCTC: structure.annualCTC,
-      components: structure.components.map((c) => ({ code: c.componentCode, category: c.category, monthlyAmount: c.monthlyAmount })),
+      components: structure.components
+        .filter((c) => !isComponentSuppressed(employee, c.componentCode))
+        .map((c) => ({ code: c.componentCode, category: c.category, monthlyAmount: c.monthlyAmount })),
+    };
+  }
+
+  /**
+   * Expands a company's reusable Salary Structure Template (CTC breakup
+   * formulas, e.g. "40% of CTC" for Basic, "50% of BASIC" for HRA) into a
+   * concrete set of components for one target annual CTC - the whole point
+   * being an admin only has to type the CTC figure once per employee.
+   * Gratuity (if the template carries a row for it) is always computed from
+   * its own formula either way; `includeGratuityInCTC` only decides whether
+   * it's counted as already inside the entered CTC (the template's own
+   * other formulas are expected to account for it, e.g. a balancing
+   * allowance that subtracts it) or added on top as extra employer cost -
+   * reflected in the returned `totalCostToCompany`.
+   */
+  function generateStructureFromTemplate(db, templateId, annualCTC) {
+    const template = db.salaryStructureTemplates.find((t) => t.id === templateId);
+    if (!template) throw new Error("Salary structure template not found");
+    return expandSalaryTemplate(db, template, annualCTC);
+  }
+
+  /** Core of generateStructureFromTemplate, taking the template object directly rather than an id - lets the template editor preview an as-yet-unsaved draft the same way. */
+  function expandSalaryTemplate(db, template, annualCTC) {
+    if (!(annualCTC > 0)) throw new Error("Enter a positive annual CTC to generate a structure");
+    if (!template.components || template.components.length === 0) throw new Error("This template has no components defined yet");
+
+    const feComponents = template.components.map((r) => ({
+      code: r.componentCode,
+      formula: r.formula && r.formula.trim() ? r.formula : null,
+      fixedAnnualAmount: r.fixedAnnualAmount ?? 0,
+    }));
+    const resolved = resolveSalaryStructure(annualCTC, feComponents);
+
+    const gratuityAnnual = resolved["GRATUITY"] ? resolved["GRATUITY"].annualAmount : 0;
+    const totalCostToCompany = annualCTC + (template.includeGratuityInCTC ? 0 : gratuityAnnual);
+
+    const components = template.components.map((r) => {
+      const res = resolved[r.componentCode];
+      const comp = db.salaryComponents.find((c) => c.code === r.componentCode);
+      const monthlyAmount = Math.round(res.annualAmount / 12);
+      return {
+        componentId: comp ? comp.id : null,
+        componentCode: r.componentCode,
+        category: comp ? comp.category : null,
+        monthlyAmount,
+        annualAmount: monthlyAmount * 12,
+        formulaTrace: res.formulaTrace,
+      };
+    });
+
+    return {
+      templateId: template.id,
+      templateName: template.name,
+      annualCTC,
+      includeGratuityInCTC: !!template.includeGratuityInCTC,
+      totalCostToCompany,
+      components,
     };
   }
 
@@ -604,6 +677,7 @@
 
     const earningsAnnual = {}, employerAnnual = {}, deductionAnnual = {};
     for (const c of structure.components) {
+      if (isComponentSuppressed(employee, c.componentCode)) continue;
       const map = c.category === "EARNING" ? earningsAnnual : c.category === "EMPLOYER_CONTRIBUTION" ? employerAnnual : deductionAnnual;
       map[c.componentCode] = (map[c.componentCode] ?? 0) + c.annualAmount;
     }
@@ -697,6 +771,8 @@
     PAYROLL_STATUS_ORDER,
     getTaxRuleSetConfig,
     getActiveStructure,
+    generateStructureFromTemplate,
+    expandSalaryTemplate,
     computeEmployeePayrollLine,
     isEmployeeEligibleForRun,
     processPayrollRun,

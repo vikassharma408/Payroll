@@ -235,9 +235,10 @@ function renderEmployeeForm(container, employee) {
       <div class="row gap-8 mt-16">
         <label class="row gap-8" style="display:flex;align-items:center;"><input type="checkbox" name="pfApplicable" ${e.pfApplicable ? "checked" : ""} style="width:auto;" /> PF Applicable</label>
         <label class="row gap-8" style="display:flex;align-items:center;"><input type="checkbox" name="esiApplicable" ${e.esiApplicable ? "checked" : ""} style="width:auto;" /> ESI Applicable</label>
-        <label class="row gap-8" style="display:flex;align-items:center;"><input type="checkbox" name="ptApplicable" ${e.ptApplicable ? "checked" : ""} style="width:auto;" /> PT Applicable</label>
+        <label class="row gap-8" style="display:flex;align-items:center;"><input type="checkbox" id="field-ptApplicable" name="ptApplicable" ${e.ptApplicable ? "checked" : ""} style="width:auto;" /> PT Applicable</label>
         <label class="row gap-8" style="display:flex;align-items:center;"><input type="checkbox" name="isMetroCity" ${e.isMetroCity ? "checked" : ""} style="width:auto;" /> Metro City (for HRA)</label>
       </div>
+      <p class="text-muted" style="font-size:12px;margin-top:6px;">PF/ESI/PT Applicable are overrides, not auto-detected: even if the Salary Structure has a PF, ESI or PT line, unticking the matching box here skips it for this employee only (e.g. above the PF wage ceiling, no ESI cover, or PT-exempt) - handy once Salary Structure Templates mean most employees share one standard structure. Ticking "PT Applicable" with a State selected switches PT to that state's auto-calculated slab (overriding any fixed PT figure in the Salary Structure); it's auto-ticked when you pick a State below, untick it if you'd rather keep a fixed manually-entered PT amount instead.</p>
       <div id="form-error" class="text-bad mt-16"></div>
       <div class="row gap-8 mt-16">
         <button type="submit" class="primary">${isEdit ? "Save Changes" : "Add Employee"}</button>
@@ -245,6 +246,10 @@ function renderEmployeeForm(container, employee) {
       </div>
     </form>
   `;
+
+  document.querySelector('select[name="state"]').addEventListener("change", (evt) => {
+    document.getElementById("field-ptApplicable").checked = !!evt.target.value;
+  });
 
   document.getElementById("employee-form").addEventListener("submit", async (evt) => {
     evt.preventDefault();
@@ -439,6 +444,8 @@ function renderSalaryStructureTab(container, employee, fy, onSaved) {
   let rows = active ? active.components.map((c) => ({ componentId: c.componentId, componentCode: c.componentCode, monthlyAmount: c.monthlyAmount })) : [];
   let effectiveFromInput = new Date().toISOString().slice(0, 10);
   let targetRunId = "";
+  let selectedTemplateId = "";
+  let targetCtcInput = "";
 
   function computedCtc() {
     return rows.reduce((s, r) => {
@@ -455,8 +462,26 @@ function renderSalaryStructureTab(container, employee, fy, onSaved) {
       .join("");
 
     const arrears = active ? PayrollEngine.computeArrears(db, employee.id, fy.id, active.effectiveFrom) : null;
+    const companyTemplates = db.salaryStructureTemplates.filter((t) => t.companyId === employee.companyId);
+    if (!selectedTemplateId && companyTemplates[0]) selectedTemplateId = companyTemplates[0].id;
 
     container.innerHTML = `
+      ${
+        companyTemplates.length === 0
+          ? `<div class="card"><p class="text-muted">No Salary Structure Templates set up for this company yet. <a href="#/salary-templates/new">Create one</a> to generate a full breakup from just a CTC figure next time.</p></div>`
+          : `<div class="card">
+        <h3>Generate From Template</h3>
+        <p class="text-muted" style="font-size:12px;">Pick a company template and enter this employee's target annual CTC - it fills in every component's monthly and annual amount below, which you can still tweak by hand afterwards.</p>
+        <div class="row gap-8" style="align-items:flex-end;">
+          <div><label>Template</label><select id="gen-template-select">${companyTemplates.map((t) => `<option value="${t.id}" ${t.id === selectedTemplateId ? "selected" : ""}>${escapeHtml(t.name)}</option>`).join("")}</select></div>
+          <div><label>Target Annual CTC</label><input type="number" min="0" id="gen-target-ctc" value="${targetCtcInput}" placeholder="e.g. 1200000" /></div>
+          <button id="btn-generate-structure">Generate Structure</button>
+          <a href="#/salary-templates" style="margin-left:auto;">Manage Templates</a>
+        </div>
+        <div id="generate-error" class="text-bad mt-16"></div>
+        <div id="generate-note" class="text-muted mt-16" style="font-size:12px;"></div>
+      </div>`
+      }
       <div class="card">
         <div class="row gap-8" style="align-items:flex-end;">
           <div><div class="stat-label">Annual CTC (computed)</div><div class="stat-value" id="ctc-display">${rupees(computedCtc())}</div></div>
@@ -488,6 +513,33 @@ function renderSalaryStructureTab(container, employee, fy, onSaved) {
       effectiveFromInput = e.target.value;
     });
     wireArrearsPanel(arrears);
+    const genTemplateSelect = document.getElementById("gen-template-select");
+    if (genTemplateSelect) {
+      genTemplateSelect.addEventListener("change", (e) => { selectedTemplateId = e.target.value; });
+      document.getElementById("gen-target-ctc").addEventListener("input", (e) => { targetCtcInput = e.target.value; });
+      document.getElementById("btn-generate-structure").addEventListener("click", () => {
+        const errorEl = document.getElementById("generate-error");
+        const noteEl = document.getElementById("generate-note");
+        errorEl.textContent = "";
+        noteEl.textContent = "";
+        const ctc = num(targetCtcInput);
+        try {
+          const result = PayrollEngine.generateStructureFromTemplate(db, selectedTemplateId, ctc);
+          const generatedRows = result.components.filter((c) => c.componentId).map((c) => ({ componentId: c.componentId, componentCode: c.componentCode, monthlyAmount: c.monthlyAmount, formulaUsed: c.formulaTrace }));
+          if (generatedRows.length < result.components.length) {
+            errorEl.textContent = "Some template rows reference a salary component that no longer exists and were skipped.";
+          }
+          rows = generatedRows;
+          renderRows();
+          document.getElementById("ctc-display").textContent = rupees(computedCtc());
+          noteEl.textContent = result.includeGratuityInCTC || result.totalCostToCompany === result.annualCTC
+            ? `Generated from "${result.templateName}" for CTC ${rupees(result.annualCTC)}.`
+            : `Generated from "${result.templateName}" for CTC ${rupees(result.annualCTC)}. Gratuity is kept outside this CTC figure, so total cost to company incl. Gratuity is ${rupees(result.totalCostToCompany)}.`;
+        } catch (err) {
+          errorEl.textContent = err.message;
+        }
+      });
+    }
     document.getElementById("btn-add-row").addEventListener("click", () => {
       const select = document.getElementById("add-component-select");
       const comp = db.salaryComponents.find((c) => c.id === select.value);
@@ -534,7 +586,7 @@ function renderSalaryStructureTab(container, employee, fy, onSaved) {
             category: comp.category,
             monthlyAmount: r.monthlyAmount,
             annualAmount: r.monthlyAmount * 12,
-            formulaUsed: `Entered as fixed monthly amount: Rs ${r.monthlyAmount.toLocaleString("en-IN")}/month`,
+            formulaUsed: r.formulaUsed || `Entered as fixed monthly amount: Rs ${r.monthlyAmount.toLocaleString("en-IN")}/month`,
           };
         }),
       };
@@ -634,7 +686,9 @@ function renderSalaryStructureTab(container, employee, fy, onSaved) {
 
     tbody.querySelectorAll(".monthly-input").forEach((el) =>
       el.addEventListener("input", (e) => {
-        rows[Number(e.target.dataset.idx)].monthlyAmount = num(e.target.value);
+        const row = rows[Number(e.target.dataset.idx)];
+        row.monthlyAmount = num(e.target.value);
+        row.formulaUsed = null;
         renderRows();
         document.getElementById("ctc-display").textContent = rupees(computedCtc());
       }),
