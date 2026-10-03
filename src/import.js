@@ -439,6 +439,13 @@ function importSalaryStructures(db, rows) {
 
     const annualCTC = amounts.reduce((s, a) => s + a.monthly * 12, 0);
     const now = new Date().toISOString();
+    // Effective from the FY's start (not "now", the moment of import) - an
+    // admin setting up a new financial year's payroll in bulk is almost
+    // always doing so after that FY has already started, and every month
+    // between the FY start and the import date would otherwise have no
+    // active structure, failing "Run Calculation" with "No active salary
+    // structure" for each of those months.
+    const effectiveFrom = fy.startDate;
     for (const s of db.employeeSalaryStructures) {
       if (s.employeeId === employee.id && s.financialYearId === fy.id && s.isActive) {
         s.isActive = false;
@@ -446,7 +453,7 @@ function importSalaryStructures(db, rows) {
       }
     }
     db.employeeSalaryStructures.push({
-      id: newId("ess"), employeeId: employee.id, financialYearId: fy.id, annualCTC, effectiveFrom: now, effectiveTo: null, isActive: true, createdAt: now,
+      id: newId("ess"), employeeId: employee.id, financialYearId: fy.id, annualCTC, effectiveFrom, effectiveTo: null, isActive: true, createdAt: now,
       components: amounts.map((a) => {
         const comp = db.salaryComponents.find((c) => c.code === a.code);
         return { componentId: comp.id, componentCode: a.code, category: comp.category, monthlyAmount: a.monthly, annualAmount: a.monthly * 12, formulaUsed: `Imported fixed monthly amount: Rs ${a.monthly.toLocaleString("en-IN")}/month` };
