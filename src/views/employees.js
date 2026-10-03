@@ -179,7 +179,6 @@ function renderEmployeeForm(container, employee) {
     bankName: "",
     bankAccountNo: "",
     bankIfsc: "",
-    isMetroCity: false,
   };
 
   container.innerHTML = `
@@ -236,7 +235,6 @@ function renderEmployeeForm(container, employee) {
         <label class="row gap-8" style="display:flex;align-items:center;"><input type="checkbox" name="pfApplicable" ${e.pfApplicable ? "checked" : ""} style="width:auto;" /> PF Applicable</label>
         <label class="row gap-8" style="display:flex;align-items:center;"><input type="checkbox" name="esiApplicable" ${e.esiApplicable ? "checked" : ""} style="width:auto;" /> ESI Applicable</label>
         <label class="row gap-8" style="display:flex;align-items:center;"><input type="checkbox" id="field-ptApplicable" name="ptApplicable" ${e.ptApplicable ? "checked" : ""} style="width:auto;" /> PT Applicable</label>
-        <label class="row gap-8" style="display:flex;align-items:center;"><input type="checkbox" name="isMetroCity" ${e.isMetroCity ? "checked" : ""} style="width:auto;" /> Metro City (for HRA)</label>
       </div>
       <p class="text-muted" style="font-size:12px;margin-top:6px;">PF/ESI/PT Applicable are overrides, not auto-detected: even if the Salary Structure has a PF, ESI or PT line, unticking the matching box here skips it for this employee only (e.g. above the PF wage ceiling, no ESI cover, or PT-exempt) - handy once Salary Structure Templates mean most employees share one standard structure. Ticking "PT Applicable" with a State selected switches PT to that state's auto-calculated slab (overriding any fixed PT figure in the Salary Structure); it's auto-ticked when you pick a State below, untick it if you'd rather keep a fixed manually-entered PT amount instead.</p>
       <div id="form-error" class="text-bad mt-16"></div>
@@ -312,7 +310,6 @@ function renderEmployeeForm(container, employee) {
       ptApplicable: fd.get("ptApplicable") === "on",
       taxRegime: String(fd.get("taxRegime") || "NEW"),
       status: String(fd.get("status") || "ACTIVE"),
-      isMetroCity: fd.get("isMetroCity") === "on",
       bankName: String(fd.get("bankName") || "") || null,
       bankAccountNo: String(fd.get("bankAccountNo") || "") || null,
       bankIfsc: bankIfsc || null,
@@ -425,7 +422,6 @@ function renderProfileTab(container, e) {
       ${field("Payroll Group", e.payrollGroup)}
       ${field("UAN", e.uan)}
       ${field("PF / ESI / PT Applicable", `${e.pfApplicable ? "PF" : ""} ${e.esiApplicable ? "ESI" : ""} ${e.ptApplicable ? "PT" : ""}`.trim() || "None")}
-      ${field("Metro City", e.isMetroCity ? "Yes" : "No")}
       ${field("Bank", e.bankName ? `${e.bankName} · ${e.bankAccountNo || ""} · ${e.bankIfsc || ""}` : "")}
     </div>
   `;
@@ -808,7 +804,10 @@ function renderInvestmentDeclarationTab(container, employee, fy, onSaved) {
           <div><label>Landlord Name</label><input name="landlordName" value="${escapeHtml(d.landlordName || "")}" /></div>
           <div><label>Landlord PAN</label><input name="landlordPan" value="${escapeHtml(d.landlordPan || "")}" /></div>
         </div>
-        <p class="text-muted mt-16" style="font-size:12px;">Leave Start/End Date blank if rent was paid for the entire financial year. If set, HRA exemption is only calculated for the months within this period (e.g. if rent started in July, April-June get no HRA exemption).</p>
+        <label class="row gap-8 mt-16" style="display:flex;align-items:center;">
+          <input type="checkbox" name="isMetroCity" ${d.isMetroCity ? "checked" : ""} style="width:auto;" /> Metro City (Delhi / Mumbai / Kolkata / Chennai)
+        </label>
+        <p class="text-muted mt-16" style="font-size:12px;">Leave Start/End Date blank if rent was paid for the entire financial year. If set, HRA exemption is only calculated for the months within this period (e.g. if rent started in July, April-June get no HRA exemption). Metro City raises the HRA exemption limit to 50% of Basic (40% for non-metro) - re-declare it here each financial year if the employee's base location changes.</p>
       </div>
       ${numFieldGroups}
       <div class="card">
@@ -830,6 +829,7 @@ function renderInvestmentDeclarationTab(container, employee, fy, onSaved) {
     for (const [, fields] of INVESTMENT_FIELDS) {
       for (const [key] of fields) record[key] = num(fd.get(key));
     }
+    record.isMetroCity = fd.get("isMetroCity") === "on";
     record.monthlyRent = num(fd.get("monthlyRent"));
     record.rentStartDate = String(fd.get("rentStartDate") || "") || null;
     record.rentEndDate = String(fd.get("rentEndDate") || "") || null;

@@ -17,7 +17,6 @@ const IMPORT_TEMPLATES = {
       { header: "Designation", field: "designation", type: "string", example: "Executive" },
       { header: "Location", field: "location", type: "string", example: "Mumbai" },
       { header: "State", field: "state", type: "string", example: "Maharashtra", note: "Must match a state name from the in-app PT Slabs screen (e.g. Maharashtra, Karnataka, Delhi). Drives auto-calculated Professional Tax (see Professional Tax Applicable) and is used for the senior-citizen PT exemption. Leave blank if PT should always come from a fixed amount in the Salary Structure instead." },
-      { header: "Metro City (Y/N)", field: "isMetroCity", type: "boolean", example: "Y", note: "Y if the employee is based in Delhi, Mumbai, Kolkata or Chennai - raises the HRA exemption limit to 50% of Basic (40% for non-metro)." },
       { header: "Bank Name", field: "bankName", type: "string", example: "HDFC Bank" },
       { header: "Account Number", field: "bankAccountNo", type: "string", example: "50100123456789" },
       { header: "IFSC", field: "bankIfsc", type: "string", example: "HDFC0000123" },
@@ -29,16 +28,21 @@ const IMPORT_TEMPLATES = {
     ],
   },
   SALARY_STRUCTURE: {
+    // No Bonus column here on purpose: every column on this sheet is a
+    // recurring MONTHLY amount, paid every month for as long as this
+    // structure is active. A one-time/annual bonus typed in here would be
+    // silently paid 12 times over, not once. Use the "Monthly Payroll
+    // Input" template (or the on-screen per-run override) for a bonus
+    // instead - see runMonthlyPayrollInput/the payroll run's "One-Time Pay"
+    // section.
     sheetName: "Salary Structure",
     columns: [
       { header: "Employee Code", field: "employeeCode", required: true, type: "string", example: "EMP101" },
-      { header: "Legal Entity", field: "companyId", type: "string", example: "My Company Pvt Ltd", note: "Only needed in a multi-entity setup if the same Employee Code happens to exist under more than one company - otherwise leave blank. Must match a company name from Setup > Companies." },
       { header: "Basic", field: "BASIC", type: "number", example: 30000 },
       { header: "HRA", field: "HRA", type: "number", example: 15000 },
       { header: "Special Allowance", field: "SPECIAL_ALLOWANCE", type: "number", example: 10000 },
       { header: "Conveyance", field: "CONVEYANCE", type: "number", example: 1600 },
       { header: "LTA", field: "LTA", type: "number", example: 0 },
-      { header: "Bonus", field: "BONUS", type: "number", example: 0 },
       { header: "Other Allowances", field: "OTHER_ALLOWANCE", type: "number", example: 0 },
       { header: "Employer PF", field: "EMPLOYER_PF", type: "number", example: 3600 },
       { header: "Employer NPS", field: "EMPLOYER_NPS", type: "number", example: 0 },
@@ -49,8 +53,8 @@ const IMPORT_TEMPLATES = {
     sheetName: "Investment Declaration",
     columns: [
       { header: "Employee Code", field: "employeeCode", required: true, type: "string", example: "EMP101" },
-      { header: "Legal Entity", field: "companyId", type: "string", example: "My Company Pvt Ltd", note: "Only needed in a multi-entity setup if the same Employee Code happens to exist under more than one company - otherwise leave blank. Must match a company name from Setup > Companies." },
       { header: "Tax Regime", field: "taxRegime", type: "enum", enumValues: ["OLD", "NEW"], example: "OLD" },
+      { header: "Metro City (Y/N)", field: "isMetroCity", type: "boolean", example: "Y", note: "Y if the employee is based in Delhi, Mumbai, Kolkata or Chennai - raises the HRA exemption limit to 50% of Basic (40% for non-metro). Declared per financial year like the rent details below, since it only matters for the HRA exemption calculation." },
       { header: "Monthly Rent", field: "monthlyRent", type: "number", example: 20000 },
       { header: "Rent Start Date", field: "rentStartDate", type: "date", example: "2026-04-01" },
       { header: "Rent End Date", field: "rentEndDate", type: "date", example: "" },
@@ -92,7 +96,6 @@ const IMPORT_TEMPLATES = {
     sheetName: "Previous Employer",
     columns: [
       { header: "Employee Code", field: "employeeCode", required: true, type: "string", example: "EMP101" },
-      { header: "Legal Entity", field: "companyId", type: "string", example: "My Company Pvt Ltd", note: "Only needed in a multi-entity setup if the same Employee Code happens to exist under more than one company - otherwise leave blank. Must match a company name from Setup > Companies." },
       { header: "Previous Employer", field: "employerName", required: true, type: "string", example: "Acme Corp Pvt Ltd" },
       { header: "Salary", field: "grossSalary", required: true, type: "number", example: 400000 },
       { header: "Taxable Salary", field: "taxableSalary", required: true, type: "number", example: 370000 },
@@ -125,12 +128,12 @@ const INSTRUCTIONS_LINES = [
   "",
   "TIP: For just ONE employee, you don't need Excel at all - in the app, go to Employees > + Add Employee, then fill in Salary Structure / Investment Declaration / Previous Employer directly on that employee's page. Use this workbook only when adding many employees at once.",
   "",
-  "MULTI-ENTITY SETUP: Running more than one legal entity (Company) in this app? Set up all your companies under Setup > Companies first. On the 'Employee Master' tab, fill in each employee's 'Legal Entity' (their company's exact name) - that's the only tab where it matters, since it decides which company the employee is created under; leave it blank on any row to use whichever company is active in the app (topbar switcher) at import time. The other 3 tabs (Salary Structure, Investment Declaration, Previous Employer) also have a 'Legal Entity' column, but you only need to fill it in on a row if that row's Employee Code happens to be reused in more than one company - otherwise leave it blank there and the right employee is still found automatically from their Employee Master record, regardless of which company is active.",
+  "MULTI-ENTITY SETUP: Running more than one legal entity (Company) in this app? Set up all your companies under Setup > Companies first. Only the 'Employee Master' tab has a 'Legal Entity' column (their company's exact name) - it decides which company the employee is created under; leave it blank on any row to use whichever company is active in the app (topbar switcher) at import time. The other 3 tabs (Salary Structure, Investment Declaration, Previous Employer) find each employee purely from their Employee Code, which already carries their Legal Entity from Employee Master - nothing extra to fill in there, unless you reuse the exact same Employee Code in two different companies, in which case give them unique codes instead.",
   "",
   "STEP 1 - Fill in your data in this workbook",
-  "1. Go to the 'Employee Master' tab. Enter one row per employee. Employee Code is whatever short code you want to use (e.g. EMP101) - you'll reuse it on the other tabs (together with Legal Entity, if you're importing more than one company and the same code repeats across them). Set State (matching a state from the PT Slabs screen) if Professional Tax should be auto-calculated from that state's slabs every month; leave State and Professional Tax Applicable blank/N if you'd rather enter a fixed PT figure directly in the Salary Structure tab instead. PF/ESI Applicable are per-employee overrides - set to N to exempt one employee from PF/ESI even though the Salary Structure tab (or a Salary Structure Template used in-app) has a PF/ESI line for everyone else. See the 'Employee - Field Guide' tab for details on every column.",
-  "2. Go to the 'Salary Structure' tab. Enter each employee's MONTHLY amount for each salary component for the current financial year. Employee Code must match the Employee Master tab exactly. (If you've set up a Salary Structure Template in-app under Setup > Salary Structure Templates, you can instead open each employee's page after import and generate their structure from just a CTC figure - this Excel tab only takes already-worked-out monthly amounts.)",
-  "3. Go to the 'Investment Declaration' tab for employees who have tax-saving investments, medical insurance, home loan interest, or HRA rent to declare. Employee Code must match. Each 80C/80D/etc. item has its own column (not one lump '80C' figure) so the app can apply the correct statutory cap per head - see the 'Investment - Field Guide' tab for what each column means and its current maximum. If rent is only paid for part of the year, fill in Rent Start Date (and Rent End Date if it stopped before the FY ended) so HRA exemption is only computed for those months.",
+  "1. Go to the 'Employee Master' tab. Enter one row per employee. Employee Code is whatever short code you want to use (e.g. EMP101) - you'll reuse it on the other tabs. Set State (matching a state from the PT Slabs screen) if Professional Tax should be auto-calculated from that state's slabs every month; leave State and Professional Tax Applicable blank/N if you'd rather enter a fixed PT figure directly in the Salary Structure tab instead. PF/ESI Applicable are per-employee overrides - set to N to exempt one employee from PF/ESI even though the Salary Structure tab (or a Salary Structure Template used in-app) has a PF/ESI line for everyone else. See the 'Employee - Field Guide' tab for details on every column.",
+  "2. Go to the 'Salary Structure' tab. Enter each employee's MONTHLY amount for each salary component for the current financial year - every column here is a RECURRING monthly figure, paid every month for as long as this structure is active, so never put a one-time/annual bonus in here (see 'Monthly variable pay' below instead). Employee Code must match the Employee Master tab exactly. (If you've set up a Salary Structure Template in-app under Setup > Salary Structure Templates, you can instead open each employee's page after import and generate their structure from just a CTC figure - this Excel tab only takes already-worked-out monthly amounts.)",
+  "3. Go to the 'Investment Declaration' tab for employees who have tax-saving investments, medical insurance, home loan interest, or HRA rent to declare. Employee Code must match. Set Metro City (Y/N) here too - it only affects the HRA exemption calculated on this tab, re-declared each financial year alongside rent. Each 80C/80D/etc. item has its own column (not one lump '80C' figure) so the app can apply the correct statutory cap per head - see the 'Investment - Field Guide' tab for what each column means and its current maximum. If rent is only paid for part of the year, fill in Rent Start Date (and Rent End Date if it stopped before the FY ended) so HRA exemption is only computed for those months.",
   "4. Go to the 'Previous Employer' tab ONLY for employees who joined partway through this financial year and have salary/TDS from a previous employer in the same year.",
   "5. Save this file when done.",
   "",
@@ -289,12 +292,13 @@ function resolveRowCompanyId(db, row, defaultCompanyId, rowErrors) {
  * Finds an already-imported employee by Employee Code for a data row on the
  * Salary Structure / Investment Declaration / Previous Employer / Monthly
  * Payroll Input sheets. The employee's own Legal Entity (set on Employee
- * Master) already fixes which company they belong to, so in the overwhelming
- * common case - no two companies happen to reuse the same Employee Code -
- * this sheet's own Legal Entity column can be left blank entirely and the
- * right employee is still found automatically, regardless of which company
- * is active in the app. Legal Entity on THIS row is only consulted to break
- * the tie if the code genuinely exists in more than one company.
+ * Master) already fixes which company they belong to, so the common case -
+ * no two companies happen to reuse the same Employee Code - needs nothing
+ * extra here: the right employee is found automatically regardless of which
+ * company is active in the app. Only Monthly Payroll Input still carries its
+ * own optional "Legal Entity" column, consulted solely to break a tie if the
+ * code genuinely exists in more than one company; the other 3 sheets have no
+ * such column; see the catch-all error below for that case.
  */
 function resolveEmployeeForRow(db, row, employeeCode, rowErrors) {
   const entityInput = String(row["Legal Entity"] ?? "").trim();
@@ -308,7 +312,7 @@ function resolveEmployeeForRow(db, row, employeeCode, rowErrors) {
   }
   const matches = db.employees.filter((e) => e.employeeCode === employeeCode);
   if (matches.length > 1) {
-    rowErrors.push(`Employee code '${employeeCode}' exists in more than one Legal Entity - fill in Legal Entity on this row to say which one`);
+    rowErrors.push(`Employee code '${employeeCode}' exists in more than one Legal Entity - give each company's employees unique Employee Codes to resolve this`);
     return null;
   }
   return matches[0] || null;
@@ -384,7 +388,7 @@ function importEmployees(db, rows, defaultCompanyId) {
       pfApplicable: toBoolI(row["PF Applicable"] ?? "Y"),
       esiApplicable: toBoolI(row["ESI Applicable"] ?? "N"),
       ptApplicable: toBoolI(row["Professional Tax Applicable"] ?? (stateKey ? "Y" : "N")),
-      taxRegime, ageCategory: "BELOW_60", status: "ACTIVE", isMetroCity: toBoolI(row["Metro City (Y/N)"] ?? "N"),
+      taxRegime, ageCategory: "BELOW_60", status: "ACTIVE",
       createdAt: new Date().toISOString(), updatedAt: new Date().toISOString(),
     });
     imported++;
@@ -467,6 +471,7 @@ function importInvestmentDeclarations(db, rows) {
     if (regime !== employee.taxRegime) employee.taxRegime = regime;
 
     const values = {
+      isMetroCity: toBoolI(row["Metro City (Y/N)"] ?? "N"),
       monthlyRent: toNumberI(row["Monthly Rent"]),
       rentStartDate: toDateOrNullI(row["Rent Start Date"]),
       rentEndDate: toDateOrNullI(row["Rent End Date"]),

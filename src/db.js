@@ -52,7 +52,11 @@ function createEmptyDb() {
  * Runs unconditionally on every load, not just version-gated sections, so a
  * newly added field in pt-slabs.js's defaults (e.g. the senior-citizen PT
  * exemption age) backfills into an already-seeded db instead of silently
- * staying missing forever.
+ * staying missing forever. The same unconditional pass also carries a
+ * previously-set Employee.isMetroCity into that employee's current
+ * Investment Declaration, since that flag moved there (it's only ever used
+ * by the HRA exemption calculation, which is entirely an Investment
+ * Declaration concern).
  */
 function migrateDb(db) {
   if (!db.schemaVersion || db.schemaVersion < 2) {
@@ -89,6 +93,18 @@ function migrateDb(db) {
   for (const r of db.payrollRuns || []) {
     if (!r.overrides) r.overrides = {};
     delete r.variablePay;
+  }
+  // Metro City moved from the Employee record to the (per-FY) Investment
+  // Declaration, since it's only ever consumed by the HRA exemption
+  // calculation that already lives there. Carry forward any value already
+  // set on an employee into their current investment declaration (if one
+  // exists) so nobody's HRA exemption silently changes after upgrading;
+  // the employee's own isMetroCity field is left in place but unused.
+  for (const e of db.employees || []) {
+    if (!e.isMetroCity) continue;
+    for (const d of db.investmentDeclarations || []) {
+      if (d.employeeId === e.id && d.isMetroCity == null) d.isMetroCity = true;
+    }
   }
   return db;
 }
