@@ -7,6 +7,7 @@ const IMPORT_TEMPLATES = {
     sheetName: "Employee Master",
     columns: [
       { header: "Employee Code", field: "employeeCode", required: true, type: "string", example: "EMP101" },
+      { header: "Legal Entity", field: "companyId", type: "string", example: "My Company Pvt Ltd", note: "Which Company (legal entity) this employee belongs to, for a multi-entity setup - must match a company name exactly as set up under Setup > Companies. Leave blank to use whichever company is active in the app when you run the import (fine if you only ever import one entity at a time)." },
       { header: "Employee Name", field: "fullName", required: true, type: "string", example: "Ravi Kumar" },
       { header: "PAN", field: "pan", type: "string", example: "ABCPK1234A" },
       { header: "DOB", field: "dob", type: "date", example: "1990-01-31" },
@@ -31,6 +32,7 @@ const IMPORT_TEMPLATES = {
     sheetName: "Salary Structure",
     columns: [
       { header: "Employee Code", field: "employeeCode", required: true, type: "string", example: "EMP101" },
+      { header: "Legal Entity", field: "companyId", type: "string", example: "My Company Pvt Ltd", note: "Only needed in a multi-entity setup if the same Employee Code happens to exist under more than one company - otherwise leave blank. Must match a company name from Setup > Companies." },
       { header: "Basic", field: "BASIC", type: "number", example: 30000 },
       { header: "HRA", field: "HRA", type: "number", example: 15000 },
       { header: "Special Allowance", field: "SPECIAL_ALLOWANCE", type: "number", example: 10000 },
@@ -47,6 +49,7 @@ const IMPORT_TEMPLATES = {
     sheetName: "Investment Declaration",
     columns: [
       { header: "Employee Code", field: "employeeCode", required: true, type: "string", example: "EMP101" },
+      { header: "Legal Entity", field: "companyId", type: "string", example: "My Company Pvt Ltd", note: "Only needed in a multi-entity setup if the same Employee Code happens to exist under more than one company - otherwise leave blank. Must match a company name from Setup > Companies." },
       { header: "Tax Regime", field: "taxRegime", type: "enum", enumValues: ["OLD", "NEW"], example: "OLD" },
       { header: "Monthly Rent", field: "monthlyRent", type: "number", example: 20000 },
       { header: "Rent Start Date", field: "rentStartDate", type: "date", example: "2026-04-01" },
@@ -89,6 +92,7 @@ const IMPORT_TEMPLATES = {
     sheetName: "Previous Employer",
     columns: [
       { header: "Employee Code", field: "employeeCode", required: true, type: "string", example: "EMP101" },
+      { header: "Legal Entity", field: "companyId", type: "string", example: "My Company Pvt Ltd", note: "Only needed in a multi-entity setup if the same Employee Code happens to exist under more than one company - otherwise leave blank. Must match a company name from Setup > Companies." },
       { header: "Previous Employer", field: "employerName", required: true, type: "string", example: "Acme Corp Pvt Ltd" },
       { header: "Salary", field: "grossSalary", required: true, type: "number", example: 400000 },
       { header: "Taxable Salary", field: "taxableSalary", required: true, type: "number", example: 370000 },
@@ -101,6 +105,7 @@ const IMPORT_TEMPLATES = {
     sheetName: "Monthly Payroll Input",
     columns: [
       { header: "Employee Code", field: "employeeCode", required: true, type: "string", example: "EMP101" },
+      { header: "Legal Entity", field: "companyId", type: "string", example: "My Company Pvt Ltd", note: "Only needed in a multi-entity setup if the same Employee Code happens to exist under more than one company - otherwise leave blank. Must match a company name from Setup > Companies." },
       { header: "Payroll Month", field: "payrollMonth", required: true, type: "string", example: "April" },
       { header: "Bonus", field: "bonus", type: "number", example: 0 },
       { header: "Incentive", field: "incentive", type: "number", example: 0 },
@@ -120,8 +125,10 @@ const INSTRUCTIONS_LINES = [
   "",
   "TIP: For just ONE employee, you don't need Excel at all - in the app, go to Employees > + Add Employee, then fill in Salary Structure / Investment Declaration / Previous Employer directly on that employee's page. Use this workbook only when adding many employees at once.",
   "",
+  "MULTI-ENTITY SETUP: Running more than one legal entity (Company) in this app? Every tab has an optional 'Legal Entity' column. Leave it blank everywhere and the whole file imports into whichever company is active in the app (topbar switcher) when you run the import - fine for single-entity use or importing one company at a time. To import employees for SEVERAL companies in one file, fill in Legal Entity on every row across every tab with the company's exact name (as set up under Setup > Companies) - each row is then routed to that company regardless of which one is active. Set up all your companies under Setup > Companies first.",
+  "",
   "STEP 1 - Fill in your data in this workbook",
-  "1. Go to the 'Employee Master' tab. Enter one row per employee. Employee Code is whatever short code you want to use (e.g. EMP101) - you'll reuse it on the other tabs. Set State (matching a state from the PT Slabs screen) if Professional Tax should be auto-calculated from that state's slabs every month; leave State and Professional Tax Applicable blank/N if you'd rather enter a fixed PT figure directly in the Salary Structure tab instead. PF/ESI Applicable are per-employee overrides - set to N to exempt one employee from PF/ESI even though the Salary Structure tab (or a Salary Structure Template used in-app) has a PF/ESI line for everyone else. See the 'Employee - Field Guide' tab for details on every column.",
+  "1. Go to the 'Employee Master' tab. Enter one row per employee. Employee Code is whatever short code you want to use (e.g. EMP101) - you'll reuse it on the other tabs (together with Legal Entity, if you're importing more than one company and the same code repeats across them). Set State (matching a state from the PT Slabs screen) if Professional Tax should be auto-calculated from that state's slabs every month; leave State and Professional Tax Applicable blank/N if you'd rather enter a fixed PT figure directly in the Salary Structure tab instead. PF/ESI Applicable are per-employee overrides - set to N to exempt one employee from PF/ESI even though the Salary Structure tab (or a Salary Structure Template used in-app) has a PF/ESI line for everyone else. See the 'Employee - Field Guide' tab for details on every column.",
   "2. Go to the 'Salary Structure' tab. Enter each employee's MONTHLY amount for each salary component for the current financial year. Employee Code must match the Employee Master tab exactly. (If you've set up a Salary Structure Template in-app under Setup > Salary Structure Templates, you can instead open each employee's page after import and generate their structure from just a CTC figure - this Excel tab only takes already-worked-out monthly amounts.)",
   "3. Go to the 'Investment Declaration' tab for employees who have tax-saving investments, medical insurance, home loan interest, or HRA rent to declare. Employee Code must match. Each 80C/80D/etc. item has its own column (not one lump '80C' figure) so the app can apply the correct statutory cap per head - see the 'Investment - Field Guide' tab for what each column means and its current maximum. If rent is only paid for part of the year, fill in Rent Start Date (and Rent End Date if it stopped before the FY ended) so HRA exemption is only computed for those months.",
   "4. Go to the 'Previous Employer' tab ONLY for employees who joined partway through this financial year and have salary/TDS from a previous employer in the same year.",
@@ -267,6 +274,17 @@ function toDateOrNullI(v) {
   const d = v instanceof Date ? v : new Date(String(v));
   return Number.isNaN(d.getTime()) ? null : d.toISOString().slice(0, 10);
 }
+/** Resolves which Company (legal entity) a data row belongs to, from its optional "Legal Entity" column - falling back to the default (the company active in the app when the import was run) if left blank, so single-entity users see no change in behavior. Pushes an error and returns null if the name doesn't match any company. */
+function resolveRowCompanyId(db, row, defaultCompanyId, rowErrors) {
+  const entityInput = String(row["Legal Entity"] ?? "").trim();
+  if (!entityInput) return defaultCompanyId;
+  const match = db.companies.find((c) => c.name.trim().toLowerCase() === entityInput.toLowerCase());
+  if (!match) {
+    rowErrors.push(`Unrecognized Legal Entity '${entityInput}' - must match a company name exactly as set up under Setup > Companies`);
+    return null;
+  }
+  return match.id;
+}
 function requiredFieldsPresent(type, row, errors) {
   for (const col of IMPORT_TEMPLATES[type].columns) {
     if (col.required && (row[col.header] === null || row[col.header] === undefined || row[col.header] === "")) {
@@ -275,7 +293,7 @@ function requiredFieldsPresent(type, row, errors) {
   }
 }
 
-function importEmployees(db, rows, companyId) {
+function importEmployees(db, rows, defaultCompanyId) {
   const errors = [];
   let imported = 0;
   const seenCodes = new Set();
@@ -285,18 +303,21 @@ function importEmployees(db, rows, companyId) {
     const row = rows[i];
     const rowErrors = [];
     requiredFieldsPresent("EMPLOYEE", row, rowErrors);
+    const companyId = resolveRowCompanyId(db, row, defaultCompanyId, rowErrors);
 
     const employeeCode = String(row["Employee Code"] ?? "").trim();
     const pan = String(row["PAN"] ?? "").trim().toUpperCase() || null;
+    const dedupeCodeKey = `${companyId}:${employeeCode}`;
+    const dedupePanKey = `${companyId}:${pan}`;
     if (employeeCode) {
-      if (seenCodes.has(employeeCode)) rowErrors.push(`Duplicate employee code '${employeeCode}' within this file`);
-      seenCodes.add(employeeCode);
+      if (seenCodes.has(dedupeCodeKey)) rowErrors.push(`Duplicate employee code '${employeeCode}' within this file (for this Legal Entity)`);
+      seenCodes.add(dedupeCodeKey);
       if (db.employees.some((e) => e.companyId === companyId && e.employeeCode === employeeCode)) rowErrors.push(`Employee code '${employeeCode}' already exists in this company`);
     }
     if (pan) {
       if (!IMPORT_PAN_REGEX.test(pan)) rowErrors.push(`Invalid PAN format '${pan}'`);
-      if (seenPans.has(pan)) rowErrors.push(`Duplicate PAN '${pan}' within this file`);
-      seenPans.add(pan);
+      if (seenPans.has(dedupePanKey)) rowErrors.push(`Duplicate PAN '${pan}' within this file (for this Legal Entity)`);
+      seenPans.add(dedupePanKey);
       if (db.employees.some((e) => e.companyId === companyId && e.pan === pan)) rowErrors.push(`PAN '${pan}' already used by another employee in this company`);
     }
     const dateOfJoining = toDateOrNullI(row["Date of Joining"]);
@@ -343,7 +364,7 @@ function importEmployees(db, rows, companyId) {
   return { imported, errors };
 }
 
-function importSalaryStructures(db, rows, companyId) {
+function importSalaryStructures(db, rows, defaultCompanyId) {
   const errors = [];
   let imported = 0;
   const fy = db.financialYears.find((f) => f.isCurrent);
@@ -354,10 +375,11 @@ function importSalaryStructures(db, rows, companyId) {
     const rowNumber = i + 2;
     const row = rows[i];
     const rowErrors = [];
+    const companyId = resolveRowCompanyId(db, row, defaultCompanyId, rowErrors);
     const employeeCode = String(row["Employee Code"] ?? "").trim();
     if (!employeeCode) rowErrors.push("Missing required field 'Employee Code'");
-    const employee = db.employees.find((e) => e.companyId === companyId && e.employeeCode === employeeCode);
-    if (employeeCode && !employee) rowErrors.push(`Employee code '${employeeCode}' not found`);
+    const employee = companyId ? db.employees.find((e) => e.companyId === companyId && e.employeeCode === employeeCode) : null;
+    if (employeeCode && companyId && !employee) rowErrors.push(`Employee code '${employeeCode}' not found`);
 
     const amounts = [];
     for (const col of numericFields) {
@@ -392,7 +414,7 @@ function importSalaryStructures(db, rows, companyId) {
   return { imported, errors };
 }
 
-function importInvestmentDeclarations(db, rows, companyId) {
+function importInvestmentDeclarations(db, rows, defaultCompanyId) {
   const errors = [];
   let imported = 0;
   const fy = db.financialYears.find((f) => f.isCurrent);
@@ -402,10 +424,11 @@ function importInvestmentDeclarations(db, rows, companyId) {
     const rowNumber = i + 2;
     const row = rows[i];
     const rowErrors = [];
+    const companyId = resolveRowCompanyId(db, row, defaultCompanyId, rowErrors);
     const employeeCode = String(row["Employee Code"] ?? "").trim();
-    const employee = db.employees.find((e) => e.companyId === companyId && e.employeeCode === employeeCode);
+    const employee = companyId ? db.employees.find((e) => e.companyId === companyId && e.employeeCode === employeeCode) : null;
     if (!employeeCode) rowErrors.push("Missing required field 'Employee Code'");
-    else if (!employee) rowErrors.push(`Employee code '${employeeCode}' not found`);
+    else if (companyId && !employee) rowErrors.push(`Employee code '${employeeCode}' not found`);
 
     const regime = String(row["Tax Regime"] ?? (employee ? employee.taxRegime : "NEW") ?? "NEW").toUpperCase();
     if (regime && !["OLD", "NEW"].includes(regime)) rowErrors.push(`Invalid tax regime '${regime}'`);
@@ -462,7 +485,7 @@ function importInvestmentDeclarations(db, rows, companyId) {
   return { imported, errors };
 }
 
-function importPreviousEmployer(db, rows, companyId) {
+function importPreviousEmployer(db, rows, defaultCompanyId) {
   const errors = [];
   let imported = 0;
   const fy = db.financialYears.find((f) => f.isCurrent);
@@ -473,9 +496,10 @@ function importPreviousEmployer(db, rows, companyId) {
     const row = rows[i];
     const rowErrors = [];
     requiredFieldsPresent("PREVIOUS_EMPLOYER", row, rowErrors);
+    const companyId = resolveRowCompanyId(db, row, defaultCompanyId, rowErrors);
     const employeeCode = String(row["Employee Code"] ?? "").trim();
-    const employee = db.employees.find((e) => e.companyId === companyId && e.employeeCode === employeeCode);
-    if (employeeCode && !employee) rowErrors.push(`Employee code '${employeeCode}' not found`);
+    const employee = companyId ? db.employees.find((e) => e.companyId === companyId && e.employeeCode === employeeCode) : null;
+    if (employeeCode && companyId && !employee) rowErrors.push(`Employee code '${employeeCode}' not found`);
     const grossSalary = toNumberI(row["Salary"]);
     const taxableSalary = toNumberI(row["Taxable Salary"]);
     if (grossSalary < 0 || taxableSalary < 0) rowErrors.push("Salary figures cannot be negative");
@@ -498,7 +522,7 @@ function importPreviousEmployer(db, rows, companyId) {
   return { imported, errors };
 }
 
-function importMonthlyPayroll(db, rows, companyId) {
+function importMonthlyPayroll(db, rows, defaultCompanyId) {
   const errors = [];
   let imported = 0;
   const fy = db.financialYears.find((f) => f.isCurrent);
@@ -513,10 +537,11 @@ function importMonthlyPayroll(db, rows, companyId) {
     const rowNumber = i + 2;
     const row = rows[i];
     const rowErrors = [];
+    const companyId = resolveRowCompanyId(db, row, defaultCompanyId, rowErrors);
     const employeeCode = String(row["Employee Code"] ?? "").trim();
-    const employee = db.employees.find((e) => e.companyId === companyId && e.employeeCode === employeeCode);
+    const employee = companyId ? db.employees.find((e) => e.companyId === companyId && e.employeeCode === employeeCode) : null;
     if (!employeeCode) rowErrors.push("Missing required field 'Employee Code'");
-    else if (!employee) rowErrors.push(`Employee code '${employeeCode}' not found`);
+    else if (companyId && !employee) rowErrors.push(`Employee code '${employeeCode}' not found`);
 
     const monthName = String(row["Payroll Month"] ?? "").trim();
     const monthIndex = FY_MONTH_NAMES.findIndex((m) => m.toLowerCase() === monthName.toLowerCase()) + 1;
