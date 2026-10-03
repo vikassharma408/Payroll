@@ -125,7 +125,7 @@ const INSTRUCTIONS_LINES = [
   "",
   "TIP: For just ONE employee, you don't need Excel at all - in the app, go to Employees > + Add Employee, then fill in Salary Structure / Investment Declaration / Previous Employer directly on that employee's page. Use this workbook only when adding many employees at once.",
   "",
-  "MULTI-ENTITY SETUP: Running more than one legal entity (Company) in this app? Every tab has an optional 'Legal Entity' column. Leave it blank everywhere and the whole file imports into whichever company is active in the app (topbar switcher) when you run the import - fine for single-entity use or importing one company at a time. To import employees for SEVERAL companies in one file, fill in Legal Entity on every row across every tab with the company's exact name (as set up under Setup > Companies) - each row is then routed to that company regardless of which one is active. Set up all your companies under Setup > Companies first.",
+  "MULTI-ENTITY SETUP: Running more than one legal entity (Company) in this app? Set up all your companies under Setup > Companies first. On the 'Employee Master' tab, fill in each employee's 'Legal Entity' (their company's exact name) - that's the only tab where it matters, since it decides which company the employee is created under; leave it blank on any row to use whichever company is active in the app (topbar switcher) at import time. The other 3 tabs (Salary Structure, Investment Declaration, Previous Employer) also have a 'Legal Entity' column, but you only need to fill it in on a row if that row's Employee Code happens to be reused in more than one company - otherwise leave it blank there and the right employee is still found automatically from their Employee Master record, regardless of which company is active.",
   "",
   "STEP 1 - Fill in your data in this workbook",
   "1. Go to the 'Employee Master' tab. Enter one row per employee. Employee Code is whatever short code you want to use (e.g. EMP101) - you'll reuse it on the other tabs (together with Legal Entity, if you're importing more than one company and the same code repeats across them). Set State (matching a state from the PT Slabs screen) if Professional Tax should be auto-calculated from that state's slabs every month; leave State and Professional Tax Applicable blank/N if you'd rather enter a fixed PT figure directly in the Salary Structure tab instead. PF/ESI Applicable are per-employee overrides - set to N to exempt one employee from PF/ESI even though the Salary Structure tab (or a Salary Structure Template used in-app) has a PF/ESI line for everyone else. See the 'Employee - Field Guide' tab for details on every column.",
@@ -285,6 +285,34 @@ function resolveRowCompanyId(db, row, defaultCompanyId, rowErrors) {
   }
   return match.id;
 }
+/**
+ * Finds an already-imported employee by Employee Code for a data row on the
+ * Salary Structure / Investment Declaration / Previous Employer / Monthly
+ * Payroll Input sheets. The employee's own Legal Entity (set on Employee
+ * Master) already fixes which company they belong to, so in the overwhelming
+ * common case - no two companies happen to reuse the same Employee Code -
+ * this sheet's own Legal Entity column can be left blank entirely and the
+ * right employee is still found automatically, regardless of which company
+ * is active in the app. Legal Entity on THIS row is only consulted to break
+ * the tie if the code genuinely exists in more than one company.
+ */
+function resolveEmployeeForRow(db, row, employeeCode, rowErrors) {
+  const entityInput = String(row["Legal Entity"] ?? "").trim();
+  if (entityInput) {
+    const match = db.companies.find((c) => c.name.trim().toLowerCase() === entityInput.toLowerCase());
+    if (!match) {
+      rowErrors.push(`Unrecognized Legal Entity '${entityInput}' - must match a company name exactly as set up under Setup > Companies`);
+      return null;
+    }
+    return db.employees.find((e) => e.companyId === match.id && e.employeeCode === employeeCode) || null;
+  }
+  const matches = db.employees.filter((e) => e.employeeCode === employeeCode);
+  if (matches.length > 1) {
+    rowErrors.push(`Employee code '${employeeCode}' exists in more than one Legal Entity - fill in Legal Entity on this row to say which one`);
+    return null;
+  }
+  return matches[0] || null;
+}
 function requiredFieldsPresent(type, row, errors) {
   for (const col of IMPORT_TEMPLATES[type].columns) {
     if (col.required && (row[col.header] === null || row[col.header] === undefined || row[col.header] === "")) {
@@ -364,7 +392,7 @@ function importEmployees(db, rows, defaultCompanyId) {
   return { imported, errors };
 }
 
-function importSalaryStructures(db, rows, defaultCompanyId) {
+function importSalaryStructures(db, rows) {
   const errors = [];
   let imported = 0;
   const fy = db.financialYears.find((f) => f.isCurrent);
@@ -375,11 +403,10 @@ function importSalaryStructures(db, rows, defaultCompanyId) {
     const rowNumber = i + 2;
     const row = rows[i];
     const rowErrors = [];
-    const companyId = resolveRowCompanyId(db, row, defaultCompanyId, rowErrors);
     const employeeCode = String(row["Employee Code"] ?? "").trim();
     if (!employeeCode) rowErrors.push("Missing required field 'Employee Code'");
-    const employee = companyId ? db.employees.find((e) => e.companyId === companyId && e.employeeCode === employeeCode) : null;
-    if (employeeCode && companyId && !employee) rowErrors.push(`Employee code '${employeeCode}' not found`);
+    const employee = employeeCode ? resolveEmployeeForRow(db, row, employeeCode, rowErrors) : null;
+    if (employeeCode && rowErrors.length === 0 && !employee) rowErrors.push(`Employee code '${employeeCode}' not found`);
 
     const amounts = [];
     for (const col of numericFields) {
@@ -414,7 +441,7 @@ function importSalaryStructures(db, rows, defaultCompanyId) {
   return { imported, errors };
 }
 
-function importInvestmentDeclarations(db, rows, defaultCompanyId) {
+function importInvestmentDeclarations(db, rows) {
   const errors = [];
   let imported = 0;
   const fy = db.financialYears.find((f) => f.isCurrent);
@@ -424,11 +451,10 @@ function importInvestmentDeclarations(db, rows, defaultCompanyId) {
     const rowNumber = i + 2;
     const row = rows[i];
     const rowErrors = [];
-    const companyId = resolveRowCompanyId(db, row, defaultCompanyId, rowErrors);
     const employeeCode = String(row["Employee Code"] ?? "").trim();
-    const employee = companyId ? db.employees.find((e) => e.companyId === companyId && e.employeeCode === employeeCode) : null;
+    const employee = employeeCode ? resolveEmployeeForRow(db, row, employeeCode, rowErrors) : null;
     if (!employeeCode) rowErrors.push("Missing required field 'Employee Code'");
-    else if (companyId && !employee) rowErrors.push(`Employee code '${employeeCode}' not found`);
+    else if (rowErrors.length === 0 && !employee) rowErrors.push(`Employee code '${employeeCode}' not found`);
 
     const regime = String(row["Tax Regime"] ?? (employee ? employee.taxRegime : "NEW") ?? "NEW").toUpperCase();
     if (regime && !["OLD", "NEW"].includes(regime)) rowErrors.push(`Invalid tax regime '${regime}'`);
@@ -485,7 +511,7 @@ function importInvestmentDeclarations(db, rows, defaultCompanyId) {
   return { imported, errors };
 }
 
-function importPreviousEmployer(db, rows, defaultCompanyId) {
+function importPreviousEmployer(db, rows) {
   const errors = [];
   let imported = 0;
   const fy = db.financialYears.find((f) => f.isCurrent);
@@ -496,10 +522,9 @@ function importPreviousEmployer(db, rows, defaultCompanyId) {
     const row = rows[i];
     const rowErrors = [];
     requiredFieldsPresent("PREVIOUS_EMPLOYER", row, rowErrors);
-    const companyId = resolveRowCompanyId(db, row, defaultCompanyId, rowErrors);
     const employeeCode = String(row["Employee Code"] ?? "").trim();
-    const employee = companyId ? db.employees.find((e) => e.companyId === companyId && e.employeeCode === employeeCode) : null;
-    if (employeeCode && companyId && !employee) rowErrors.push(`Employee code '${employeeCode}' not found`);
+    const employee = employeeCode ? resolveEmployeeForRow(db, row, employeeCode, rowErrors) : null;
+    if (employeeCode && rowErrors.length === 0 && !employee) rowErrors.push(`Employee code '${employeeCode}' not found`);
     const grossSalary = toNumberI(row["Salary"]);
     const taxableSalary = toNumberI(row["Taxable Salary"]);
     if (grossSalary < 0 || taxableSalary < 0) rowErrors.push("Salary figures cannot be negative");
@@ -522,7 +547,7 @@ function importPreviousEmployer(db, rows, defaultCompanyId) {
   return { imported, errors };
 }
 
-function importMonthlyPayroll(db, rows, defaultCompanyId) {
+function importMonthlyPayroll(db, rows) {
   const errors = [];
   let imported = 0;
   const fy = db.financialYears.find((f) => f.isCurrent);
@@ -537,11 +562,10 @@ function importMonthlyPayroll(db, rows, defaultCompanyId) {
     const rowNumber = i + 2;
     const row = rows[i];
     const rowErrors = [];
-    const companyId = resolveRowCompanyId(db, row, defaultCompanyId, rowErrors);
     const employeeCode = String(row["Employee Code"] ?? "").trim();
-    const employee = companyId ? db.employees.find((e) => e.companyId === companyId && e.employeeCode === employeeCode) : null;
+    const employee = employeeCode ? resolveEmployeeForRow(db, row, employeeCode, rowErrors) : null;
     if (!employeeCode) rowErrors.push("Missing required field 'Employee Code'");
-    else if (companyId && !employee) rowErrors.push(`Employee code '${employeeCode}' not found`);
+    else if (rowErrors.length === 0 && !employee) rowErrors.push(`Employee code '${employeeCode}' not found`);
 
     const monthName = String(row["Payroll Month"] ?? "").trim();
     const monthIndex = FY_MONTH_NAMES.findIndex((m) => m.toLowerCase() === monthName.toLowerCase()) + 1;
@@ -555,7 +579,7 @@ function importMonthlyPayroll(db, rows, defaultCompanyId) {
       continue;
     }
 
-    const run = db.payrollRuns.find((r) => r.companyId === companyId && r.financialYearId === fy.id && r.payrollMonthIndex === monthIndex && !r.payrollGroup);
+    const run = db.payrollRuns.find((r) => r.companyId === employee.companyId && r.financialYearId === fy.id && r.payrollMonthIndex === monthIndex && !r.payrollGroup);
     if (!run) {
       errors.push({ rowNumber, message: `No payroll run exists yet for ${monthName} ${fy.code}. Create it first, then re-import.` });
       continue;
