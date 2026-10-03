@@ -1419,9 +1419,10 @@ function renderFnfTab(container, employee, fy, onSaved) {
       <div class="form-grid">
         <div><label>Leave Days to Encash</label><input type="number" min="0" id="fnf-leave-days" value="0" /></div>
         <div><label>Per-Day Rate</label><input type="number" min="0" id="fnf-leave-rate" value="${Math.round(basicPlusDaMonthly / 30)}" /></div>
+        <div><label>Leave Encashment Already Received from Previous Employer (Lifetime)</label><input type="number" min="0" id="fnf-prior-leave-encashment" value="${employee.previousLeaveEncashmentReceived || 0}" /></div>
       </div>
       <div id="fnf-leave-preview"></div>
-      <p class="text-muted mt-16" style="font-size:12px;">10-month average Basic+DA used for the exemption formula: ${rupees(Math.round(avg10mo.average))} (from ${avg10mo.monthsUsed} processed payroll month(s)${avg10mo.monthsUsed < 10 ? " - fewer than 10 months of processed payroll data exist for this employee, so the average is based on what's available; this may slightly overstate or understate the true 10-month average" : ""}). The Rs 25,00,000 cap (editable under Tax Rules) is a LIFETIME AGGREGATE across all employers - this app only tracks the current employment, so it cannot verify exemption already used elsewhere; check separately if relevant.</p>
+      <p class="text-muted mt-16" style="font-size:12px;">10-month average Basic+DA used for the exemption formula: ${rupees(Math.round(avg10mo.average))} (from ${avg10mo.monthsUsed} processed payroll month(s)${avg10mo.monthsUsed < 10 ? " - fewer than 10 months of processed payroll data exist for this employee, so the average is based on what's available; this may slightly overstate or understate the true 10-month average" : ""}). The Rs 25,00,000 cap (editable under Tax Rules) is a LIFETIME AGGREGATE across all employers - since this app only processes payroll for the current employer, enter any amount already received from an earlier employer above so the remaining cap is correctly reduced before it's applied here. Saved when you post below.</p>
     </div>
 
     <div class="card">
@@ -1456,14 +1457,17 @@ function renderFnfTab(container, employee, fy, onSaved) {
     const leaveDays = num(document.getElementById("fnf-leave-days").value);
     const leaveRate = num(document.getElementById("fnf-leave-rate").value);
     const leaveEncashment = Math.round(leaveDays * leaveRate);
+    const priorLeaveEncashment = num(document.getElementById("fnf-prior-leave-encashment").value);
     const ex = PayrollEngine.computeLeaveEncashmentExemption(db, {
       employee, actualLeaveEncashment: leaveEncashment, leaveDaysEncashed: leaveDays, perDayRate: leaveRate, financialYearCode: fy.code, asOfDateIso,
+      previouslyReceivedElsewhere: priorLeaveEncashment,
     });
     document.getElementById("fnf-leave-preview").innerHTML = exemptionPreviewHtml(ex, "LEAVE_ENCASHMENT_TAXABLE");
   }
   document.getElementById("fnf-gratuity").addEventListener("input", updateGratuityPreview);
   document.getElementById("fnf-leave-days").addEventListener("input", updateLeavePreview);
   document.getElementById("fnf-leave-rate").addEventListener("input", updateLeavePreview);
+  document.getElementById("fnf-prior-leave-encashment").addEventListener("input", updateLeavePreview);
   updateGratuityPreview();
   updateLeavePreview();
 
@@ -1477,6 +1481,7 @@ function renderFnfTab(container, employee, fy, onSaved) {
       const leaveRate = num(document.getElementById("fnf-leave-rate").value);
       const leaveEncashment = Math.round(leaveDays * leaveRate);
       const noticeRecovery = num(document.getElementById("fnf-notice-recovery").value);
+      employee.previousLeaveEncashmentReceived = num(document.getElementById("fnf-prior-leave-encashment").value);
       try {
         const result = PayrollEngine.applyFnfSettlement(db, employee.id, finalRun.id, {
           gratuity, basicPlusDaMonthly, serviceYears: service.roundedYears,

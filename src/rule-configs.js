@@ -166,7 +166,7 @@ function commonRules(regime, cessRate) {
     name: "Leave Encashment Exemption",
     section: "Sec 19 (old Sec 10(10AA))",
     calculationMethod:
-      "Least of: actual amount received; 10 months' average Basic+DA; cash equivalent of earned leave (max 30 days per completed year of service); the statutory ceiling below. The ceiling is a LIFETIME AGGREGATE across all employers - this app cannot track usage at other employers, so it is applied per-settlement only. Fully exempt with no ceiling for government employees. Allowed under both regimes.",
+      "Least of: actual amount received; 10 months' average Basic+DA; cash equivalent of earned leave (max 30 days per completed year of service); the statutory ceiling below, less any amount manually entered on the Employee record as already received from a previous employer. The ceiling is a LIFETIME AGGREGATE across all employers - this app only processes payroll for the current employer, so usage elsewhere must be entered manually (see the employee's Full & Final Settlement tab). Fully exempt with no ceiling for government employees. Allowed under both regimes.",
     limitValue: DEDUCTION_LIMITS.LEAVE_ENCASHMENT_EXEMPTION,
   });
   return rules;

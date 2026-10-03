@@ -663,25 +663,29 @@
    * non-government employee on resignation/retirement: exemption = LEAST of
    * actual amount received, 10 months' average Basic+DA, the cash
    * equivalent of earned leave (max 30 days per completed year of service),
-   * and the statutory ceiling (an editable Tax Rule Set field, Rs 25 lakh by
-   * default - a LIFETIME AGGREGATE across all employers that this app
-   * cannot track beyond the current employment, so it is applied here
-   * per-settlement only). Government employees are fully exempt with no
-   * ceiling.
+   * and the REMAINING statutory ceiling (an editable Tax Rule Set field, Rs
+   * 25 lakh by default - a LIFETIME AGGREGATE across all employers) after
+   * subtracting `previouslyReceivedElsewhere` (a manually entered, one-time
+   * figure on the Employee record for leave encashment already received
+   * from a prior employer in this same career - this app only processes
+   * payroll for the current employer, so it cannot look that up itself).
+   * Government employees are fully exempt with no ceiling.
    */
   function computeLeaveEncashmentExemption(db, params) {
-    const { employee, actualLeaveEncashment, leaveDaysEncashed, perDayRate, financialYearCode, asOfDateIso } = params;
+    const { employee, actualLeaveEncashment, leaveDaysEncashed, perDayRate, financialYearCode, asOfDateIso, previouslyReceivedElsewhere } = params;
     if (employee.isGovernmentEmployee) {
       return { actual: actualLeaveEncashment, exempt: actualLeaveEncashment, taxable: 0, cap: null, basis: "Government employee: fully exempt, no ceiling (Sec 19 / old Sec 10(10AA))." };
     }
     const config = getTaxRuleSetConfig(db, financialYearCode, employee.taxRegime || "OLD", asOfDateIso);
     const cap = config.deductionLimits.LEAVE_ENCASHMENT_EXEMPTION;
+    const priorUsed = previouslyReceivedElsewhere || 0;
+    const remainingCap = Math.max(0, cap - priorUsed);
     const service = computeServiceYears(employee.dateOfJoining, employee.dateOfLeaving);
     const { average: avgBasicDa, monthsUsed } = computeAverageBasicDaLast10Months(db, employee.id, asOfDateIso);
     const tenMonthAverage = Math.round(avgBasicDa * 10);
     const maxEncashableDays = Math.min(leaveDaysEncashed, service.completedYears * 30);
     const cashEquivalentOfEarnedLeave = Math.round(maxEncashableDays * perDayRate);
-    const exempt = Math.max(0, Math.min(actualLeaveEncashment, tenMonthAverage, cashEquivalentOfEarnedLeave, cap));
+    const exempt = Math.max(0, Math.min(actualLeaveEncashment, tenMonthAverage, cashEquivalentOfEarnedLeave, remainingCap));
     const taxable = Math.max(0, actualLeaveEncashment - exempt);
     return {
       actual: actualLeaveEncashment,
@@ -691,7 +695,9 @@
       monthsUsedForAverage: monthsUsed,
       cashEquivalentOfEarnedLeave,
       cap,
-      basis: `Least of actual (${actualLeaveEncashment}), 10 months' average Basic+DA (${tenMonthAverage}, from ${monthsUsed} processed month(s) of data), cash equivalent of earned leave capped at 30 days/completed year (${cashEquivalentOfEarnedLeave}), and the Rs ${cap.toLocaleString("en-IN")} lifetime statutory ceiling (Sec 19 / old Sec 10(10AA)), applied per-settlement - this app does not track exemption already used at other employers.`,
+      priorUsed,
+      remainingCap,
+      basis: `Least of actual (${actualLeaveEncashment}), 10 months' average Basic+DA (${tenMonthAverage}, from ${monthsUsed} processed month(s) of data), cash equivalent of earned leave capped at 30 days/completed year (${cashEquivalentOfEarnedLeave}), and the remaining lifetime statutory ceiling (Rs ${cap.toLocaleString("en-IN")} minus Rs ${priorUsed.toLocaleString("en-IN")} already received from a previous employer = Rs ${remainingCap.toLocaleString("en-IN")}) (Sec 19 / old Sec 10(10AA)).`,
     };
   }
 
@@ -745,6 +751,7 @@
         perDayRate: input.leaveRate,
         financialYearCode: fy.code,
         asOfDateIso,
+        previouslyReceivedElsewhere: employee.previousLeaveEncashmentReceived || 0,
       });
       result.leaveEncashment = ex;
       if (ex.taxable) {
