@@ -673,7 +673,8 @@
 
     const declaration = db.investmentDeclarations.find((d) => d.employeeId === employeeId && d.financialYearId === financialYearId) || null;
     const prevEmployerRows = db.previousEmployerIncomes.filter((p) => p.employeeId === employeeId && p.financialYearId === financialYearId);
-    const perquisitesAnnualForEstimate = computePerquisitesTotal(db.employeePerquisites.filter((p) => p.employeeId === employeeId && p.financialYearId === financialYearId), fy.startDate).total;
+    const perquisitesForEstimate = computePerquisitesTotal(db.employeePerquisites.filter((p) => p.employeeId === employeeId && p.financialYearId === financialYearId), fy.startDate);
+    const perquisitesAnnualForEstimate = perquisitesForEstimate.total;
 
     const earningsAnnual = {}, employerAnnual = {}, deductionAnnual = {};
     for (const c of structure.components) {
@@ -764,7 +765,15 @@
       );
     }
 
-    return { old: oldResult, new: newResult, annualGross, hasDeclaration: !!declaration };
+    return {
+      old: oldResult,
+      new: newResult,
+      annualGross,
+      hasDeclaration: !!declaration,
+      earningsAnnual,
+      perquisiteBreakdown: perquisitesForEstimate.breakdown,
+      declaration,
+    };
   }
 
   const PayrollEngine = {

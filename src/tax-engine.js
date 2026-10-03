@@ -92,24 +92,14 @@ function calculateTax(input, config) {
   const isOld = input.regime === "OLD";
 
   // --- Income from Salary -----------------------------------------------
+  // Gross Salary is the base figure everything else adds on top of, so it's
+  // listed first; the perquisite/NPS additions below it build up to Total
+  // Salary, matching how a payslip or Form 16 computation actually reads.
   const perqExcess = Math.max(0, input.employerPfNpsSuperContribution - config.employerNpsPfPerqLimit);
-  if (perqExcess > 0) {
-    steps.push({
-      label: "Employer PF+NPS+Superannuation perquisite u/s 17 (old Sec 17(2)(vii))",
-      amount: perqExcess,
-      note: `Employer contribution ${_taxInr(input.employerPfNpsSuperContribution)} exceeds Rs 7,50,000 limit`,
-    });
-    if (input.employerNpsContribution > 0) {
-      warnings.push(
-        "Employer PF+NPS+Superannuation contributions exceed the combined Rs 7.5 lakh threshold. The employer NPS contribution is fully included in salary u/s 16 (old Sec 17(1)(viii)) and the excess over Rs 7.5 lakh is separately added as a perquisite u/s 17 (old Sec 17(2)(vii)); in rare cases this can overlap for very high combined contributions - review manually.",
-      );
-    }
-  }
-  if (input.employerNpsContribution > 0) {
-    steps.push({
-      label: "Employer NPS Contribution (included in salary u/s 16, old Sec 17(1)(viii))",
-      amount: input.employerNpsContribution,
-    });
+  if (perqExcess > 0 && input.employerNpsContribution > 0) {
+    warnings.push(
+      "Employer PF+NPS+Superannuation contributions exceed the combined Rs 7.5 lakh threshold. The employer NPS contribution is fully included in salary u/s 16 (old Sec 17(1)(viii)) and the excess over Rs 7.5 lakh is separately added as a perquisite u/s 17 (old Sec 17(2)(vii)); in rare cases this can overlap for very high combined contributions - review manually.",
+    );
   }
   const totalSalaryGross =
     input.grossSalaryCurrentEmployer +
@@ -120,6 +110,19 @@ function calculateTax(input, config) {
   steps.push({ label: "Gross Salary (current employer)", amount: input.grossSalaryCurrentEmployer });
   if (input.previousEmployerTaxableSalary > 0) {
     steps.push({ label: "Add: Income from Salary - previous employer", amount: input.previousEmployerTaxableSalary });
+  }
+  if (input.employerNpsContribution > 0) {
+    steps.push({
+      label: "Employer NPS Contribution (included in salary u/s 16, old Sec 17(1)(viii))",
+      amount: input.employerNpsContribution,
+    });
+  }
+  if (perqExcess > 0) {
+    steps.push({
+      label: "Employer PF+NPS+Superannuation perquisite u/s 17 (old Sec 17(2)(vii))",
+      amount: perqExcess,
+      note: `Employer contribution ${_taxInr(input.employerPfNpsSuperContribution)} exceeds Rs 7,50,000 limit`,
+    });
   }
   steps.push({ label: "Total Salary (before exemptions/deductions)", amount: totalSalaryGross });
 

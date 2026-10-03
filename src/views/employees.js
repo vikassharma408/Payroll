@@ -1072,30 +1072,125 @@ function renderPerquisitesTab(container, employee, fy, onSaved) {
 }
 
 // --- Regime Comparison -------------------------------------------------------
+/** Every row of the full side-by-side Old vs New computation table lives here, each naming how to pull its Old and New values out of the two calculateTax() results - see renderComputationTable() below. */
+function buildComputationRows(estimate) {
+  const oldR = estimate.old, newR = estimate.new;
+  const step = (r, label) => {
+    const found = r.steps.find((s) => s.label === label);
+    return found ? found.amount : 0;
+  };
+  const stepOldOnly = (label) => ({ old: step(oldR, label), new: null });
+  const stepBoth = (label) => ({ old: step(oldR, label), new: step(newR, label) });
+  const chapter = (r, label) => {
+    const found = r.chapterVIABreakdown.find((d) => d.label === label);
+    return found ? found.allowed : 0;
+  };
+  const chapterOldOnly = (label) => ({ old: chapter(oldR, label), new: null });
+  const chapterBoth = (label) => ({ old: chapter(oldR, label), new: chapter(newR, label) });
+  const both = (val) => ({ old: val, new: val });
+
+  const decl = estimate.declaration || {};
+  const selfOccupiedInterest = decl.homeLoanInterestSelfOccupied || 0;
+  const letOutAnnualValue = decl.letOutAnnualValue || 0;
+  const letOutMunicipalTax = decl.letOutMunicipalTax || 0;
+  const letOutNav = letOutAnnualValue - letOutMunicipalTax;
+  const letOutStdDeduction = letOutNav * 0.3;
+  const letOutInterest = decl.letOutHomeLoanInterest || 0;
+
+  const perqRows = (estimate.perquisiteBreakdown || []).map((p) => ({ section: "perq", label: p.label, ...both(p.taxableValue) }));
+
+  return [
+    { section: "salary", label: "Gross Salary from current employer", ...stepBoth("Gross Salary (current employer)") },
+    { section: "salary", label: "Income from Salary - previous employer", ...stepBoth("Add: Income from Salary - previous employer") },
+    { section: "perq-header" },
+    { section: "perq", label: "Employer contribution to NPS, PF and Superannuation fund in excess of Rs 7.50 lakhs", ...stepBoth("Employer PF+NPS+Superannuation perquisite u/s 17 (old Sec 17(2)(vii))") },
+    { section: "perq", label: "Employer NPS Contribution (included in salary u/s 16, old Sec 17(1)(viii))", ...stepBoth("Employer NPS Contribution (included in salary u/s 16, old Sec 17(1)(viii))") },
+    ...perqRows,
+    { section: "total", label: "Total Salary", bold: true, ...stepBoth("Total Salary (before exemptions/deductions)") },
+    { section: "spacer" },
+    { section: "less", label: "Less: HRA Exemption (old Sec 10(13A))", ...stepOldOnly("Less: HRA Exemption (old Sec 10(13A) - now a new Act Schedule provision)") },
+    { section: "less", label: "Less: LTA Exemption (old Sec 10(5))", ...stepOldOnly("Less: LTA Exemption (old Sec 10(5))") },
+    { section: "less-header", label: "Less: Deduction u/s 16" },
+    { section: "less", label: "Profession Tax u/s 16(iii)", ...stepOldOnly("Less: Profession Tax u/s 19 (old Sec 16(iii))") },
+    { section: "less", label: "Standard Deduction u/s 16(ia)", ...stepBoth("Less: Standard Deduction u/s 19 (old Sec 16(ia))") },
+    { section: "total", label: "Income from Salary", bold: true, ...stepBoth("Income from Salary") },
+    { section: "spacer" },
+    { section: "header", label: "Income from House Property (Self-Occupied)" },
+    { section: "hp", label: "Net Annual Value", old: 0, new: null },
+    { section: "hp", label: "Less: Standard deduction (30% of NAV)", old: 0, new: null },
+    { section: "hp", label: "Less: Interest on Housing Loan", old: selfOccupiedInterest, new: null },
+    { section: "total", label: "Income from House Property (Self-Occupied)", ...stepOldOnly("Income from House Property (Self-Occupied) - interest u/s 24(b) (unchanged)") },
+    { section: "spacer" },
+    { section: "header", label: "Income from House Property (Let-out)" },
+    { section: "hp", label: "Annual Value", ...both(letOutAnnualValue) },
+    { section: "hp", label: "Less: Municipal Tax Paid", ...both(letOutMunicipalTax) },
+    { section: "hp", label: "Net Annual Value", ...both(letOutNav) },
+    { section: "hp", label: "Less: Standard deduction (30% of NAV)", ...both(letOutStdDeduction) },
+    { section: "hp", label: "Less: Interest on Housing Loan", ...both(letOutInterest) },
+    { section: "total", label: "Income from House Property (Let-out)", ...stepBoth("Income from House Property (Let-out)") },
+    { section: "spacer" },
+    { section: "total", label: "Gross Total Income", bold: true, ...stepBoth("Gross Total Income") },
+    { section: "spacer" },
+    { section: "header", label: "Deductions Under Chapter VI-A" },
+    { section: "vi-a", label: "Sec 124 (old 80CCD(2)) - Employer NPS", ...chapterBoth("Sec 124 (old 80CCD(2)) - Employer NPS Contribution") },
+    { section: "vi-a", label: "Sec 123 (old 80C / 80CCC / 80CCD(1))", ...chapterOldOnly("Sec 123 (old 80C / 80CCC / 80CCD(1))") },
+    { section: "vi-a", label: "Sec 124 (old 80CCD(1B)) - Additional NPS", ...chapterOldOnly("Sec 124 (old 80CCD(1B)) - Additional NPS") },
+    { section: "vi-a", label: "Sec 126 (old 80D) - Medical Insurance", ...chapterOldOnly("Sec 126 (old 80D) - Medical Insurance") },
+    { section: "vi-a", label: "Sec 127 (old 80DD) - Dependent Disability", ...chapterOldOnly("Sec 127 (old 80DD) - Dependent Disability") },
+    { section: "vi-a", label: "Sec 129 (old 80E) - Education Loan Interest", ...chapterOldOnly("Sec 129 (old 80E) - Education Loan Interest") },
+    { section: "vi-a", label: "Sec 130 (old 80EE) - Home Loan Interest", ...chapterOldOnly("Sec 130 (old 80EE) - Home Loan Interest (additional)") },
+    { section: "vi-a", label: "Sec 131 (old 80EEA) - Home Loan Interest", ...chapterOldOnly("Sec 131 (old 80EEA) - Home Loan Interest (additional)") },
+    { section: "vi-a", label: "Sec 133 (old 80G) - Donations", ...chapterOldOnly("Sec 133 (old 80G) - Donations") },
+    { section: "vi-a", label: "Sec 154 (old 80U) - Self Disability", ...chapterOldOnly("Sec 154 (old 80U) - Self Disability") },
+    { section: "vi-a", label: "Other Declared Deductions", ...chapterOldOnly("Other Declared Deductions") },
+    { section: "total", label: "Total Deductions", bold: true, old: oldR.totalChapterVIADeductions, new: newR.totalChapterVIADeductions },
+    { section: "spacer" },
+    { section: "total", label: "Rounded off Net Taxable Income u/s 288A", bold: true, old: oldR.taxableIncome, new: newR.taxableIncome },
+    { section: "spacer" },
+    { section: "tax", label: "Tax", old: oldR.taxBeforeRebate, new: newR.taxBeforeRebate },
+    { section: "tax", label: "Less: Rebate u/s 87A", old: -oldR.rebate, new: -newR.rebate },
+    { section: "total", label: "Total Tax", bold: true, old: oldR.taxAfterRebate, new: newR.taxAfterRebate },
+    { section: "tax", label: "Surcharge", old: oldR.surcharge, new: newR.surcharge },
+    { section: "tax", label: "Health & Education Cess", old: oldR.cess, new: newR.cess },
+    { section: "total", label: "Total Tax Liability", bold: true, old: oldR.totalTaxLiability, new: newR.totalTaxLiability },
+  ];
+}
+
+function renderComputationTable(estimate) {
+  const rows = buildComputationRows(estimate);
+  const fmt = (v) => (v === null ? "NA" : !v ? "-" : rupees(v));
+  const savings = estimate.old.totalTaxLiability - estimate.new.totalTaxLiability;
+  const rowHtml = (r) => {
+    if (r.section === "spacer") return `<tr><td colspan="3">&nbsp;</td></tr>`;
+    if (r.section === "perq-header") return `<tr><td colspan="3"><em>Add : Perquisite u/s 17</em></td></tr>`;
+    if (r.section === "less-header") return `<tr><td colspan="3"><em>${escapeHtml(r.label)}</em></td></tr>`;
+    if (r.section === "header") return `<tr><td colspan="3"><strong>${escapeHtml(r.label)}</strong></td></tr>`;
+    const indent = r.section === "perq" || r.section === "less" || r.section === "hp" || r.section === "vi-a";
+    const style = r.bold ? "font-weight:600;border-top:1px solid var(--line);" : indent ? "padding-left:24px;" : "";
+    return `<tr style="${style}"><td>${escapeHtml(r.label)}</td><td>${fmt(r.old)}</td><td>${fmt(r.new)}</td></tr>`;
+  };
+  return `
+    <div class="card">
+      <table>
+        <thead><tr><th></th><th>Old Regime</th><th>New Regime</th></tr></thead>
+        <tbody>
+          <tr style="font-weight:600;"><td>Tax Liability</td><td>${rupees(estimate.old.totalTaxLiability)}</td><td>${rupees(estimate.new.totalTaxLiability)}</td></tr>
+          <tr style="font-weight:600;"><td>Tax Savings</td><td>-</td><td style="background:${savings > 0 ? "color-mix(in srgb, var(--good) 20%, transparent)" : savings < 0 ? "color-mix(in srgb, var(--bad) 20%, transparent)" : "transparent"};">${savings === 0 ? "-" : rupees(Math.abs(savings))}</td></tr>
+          <tr><td colspan="3">&nbsp;</td></tr>
+          <tr><td colspan="3"><strong>Income from Salary</strong></td></tr>
+          ${rows.map(rowHtml).join("")}
+        </tbody>
+      </table>
+      <p class="text-muted mt-16" style="font-size:12px;">"NA" means that head doesn't apply under the New Regime at all (e.g. HRA/LTA exemption, Chapter VI-A deductions other than employer NPS, self-occupied house property interest set-off) - "-" means the head applies but comes to zero for this employee.</p>
+    </div>
+  `;
+}
+
 function renderRegimeComparisonTab(container, employee, fy, onSaved) {
   const estimate = PayrollEngine.estimateRegimeComparison(db, employee.id, fy.id);
   if (!estimate) {
     container.innerHTML = `<div class="card text-muted">No active salary structure for FY ${fy.code} yet - add one under the Salary Structure tab to see a regime comparison.</div>`;
     return;
-  }
-  const beneficial = estimate.old.totalTaxLiability <= estimate.new.totalTaxLiability ? "OLD" : "NEW";
-  function col(label, r) {
-    return `
-      <div class="card">
-        <div class="row between"><h3>${label}</h3>${beneficial === label.split(" ")[0].toUpperCase() ? '<span class="badge good">Beneficial</span>' : ""}</div>
-        <table>
-          <tbody>
-            <tr><td>Taxable Income</td><td>${rupees(r.taxableIncome)}</td></tr>
-            <tr><td>Tax before rebate</td><td>${rupees(r.taxBeforeRebate)}</td></tr>
-            <tr><td>Rebate (87A)</td><td>${rupees(r.rebate)}</td></tr>
-            <tr><td>Surcharge</td><td>${rupees(r.surcharge)}</td></tr>
-            <tr><td>Cess</td><td>${rupees(r.cess)}</td></tr>
-            <tr><td><strong>Total Tax Liability</strong></td><td><strong>${rupees(r.totalTaxLiability)}</strong></td></tr>
-          </tbody>
-        </table>
-        ${r.warnings.length ? `<div class="text-muted mt-16" style="font-size:12px;">${r.warnings.map((w) => `<div>&#9888; ${escapeHtml(w)}</div>`).join("")}</div>` : ""}
-      </div>
-    `;
   }
   const otherRegime = employee.taxRegime === "OLD" ? "NEW" : "OLD";
   const preview = PayrollEngine.previewRegimeSwitch(db, employee.id, fy.id);
@@ -1109,10 +1204,12 @@ function renderRegimeComparisonTab(container, employee, fy, onSaved) {
       </div>
       <a href="#/employees/${employee.id}/form16"><button>View Form 16 Part B Summary</button></a>
     </div>
-    <div class="card-grid">
-      ${col("Old Regime", estimate.old)}
-      ${col("New Regime", estimate.new)}
-    </div>
+    ${renderComputationTable(estimate)}
+    ${
+      estimate.old.warnings.length || estimate.new.warnings.length
+        ? `<div class="card text-muted" style="font-size:12px;">${[...new Set([...estimate.old.warnings, ...estimate.new.warnings])].map((w) => `<div>&#9888; ${escapeHtml(w)}</div>`).join("")}</div>`
+        : ""
+    }
     <div class="card">
       <h3>Switch Tax Regime</h3>
       <p class="text-muted" style="font-size:12px;">An employee can revise the regime intimated to their employer for TDS purposes during the year - it isn't locked at joining. Switching only affects future payroll runs; already-withheld TDS for past months is never touched. The remaining months' TDS is automatically trued up against what's already been deducted, whichever regime you switch to.</p>
@@ -1201,7 +1298,17 @@ function renderForm16(container, employee) {
       <h3 class="mt-16">Computation of Income under the Head "Salaries"</h3>
       <table>
         <tbody>
-          ${r.steps.map((s) => `<tr><td>${escapeHtml(s.label)}${s.note ? ` <span class="text-muted">(${escapeHtml(s.note)})</span>` : ""}</td><td>${rupees(s.amount)}</td></tr>`).join("")}
+          ${r.steps
+            .map((s) => {
+              const row = `<tr><td>${escapeHtml(s.label)}${s.note ? ` <span class="text-muted">(${escapeHtml(s.note)})</span>` : ""}</td><td>${rupees(s.amount)}</td></tr>`;
+              if (!s.label.startsWith("Gross Salary (current employer)")) return row;
+              const breakup = Object.entries(estimate.earningsAnnual || {})
+                .filter(([, amt]) => amt !== 0)
+                .map(([code, amt]) => `<tr><td class="text-muted" style="padding-left:28px;font-size:13px;">${SLIP_COMPONENT_LABELS[code] || sentenceCase(code)}</td><td class="text-muted" style="font-size:13px;">${rupees(amt)}</td></tr>`)
+                .join("");
+              return row + breakup;
+            })
+            .join("")}
         </tbody>
       </table>
 
