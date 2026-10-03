@@ -38,6 +38,7 @@ const IMPORT_TEMPLATES = {
     sheetName: "Salary Structure",
     columns: [
       { header: "Employee Code", field: "employeeCode", required: true, type: "string", example: "EMP101" },
+      { header: "Effective From", field: "effectiveFrom", type: "date", example: "2026-04-01", note: "When this structure starts applying. Leave blank to default to the financial year's start date - the usual choice when setting up a new FY's payroll, even if you're importing partway through the year. Only set a later date for a genuine mid-year revision (e.g. a raise effective 1 July) - any already-paid months before it will show as Arrears on the employee's Salary Structure tab." },
       { header: "Basic", field: "BASIC", type: "number", example: 30000 },
       { header: "HRA", field: "HRA", type: "number", example: 15000 },
       { header: "Special Allowance", field: "SPECIAL_ALLOWANCE", type: "number", example: 10000 },
@@ -132,7 +133,7 @@ const INSTRUCTIONS_LINES = [
   "",
   "STEP 1 - Fill in your data in this workbook",
   "1. Go to the 'Employee Master' tab. Enter one row per employee. Employee Code is whatever short code you want to use (e.g. EMP101) - you'll reuse it on the other tabs. Set State (matching a state from the PT Slabs screen) if Professional Tax should be auto-calculated from that state's slabs every month; leave State and Professional Tax Applicable blank/N if you'd rather enter a fixed PT figure directly in the Salary Structure tab instead. PF/ESI Applicable are per-employee overrides - set to N to exempt one employee from PF/ESI even though the Salary Structure tab (or a Salary Structure Template used in-app) has a PF/ESI line for everyone else. See the 'Employee - Field Guide' tab for details on every column.",
-  "2. Go to the 'Salary Structure' tab. Enter each employee's MONTHLY amount for each salary component for the current financial year - every column here is a RECURRING monthly figure, paid every month for as long as this structure is active, so never put a one-time/annual bonus in here (see 'Monthly variable pay' below instead). Employee Code must match the Employee Master tab exactly. (If you've set up a Salary Structure Template in-app under Setup > Salary Structure Templates, you can instead open each employee's page after import and generate their structure from just a CTC figure - this Excel tab only takes already-worked-out monthly amounts.)",
+  "2. Go to the 'Salary Structure' tab. Enter each employee's MONTHLY amount for each salary component for the current financial year - every amount column here is a RECURRING monthly figure, paid every month for as long as this structure is active, so never put a one-time/annual bonus in here (see 'Monthly variable pay' below instead). Employee Code must match the Employee Master tab exactly. Leave Effective From blank to apply from the start of the financial year (the normal choice, even if you're importing partway through the year); only set a specific date for a genuine mid-year revision. (If you've set up a Salary Structure Template in-app under Setup > Salary Structure Templates, you can instead open each employee's page after import and generate their structure from just a CTC figure - this Excel tab only takes already-worked-out monthly amounts.)",
   "3. Go to the 'Investment Declaration' tab for employees who have tax-saving investments, medical insurance, home loan interest, or HRA rent to declare. Employee Code must match. Set Metro City (Y/N) here too - it only affects the HRA exemption calculated on this tab, re-declared each financial year alongside rent. Each 80C/80D/etc. item has its own column (not one lump '80C' figure) so the app can apply the correct statutory cap per head - see the 'Investment - Field Guide' tab for what each column means and its current maximum. If rent is only paid for part of the year, fill in Rent Start Date (and Rent End Date if it stopped before the FY ended) so HRA exemption is only computed for those months.",
   "4. Go to the 'Previous Employer' tab ONLY for employees who joined partway through this financial year and have salary/TDS from a previous employer in the same year.",
   "5. Save this file when done.",
@@ -432,6 +433,25 @@ function importSalaryStructures(db, rows) {
       else if (monthly > 0) amounts.push({ code: col.field, monthly });
     }
 
+    // Effective From defaults to the FY's start (not "now", the moment of
+    // import) - an admin setting up a new financial year's payroll in bulk
+    // is almost always doing so after that FY has already started, and
+    // every month between the FY start and the import date would otherwise
+    // have no active structure, failing "Run Calculation" with "No active
+    // salary structure" for each of those months. A later date is only
+    // meant for a genuine mid-year revision.
+    const effectiveFromInput = row["Effective From"];
+    let effectiveFrom = fy.startDate;
+    if (effectiveFromInput !== undefined && effectiveFromInput !== null && effectiveFromInput !== "") {
+      const parsed = toDateOrNullI(effectiveFromInput);
+      if (!parsed) rowErrors.push(`Invalid Effective From date '${effectiveFromInput}'`);
+      else effectiveFrom = parsed;
+    }
+    const previouslyActive = employee ? db.employeeSalaryStructures.find((s) => s.employeeId === employee.id && s.financialYearId === fy.id && s.isActive) : null;
+    if (previouslyActive && new Date(effectiveFrom) < new Date(previouslyActive.effectiveFrom)) {
+      rowErrors.push(`Effective From (${effectiveFrom.slice(0, 10)}) can't be before the current structure's own Effective From (${previouslyActive.effectiveFrom.slice(0, 10)}) - to correct an even earlier period, edit it directly on the employee's Salary Structure tab`);
+    }
+
     if (rowErrors.length > 0) {
       errors.push({ rowNumber, message: rowErrors.join("; ") });
       continue;
@@ -439,18 +459,9 @@ function importSalaryStructures(db, rows) {
 
     const annualCTC = amounts.reduce((s, a) => s + a.monthly * 12, 0);
     const now = new Date().toISOString();
-    // Effective from the FY's start (not "now", the moment of import) - an
-    // admin setting up a new financial year's payroll in bulk is almost
-    // always doing so after that FY has already started, and every month
-    // between the FY start and the import date would otherwise have no
-    // active structure, failing "Run Calculation" with "No active salary
-    // structure" for each of those months.
-    const effectiveFrom = fy.startDate;
-    for (const s of db.employeeSalaryStructures) {
-      if (s.employeeId === employee.id && s.financialYearId === fy.id && s.isActive) {
-        s.isActive = false;
-        s.effectiveTo = now;
-      }
+    if (previouslyActive) {
+      previouslyActive.isActive = false;
+      previouslyActive.effectiveTo = new Date(new Date(effectiveFrom).getTime() - 86400000).toISOString();
     }
     db.employeeSalaryStructures.push({
       id: newId("ess"), employeeId: employee.id, financialYearId: fy.id, annualCTC, effectiveFrom, effectiveTo: null, isActive: true, createdAt: now,

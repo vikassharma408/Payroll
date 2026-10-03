@@ -30,7 +30,7 @@ registerDetailView("employees", (container, segments) => {
   }
   if (action === "edit") return renderEmployeeForm(container, employee);
   if (action === "form16") return renderForm16(container, employee);
-  renderEmployeeDetail(container, employee);
+  renderEmployeeDetail(container, employee, action);
 });
 
 function renderEmployeesList(container) {
@@ -331,8 +331,9 @@ function renderEmployeeForm(container, employee) {
   });
 }
 
-function renderEmployeeDetail(container, employee) {
-  let activeTab = "profile";
+function renderEmployeeDetail(container, employee, initialTab) {
+  const TAB_KEYS = ["profile", "salary", "investment", "previous-employer", "perquisites", "regime", "fnf"];
+  let activeTab = TAB_KEYS.includes(initialTab) ? initialTab : "profile";
   const TABS = [
     ["profile", "Profile"],
     ["salary", "Salary Structure"],
