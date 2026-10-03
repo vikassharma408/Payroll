@@ -15,13 +15,15 @@ const IMPORT_TEMPLATES = {
       { header: "Department", field: "department", type: "string", example: "Finance" },
       { header: "Designation", field: "designation", type: "string", example: "Executive" },
       { header: "Location", field: "location", type: "string", example: "Mumbai" },
+      { header: "State", field: "state", type: "string", example: "Maharashtra", note: "Must match a state name from the in-app PT Slabs screen (e.g. Maharashtra, Karnataka, Delhi). Drives auto-calculated Professional Tax (see Professional Tax Applicable) and is used for the senior-citizen PT exemption. Leave blank if PT should always come from a fixed amount in the Salary Structure instead." },
+      { header: "Metro City (Y/N)", field: "isMetroCity", type: "boolean", example: "Y", note: "Y if the employee is based in Delhi, Mumbai, Kolkata or Chennai - raises the HRA exemption limit to 50% of Basic (40% for non-metro)." },
       { header: "Bank Name", field: "bankName", type: "string", example: "HDFC Bank" },
       { header: "Account Number", field: "bankAccountNo", type: "string", example: "50100123456789" },
       { header: "IFSC", field: "bankIfsc", type: "string", example: "HDFC0000123" },
       { header: "UAN", field: "uan", type: "string", example: "100123456789" },
-      { header: "PF Applicable", field: "pfApplicable", type: "boolean", example: "Y" },
-      { header: "ESI Applicable", field: "esiApplicable", type: "boolean", example: "N" },
-      { header: "Professional Tax Applicable", field: "ptApplicable", type: "boolean", example: "Y" },
+      { header: "PF Applicable", field: "pfApplicable", type: "boolean", example: "Y", note: "Override, not auto-detected: even if the Salary Structure tab has a PF line (incl. one generated from a Salary Structure Template), set to N to skip PF deduction/contribution for this employee only (e.g. above the PF wage ceiling)." },
+      { header: "ESI Applicable", field: "esiApplicable", type: "boolean", example: "N", note: "Same as PF Applicable, for the ESI deduction." },
+      { header: "Professional Tax Applicable", field: "ptApplicable", type: "boolean", example: "Y", note: "Set to Y with a State to auto-calculate PT from that state's slabs each month (overriding any fixed PT figure in the Salary Structure); set to N to keep a fixed manually-entered PT amount instead." },
       { header: "Tax Regime", field: "taxRegime", type: "enum", enumValues: ["OLD", "NEW"], example: "NEW" },
     ],
   },
@@ -114,13 +116,13 @@ const IMPORT_TEMPLATES = {
 const INSTRUCTIONS_LINES = [
   "Payroll Register - Setup & Usage Guide",
   "",
-  "This one workbook has 4 data tabs (Employee Master, Salary Structure, Investment Declaration, Previous Employer), this Instructions tab, and an 'Investment - Field Guide' tab documenting every Investment Declaration column and its current statutory maximum. Columns marked with * are mandatory.",
+  "This one workbook has 4 data tabs (Employee Master, Salary Structure, Investment Declaration, Previous Employer), this Instructions tab, and 'Employee - Field Guide' / 'Investment - Field Guide' tabs documenting every column on those two tabs, including the Employee Master override flags (PF/ESI/Professional Tax Applicable, State) and Investment Declaration's statutory maximums. Columns marked with * are mandatory.",
   "",
   "TIP: For just ONE employee, you don't need Excel at all - in the app, go to Employees > + Add Employee, then fill in Salary Structure / Investment Declaration / Previous Employer directly on that employee's page. Use this workbook only when adding many employees at once.",
   "",
   "STEP 1 - Fill in your data in this workbook",
-  "1. Go to the 'Employee Master' tab. Enter one row per employee. Employee Code is whatever short code you want to use (e.g. EMP101) - you'll reuse it on the other tabs.",
-  "2. Go to the 'Salary Structure' tab. Enter each employee's MONTHLY amount for each salary component for the current financial year. Employee Code must match the Employee Master tab exactly.",
+  "1. Go to the 'Employee Master' tab. Enter one row per employee. Employee Code is whatever short code you want to use (e.g. EMP101) - you'll reuse it on the other tabs. Set State (matching a state from the PT Slabs screen) if Professional Tax should be auto-calculated from that state's slabs every month; leave State and Professional Tax Applicable blank/N if you'd rather enter a fixed PT figure directly in the Salary Structure tab instead. PF/ESI Applicable are per-employee overrides - set to N to exempt one employee from PF/ESI even though the Salary Structure tab (or a Salary Structure Template used in-app) has a PF/ESI line for everyone else. See the 'Employee - Field Guide' tab for details on every column.",
+  "2. Go to the 'Salary Structure' tab. Enter each employee's MONTHLY amount for each salary component for the current financial year. Employee Code must match the Employee Master tab exactly. (If you've set up a Salary Structure Template in-app under Setup > Salary Structure Templates, you can instead open each employee's page after import and generate their structure from just a CTC figure - this Excel tab only takes already-worked-out monthly amounts.)",
   "3. Go to the 'Investment Declaration' tab for employees who have tax-saving investments, medical insurance, home loan interest, or HRA rent to declare. Employee Code must match. Each 80C/80D/etc. item has its own column (not one lump '80C' figure) so the app can apply the correct statutory cap per head - see the 'Investment - Field Guide' tab for what each column means and its current maximum. If rent is only paid for part of the year, fill in Rent Start Date (and Rent End Date if it stopped before the FY ended) so HRA exemption is only computed for those months.",
   "4. Go to the 'Previous Employer' tab ONLY for employees who joined partway through this financial year and have salary/TDS from a previous employer in the same year.",
   "5. Save this file when done.",
@@ -171,17 +173,18 @@ function buildFieldReferenceSheet(columns) {
   const ws = XLSX.utils.aoa_to_sheet([
     header,
     ...columns.map((c) => {
+      const typeHint = c.type === "enum" ? `One of: ${c.enumValues.join(", ")}` : c.type === "boolean" ? "Y/N/Yes/No/True/False" : c.type === "date" ? "YYYY-MM-DD" : "";
       const row = [
         c.header,
         c.required ? "Yes (marked with * in the data tab)" : "No",
         c.type === "enum" ? `One of: ${c.enumValues.join(", ")}` : c.type,
-        c.type === "boolean" ? "Y/N/Yes/No/True/False" : c.type === "date" ? "YYYY-MM-DD" : "",
+        c.note ? `${c.note}${typeHint ? ` (${typeHint})` : ""}` : typeHint,
       ];
       if (hasLimits) row.push(c.limit || "-");
       return row;
     }),
   ]);
-  ws["!cols"] = hasLimits ? [{ wch: 32 }, { wch: 30 }, { wch: 10 }, { wch: 22 }, { wch: 70 }] : [{ wch: 28 }, { wch: 30 }, { wch: 24 }, { wch: 30 }];
+  ws["!cols"] = hasLimits ? [{ wch: 32 }, { wch: 30 }, { wch: 10 }, { wch: 22 }, { wch: 70 }] : [{ wch: 28 }, { wch: 30 }, { wch: 24 }, { wch: 60 }];
   return ws;
 }
 
@@ -207,8 +210,11 @@ function buildCombinedTemplateWorkbook() {
     XLSX.utils.book_append_sheet(wb, buildDataSheet(spec), spec.sheetName.slice(0, 31));
   }
   // The Investment Declaration tab has many columns with statutory maximums
-  // (Sec 80C/80D/80DD/80U/etc.) - worth its own reference sheet even in the
-  // combined workbook, unlike the other tabs which don't have capped fields.
+  // (Sec 80C/80D/80DD/80U/etc.), and the Employee Master tab has several
+  // override flags (PF/ESI/PT Applicable, State) whose behavior isn't
+  // obvious from the column header alone - both worth their own reference
+  // sheet even in the combined workbook.
+  XLSX.utils.book_append_sheet(wb, buildFieldReferenceSheet(IMPORT_TEMPLATES.EMPLOYEE.columns), "Employee - Field Guide");
   XLSX.utils.book_append_sheet(wb, buildFieldReferenceSheet(IMPORT_TEMPLATES.INVESTMENT.columns), "Investment - Field Guide");
   return XLSX.write(wb, { type: "array", bookType: "xlsx" });
 }
@@ -299,6 +305,13 @@ function importEmployees(db, rows, companyId) {
     if (ifsc && !IMPORT_IFSC_REGEX.test(ifsc)) rowErrors.push(`Invalid IFSC format '${ifsc}'`);
     const taxRegime = String(row["Tax Regime"] ?? "NEW").trim().toUpperCase() || "NEW";
     if (!["OLD", "NEW"].includes(taxRegime)) rowErrors.push(`Invalid tax regime '${taxRegime}' (must be OLD or NEW)`);
+    const stateInput = String(row["State"] ?? "").trim();
+    let stateKey = null;
+    if (stateInput) {
+      const match = db.ptSlabs.find((s) => s.key.toLowerCase() === stateInput.toLowerCase() || s.label.toLowerCase() === stateInput.toLowerCase());
+      if (!match) rowErrors.push(`Unrecognized State '${stateInput}' - must match a state name from the PT Slabs screen (e.g. Maharashtra, Karnataka, Delhi)`);
+      else stateKey = match.key;
+    }
 
     if (rowErrors.length > 0) {
       errors.push({ rowNumber, message: rowErrors.join("; ") });
@@ -313,6 +326,7 @@ function importEmployees(db, rows, companyId) {
       department: row["Department"] ? String(row["Department"]) : null,
       designation: row["Designation"] ? String(row["Designation"]) : null,
       location: row["Location"] ? String(row["Location"]) : null,
+      state: stateKey,
       costCentre: null, payrollGroup: null,
       bankName: row["Bank Name"] ? String(row["Bank Name"]) : null,
       bankAccountNo: row["Account Number"] ? String(row["Account Number"]) : null,
@@ -320,8 +334,8 @@ function importEmployees(db, rows, companyId) {
       uan: row["UAN"] ? String(row["UAN"]) : null,
       pfApplicable: toBoolI(row["PF Applicable"] ?? "Y"),
       esiApplicable: toBoolI(row["ESI Applicable"] ?? "N"),
-      ptApplicable: toBoolI(row["Professional Tax Applicable"] ?? "Y"),
-      taxRegime, ageCategory: "BELOW_60", status: "ACTIVE", isMetroCity: false,
+      ptApplicable: toBoolI(row["Professional Tax Applicable"] ?? (stateKey ? "Y" : "N")),
+      taxRegime, ageCategory: "BELOW_60", status: "ACTIVE", isMetroCity: toBoolI(row["Metro City (Y/N)"] ?? "N"),
       createdAt: new Date().toISOString(), updatedAt: new Date().toISOString(),
     });
     imported++;
