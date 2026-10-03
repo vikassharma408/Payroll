@@ -10,9 +10,9 @@ const IMPORT_TEMPLATES = {
       { header: "Legal Entity", field: "companyId", type: "string", example: "My Company Pvt Ltd", note: "Which Company (legal entity) this employee belongs to, for a multi-entity setup. If it matches an existing company's name (from Setup > Companies) that company is used; if not, a new company is created automatically with that exact name (PAN/TAN/bank details can be filled in afterwards under Setup > Companies). Leave blank to use whichever company is active in the app when you run the import (fine if you only ever import one entity at a time)." },
       { header: "Employee Name", field: "fullName", required: true, type: "string", example: "Ravi Kumar" },
       { header: "PAN", field: "pan", type: "string", example: "ABCPK1234A" },
-      { header: "DOB", field: "dob", type: "date", example: "1990-01-31" },
+      { header: "DOB", field: "dob", type: "date", example: "31/Jan/1990" },
       { header: "Gender", field: "gender", type: "string", example: "Male" },
-      { header: "Date of Joining", field: "dateOfJoining", required: true, type: "date", example: "2024-06-01" },
+      { header: "Date of Joining", field: "dateOfJoining", required: true, type: "date", example: "01/Jun/2024" },
       { header: "Department", field: "department", type: "string", example: "Finance" },
       { header: "Designation", field: "designation", type: "string", example: "Executive" },
       { header: "Location", field: "location", type: "string", example: "Mumbai" },
@@ -38,7 +38,7 @@ const IMPORT_TEMPLATES = {
     sheetName: "Salary Structure",
     columns: [
       { header: "Employee Code", field: "employeeCode", required: true, type: "string", example: "EMP101" },
-      { header: "Effective From", field: "effectiveFrom", type: "date", example: "2026-04-01", note: "When this structure starts applying. Leave blank to default to the financial year's start date - the usual choice when setting up a new FY's payroll, even if you're importing partway through the year. Only set a later date for a genuine mid-year revision (e.g. a raise effective 1 July) - any already-paid months before it will show as Arrears on the employee's Salary Structure tab." },
+      { header: "Effective From", field: "effectiveFrom", type: "date", example: "01/Apr/2026", note: "When this structure starts applying. Leave blank to default to the financial year's start date - the usual choice when setting up a new FY's payroll, even if you're importing partway through the year. Only set a later date for a genuine mid-year revision (e.g. a raise effective 1 July) - any already-paid months before it will show as Arrears on the employee's Salary Structure tab." },
       { header: "Basic", field: "BASIC", type: "number", example: 30000 },
       { header: "HRA", field: "HRA", type: "number", example: 15000 },
       { header: "Special Allowance", field: "SPECIAL_ALLOWANCE", type: "number", example: 10000 },
@@ -57,7 +57,7 @@ const IMPORT_TEMPLATES = {
       { header: "Tax Regime", field: "taxRegime", type: "enum", enumValues: ["OLD", "NEW"], example: "OLD" },
       { header: "Metro City (Y/N)", field: "isMetroCity", type: "boolean", example: "Y", note: "Y if the employee is based in Delhi, Mumbai, Kolkata or Chennai - raises the HRA exemption limit to 50% of Basic (40% for non-metro). Declared per financial year like the rent details below, since it only matters for the HRA exemption calculation." },
       { header: "Monthly Rent", field: "monthlyRent", type: "number", example: 20000 },
-      { header: "Rent Start Date", field: "rentStartDate", type: "date", example: "2026-04-01" },
+      { header: "Rent Start Date", field: "rentStartDate", type: "date", example: "01/Apr/2026" },
       { header: "Rent End Date", field: "rentEndDate", type: "date", example: "" },
       { header: "Rental Address", field: "rentalAddress", type: "string", example: "" },
       { header: "Landlord Name", field: "landlordName", type: "string", example: "" },
@@ -184,7 +184,7 @@ function buildFieldReferenceSheet(columns) {
   const ws = XLSX.utils.aoa_to_sheet([
     header,
     ...columns.map((c) => {
-      const typeHint = c.type === "enum" ? `One of: ${c.enumValues.join(", ")}` : c.type === "boolean" ? "Y/N/Yes/No/True/False" : c.type === "date" ? "YYYY-MM-DD" : "";
+      const typeHint = c.type === "enum" ? `One of: ${c.enumValues.join(", ")}` : c.type === "boolean" ? "Y/N/Yes/No/True/False" : c.type === "date" ? "DD/Mon/YYYY, e.g. 01/Apr/2026 (a real Excel date cell also works)" : "";
       const row = [
         c.header,
         c.required ? "Yes (marked with * in the data tab)" : "No",
@@ -273,10 +273,9 @@ function toNumberI(v) {
   const n = Number(v);
   return Number.isFinite(n) ? n : NaN;
 }
+/** Accepts a real Excel date cell (already a JS Date, via cellDates:true), a typed "DD/Mon/YYYY" or "DD-MM-YYYY" string (this app's own template format), or a legacy ISO "YYYY-MM-DD" string from an older exported file - see date-utils.js's parseFlexibleDate for the full list. */
 function toDateOrNullI(v) {
-  if (!v) return null;
-  const d = v instanceof Date ? v : new Date(String(v));
-  return Number.isNaN(d.getTime()) ? null : d.toISOString().slice(0, 10);
+  return parseFlexibleDate(v);
 }
 /**
  * Resolves which Company (legal entity) a data row belongs to, from its
