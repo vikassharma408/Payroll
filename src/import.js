@@ -7,7 +7,7 @@ const IMPORT_TEMPLATES = {
     sheetName: "Employee Master",
     columns: [
       { header: "Employee Code", field: "employeeCode", required: true, type: "string", example: "EMP101" },
-      { header: "Legal Entity", field: "companyId", type: "string", example: "My Company Pvt Ltd", note: "Which Company (legal entity) this employee belongs to, for a multi-entity setup - must match a company name exactly as set up under Setup > Companies. Leave blank to use whichever company is active in the app when you run the import (fine if you only ever import one entity at a time)." },
+      { header: "Legal Entity", field: "companyId", type: "string", example: "My Company Pvt Ltd", note: "Which Company (legal entity) this employee belongs to, for a multi-entity setup. If it matches an existing company's name (from Setup > Companies) that company is used; if not, a new company is created automatically with that exact name (PAN/TAN/bank details can be filled in afterwards under Setup > Companies). Leave blank to use whichever company is active in the app when you run the import (fine if you only ever import one entity at a time)." },
       { header: "Employee Name", field: "fullName", required: true, type: "string", example: "Ravi Kumar" },
       { header: "PAN", field: "pan", type: "string", example: "ABCPK1234A" },
       { header: "DOB", field: "dob", type: "date", example: "1990-01-31" },
@@ -128,7 +128,7 @@ const INSTRUCTIONS_LINES = [
   "",
   "TIP: For just ONE employee, you don't need Excel at all - in the app, go to Employees > + Add Employee, then fill in Salary Structure / Investment Declaration / Previous Employer directly on that employee's page. Use this workbook only when adding many employees at once.",
   "",
-  "MULTI-ENTITY SETUP: Running more than one legal entity (Company) in this app? Set up all your companies under Setup > Companies first. Only the 'Employee Master' tab has a 'Legal Entity' column (their company's exact name) - it decides which company the employee is created under; leave it blank on any row to use whichever company is active in the app (topbar switcher) at import time. The other 3 tabs (Salary Structure, Investment Declaration, Previous Employer) find each employee purely from their Employee Code, which already carries their Legal Entity from Employee Master - nothing extra to fill in there, unless you reuse the exact same Employee Code in two different companies, in which case give them unique codes instead.",
+  "MULTI-ENTITY SETUP: Running more than one legal entity (Company) in this app? Only the 'Employee Master' tab has a 'Legal Entity' column - it decides which company the employee is created under. You don't need to set the company up first: a name that doesn't already exist under Setup > Companies is created automatically from this column (just the name - add PAN/TAN/bank details there afterwards); a name that matches an existing company reuses it. Leave it blank on any row to use whichever company is active in the app (topbar switcher) at import time. The other 3 tabs (Salary Structure, Investment Declaration, Previous Employer) find each employee purely from their Employee Code, which already carries their Legal Entity from Employee Master - nothing extra to fill in there, unless you reuse the exact same Employee Code in two different companies, in which case give them unique codes instead.",
   "",
   "STEP 1 - Fill in your data in this workbook",
   "1. Go to the 'Employee Master' tab. Enter one row per employee. Employee Code is whatever short code you want to use (e.g. EMP101) - you'll reuse it on the other tabs. Set State (matching a state from the PT Slabs screen) if Professional Tax should be auto-calculated from that state's slabs every month; leave State and Professional Tax Applicable blank/N if you'd rather enter a fixed PT figure directly in the Salary Structure tab instead. PF/ESI Applicable are per-employee overrides - set to N to exempt one employee from PF/ESI even though the Salary Structure tab (or a Salary Structure Template used in-app) has a PF/ESI line for everyone else. See the 'Employee - Field Guide' tab for details on every column.",
@@ -277,16 +277,28 @@ function toDateOrNullI(v) {
   const d = v instanceof Date ? v : new Date(String(v));
   return Number.isNaN(d.getTime()) ? null : d.toISOString().slice(0, 10);
 }
-/** Resolves which Company (legal entity) a data row belongs to, from its optional "Legal Entity" column - falling back to the default (the company active in the app when the import was run) if left blank, so single-entity users see no change in behavior. Pushes an error and returns null if the name doesn't match any company. */
+/**
+ * Resolves which Company (legal entity) a data row belongs to, from its
+ * optional "Legal Entity" column - falling back to the default (the company
+ * active in the app when the import was run) if left blank, so single-entity
+ * users see no change in behavior. A name that doesn't match any existing
+ * company is auto-created (name only - PAN/TAN/bank details can be filled in
+ * later under Setup > Companies), rather than rejecting the whole row: the
+ * point of naming a Legal Entity on this sheet is to set up that company via
+ * the import, not to require it to already exist first. Later rows naming
+ * the same new company reuse it rather than creating a duplicate.
+ */
 function resolveRowCompanyId(db, row, defaultCompanyId, rowErrors) {
   const entityInput = String(row["Legal Entity"] ?? "").trim();
   if (!entityInput) return defaultCompanyId;
   const match = db.companies.find((c) => c.name.trim().toLowerCase() === entityInput.toLowerCase());
-  if (!match) {
-    rowErrors.push(`Unrecognized Legal Entity '${entityInput}' - must match a company name exactly as set up under Setup > Companies`);
-    return null;
-  }
-  return match.id;
+  if (match) return match.id;
+  const created = {
+    id: newId("co"), name: entityInput, address: null, pan: null, tan: null,
+    bankName: null, bankAccountNo: null, bankIfsc: null, isActive: true, createdAt: new Date().toISOString(),
+  };
+  db.companies.push(created);
+  return created.id;
 }
 /**
  * Finds an already-imported employee by Employee Code for a data row on the
