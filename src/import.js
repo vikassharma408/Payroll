@@ -449,7 +449,7 @@ function importSalaryStructures(db, rows) {
     }
     const previouslyActive = employee ? db.employeeSalaryStructures.find((s) => s.employeeId === employee.id && s.financialYearId === fy.id && s.isActive) : null;
     if (previouslyActive && new Date(effectiveFrom) < new Date(previouslyActive.effectiveFrom)) {
-      rowErrors.push(`Effective From (${effectiveFrom.slice(0, 10)}) can't be before the current structure's own Effective From (${previouslyActive.effectiveFrom.slice(0, 10)}) - to correct an even earlier period, edit it directly on the employee's Salary Structure tab`);
+      rowErrors.push(`Effective From (${formatDateDisplay(effectiveFrom)}) can't be before the current structure's own Effective From (${formatDateDisplay(previouslyActive.effectiveFrom)}) - to correct an even earlier period, edit it directly on the employee's Salary Structure tab`);
     }
 
     if (rowErrors.length > 0) {

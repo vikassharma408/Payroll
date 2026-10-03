@@ -312,7 +312,7 @@ function renderPayrollRunDetail(container, runId) {
         }
         <h3 class="mt-16">Adjustments</h3>
         <table>
-          ${line.adjustments.map((a) => `<tr><td>${a.createdAt.slice(0, 10)}</td><td>${escapeHtml(a.reason)}</td><td>${escapeHtml(a.enteredBy)}</td><td>${rupees(a.amount)}</td></tr>`).join("") || `<tr><td colspan="4" class="text-muted">No adjustments.</td></tr>`}
+          ${line.adjustments.map((a) => `<tr><td>${formatDateDisplay(a.createdAt)}</td><td>${escapeHtml(a.reason)}</td><td>${escapeHtml(a.enteredBy)}</td><td>${rupees(a.amount)}</td></tr>`).join("") || `<tr><td colspan="4" class="text-muted">No adjustments.</td></tr>`}
         </table>
         <form class="adjustment-form row gap-8 mt-16" data-line-id="${line.id}">
           <input type="number" name="amount" placeholder="Amount (+/-)" required style="max-width:140px;" />

@@ -334,7 +334,7 @@ registerView("tax-rules", "Setup", "Tax Rules", (container) => {
         <tr>
           <td>${r.financialYearCode}</td>
           <td>${sentenceCase(r.regime)}</td>
-          <td>${r.effectiveFrom}</td>
+          <td>${formatDateDisplay(r.effectiveFrom)}</td>
           <td>${rupees(r.standardDeduction)}</td>
           <td>${pct(r.cessRate)}</td>
           <td>${pct(r.npsEmployerCapPercent)}</td>
@@ -357,6 +357,7 @@ registerView("tax-rules", "Setup", "Tax Rules", (container) => {
         </table>
       </div>
     `;
+    wireDateFields(container);
     container.querySelectorAll(".toggle-rule-detail").forEach((btn) => {
       btn.addEventListener("click", () => {
         const id = btn.getAttribute("data-id");
@@ -409,7 +410,7 @@ registerView("tax-rules", "Setup", "Tax Rules", (container) => {
         const original = new Date(r.effectiveFrom);
         original.setDate(original.getDate() + 1);
         clone.effectiveFrom = original.toISOString();
-        clone.notes = `Cloned from a rule set effective ${r.effectiveFrom.slice(0, 10)} - set the correct Effective From date for this amendment, then Save.`;
+        clone.notes = `Cloned from a rule set effective ${formatDateDisplay(r.effectiveFrom)} - set the correct Effective From date for this amendment, then Save.`;
         db.taxRuleSets.push(clone);
         await persist();
         editingId = clone.id;
@@ -486,7 +487,7 @@ registerView("tax-rules", "Setup", "Tax Rules", (container) => {
         <h3>Editing ${r.financialYearCode} - ${sentenceCase(r.regime)} regime</h3>
         <form id="rule-edit-form" data-id="${r.id}">
           <div class="form-grid">
-            <div><label>Effective From</label><input type="date" name="effectiveFrom" value="${r.effectiveFrom.slice(0, 10)}" /></div>
+            <div><label>Effective From</label>${dateField("effectiveFrom", r.effectiveFrom.slice(0, 10))}</div>
             <div><label>Standard Deduction</label><input type="number" min="0" name="standardDeduction" value="${r.standardDeduction}" /></div>
             <div><label>Cess Rate (%)</label><input type="number" min="0" step="0.01" name="cessRate" value="${r.cessRate * 100}" /></div>
             <div><label>Employer NPS Cap (% of Basic+DA)</label><input type="number" min="0" step="0.01" name="npsEmployerCapPercent" value="${r.npsEmployerCapPercent * 100}" /></div>

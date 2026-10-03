@@ -191,7 +191,7 @@ registerView("audit-log", "Insights", "Audit Log", (container) => {
           ${
             combined
               .slice(0, 500)
-              .map((e) => `<tr><td>${e.createdAt.slice(0, 16).replace("T", " ")}</td><td>${escapeHtml(e.entityType)}</td><td>${escapeHtml(sentenceCase(e.action))}</td><td>${escapeHtml(e.detail || "")}</td></tr>`)
+              .map((e) => `<tr><td>${formatDateDisplay(e.createdAt)} ${e.createdAt.slice(11, 16)}</td><td>${escapeHtml(e.entityType)}</td><td>${escapeHtml(sentenceCase(e.action))}</td><td>${escapeHtml(e.detail || "")}</td></tr>`)
               .join("") || `<tr><td colspan="4" class="text-muted">No activity recorded yet.</td></tr>`
           }
         </tbody>

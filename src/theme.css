@@ -97,6 +97,12 @@ input, select, textarea {
 input:focus, select:focus, textarea:focus { outline: 2px solid var(--gold-dim); outline-offset: 1px; }
 label { display: block; font-size: 12px; color: var(--ivory-dim); margin-bottom: 4px; }
 
+.date-field { display: flex; align-items: center; gap: 4px; position: relative; }
+.date-field-text { flex: 1; min-width: 0; }
+.date-field-text.date-field-invalid { border-color: var(--bad); }
+.date-field-pick { padding: 7px 9px; flex-shrink: 0; }
+.date-field-native { position: absolute; opacity: 0; width: 1px; height: 1px; padding: 0; border: 0; pointer-events: none; }
+
 button {
   font-family: var(--sans);
   font-size: 14px;

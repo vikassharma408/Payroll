@@ -36,7 +36,7 @@ function renderSalaryStructuresList(container) {
       <tr>
         <td><a href="#/employees/${e.id}/salary">${escapeHtml(e.employeeCode)} - ${escapeHtml(e.fullName)}</a></td>
         ${showCompanyColumn ? `<td>${escapeHtml(companyNameOf(e.companyId))}</td>` : ""}
-        <td>${structure ? structure.effectiveFrom.slice(0, 10) : "-"}</td>
+        <td>${structure ? formatDateDisplay(structure.effectiveFrom) : "-"}</td>
         <td>${structure ? rupees(structure.annualCTC) : "-"}</td>
         <td>${structure ? structure.components.length : "-"}</td>
         <td>${structure ? '<span class="badge good">Set up</span>' : '<span class="badge bad">Not set up</span>'}</td>

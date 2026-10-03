@@ -189,7 +189,7 @@ function renderEmployeeForm(container, employee) {
       <div class="form-grid">
         <div><label>Employee Code *</label><input name="employeeCode" required value="${escapeHtml(e.employeeCode)}" /></div>
         <div><label>Full Name *</label><input name="fullName" required value="${escapeHtml(e.fullName)}" /></div>
-        <div><label>Date of Birth</label><input type="date" name="dob" value="${e.dob || ""}" /></div>
+        <div><label>Date of Birth</label>${dateField("dob", e.dob)}</div>
         <div><label>Gender</label>
           <select name="gender">
             <option value="" ${!e.gender ? "selected" : ""}>-</option>
@@ -202,8 +202,8 @@ function renderEmployeeForm(container, employee) {
         <div><label>Aadhaar</label><input name="aadhaar" value="${escapeHtml(e.aadhaar || "")}" /></div>
         <div><label>Email</label><input type="email" name="email" value="${escapeHtml(e.email || "")}" /></div>
         <div><label>Phone</label><input name="phone" value="${escapeHtml(e.phone || "")}" /></div>
-        <div><label>Date of Joining *</label><input type="date" name="dateOfJoining" required value="${e.dateOfJoining || ""}" /></div>
-        <div><label>Date of Leaving</label><input type="date" name="dateOfLeaving" value="${e.dateOfLeaving || ""}" /></div>
+        <div><label>Date of Joining *</label>${dateField("dateOfJoining", e.dateOfJoining)}</div>
+        <div><label>Date of Leaving</label>${dateField("dateOfLeaving", e.dateOfLeaving)}</div>
         <div><label>Department</label><input name="department" value="${escapeHtml(e.department || "")}" /></div>
         <div><label>Designation</label><input name="designation" value="${escapeHtml(e.designation || "")}" /></div>
         <div><label>Location</label><input name="location" value="${escapeHtml(e.location || "")}" /></div>
@@ -247,6 +247,7 @@ function renderEmployeeForm(container, employee) {
     </form>
   `;
 
+  wireDateFields(container);
   document.querySelector('select[name="state"]').addEventListener("change", (evt) => {
     document.getElementById("field-ptApplicable").checked = !!evt.target.value;
   });
@@ -412,14 +413,14 @@ function renderProfileTab(container, e) {
   const field = (label, value) => `<div><div class="stat-label">${label}</div><div>${value || '<span class="text-muted">-</span>'}</div></div>`;
   container.innerHTML = `
     <div class="card card-grid">
-      ${field("Date of Birth", e.dob)}
+      ${field("Date of Birth", formatDateDisplay(e.dob))}
       ${field("Gender", sentenceCase(e.gender))}
       ${field("PAN", e.pan)}
       ${field("Aadhaar", e.aadhaar)}
       ${field("Email", escapeHtml(e.email || ""))}
       ${field("Phone", e.phone)}
-      ${field("Date of Joining", e.dateOfJoining)}
-      ${field("Date of Leaving", e.dateOfLeaving)}
+      ${field("Date of Joining", formatDateDisplay(e.dateOfJoining))}
+      ${field("Date of Leaving", formatDateDisplay(e.dateOfLeaving))}
       ${field("Location", e.location)}
       ${field("Cost Centre", e.costCentre)}
       ${field("Payroll Group", e.payrollGroup)}
@@ -441,7 +442,12 @@ function renderSalaryStructureTab(container, employee, fy, onSaved) {
   // built from); annual CTC is a read-only total computed from these, not a
   // separate input - so there's nothing to keep in sync by hand.
   let rows = active ? active.components.map((c) => ({ componentId: c.componentId, componentCode: c.componentCode, monthlyAmount: c.monthlyAmount })) : [];
-  let effectiveFromInput = new Date().toISOString().slice(0, 10);
+  // Defaults to the EXISTING active structure's own Effective From (not
+  // today) when one exists, so simply reopening this tab and re-saving
+  // without deliberately changing the date doesn't silently create an
+  // unintended new revision dated today - only change it if you actually
+  // mean to backdate/postdate a real revision.
+  let effectiveFromInput = active ? active.effectiveFrom.slice(0, 10) : new Date().toISOString().slice(0, 10);
   let targetRunId = "";
   let selectedTemplateId = "";
   let targetCtcInput = "";
@@ -484,7 +490,7 @@ function renderSalaryStructureTab(container, employee, fy, onSaved) {
       <div class="card">
         <div class="row gap-8" style="align-items:flex-end;">
           <div><div class="stat-label">Annual CTC (computed)</div><div class="stat-value" id="ctc-display">${rupees(computedCtc())}</div></div>
-          <div style="margin-left:auto;"><label>Effective From</label><input type="date" id="structure-effective-from" value="${effectiveFromInput}" /></div>
+          <div style="margin-left:auto;"><label>Effective From</label>${dateField("effectiveFrom", effectiveFromInput, { id: "structure-effective-from" })}</div>
         </div>
         <p class="text-muted" style="font-size:12px;">Sum of all Earning + Employer Contribution components below, x12. Enter each component's MONTHLY amount; this total updates automatically. Backdate "Effective From" for a mid-year revision (e.g. revising in June, effective from April) - any already-paid months in between will show up below as Arrears due.</p>
         <table class="mt-16">
@@ -508,6 +514,7 @@ function renderSalaryStructureTab(container, employee, fy, onSaved) {
       }
     `;
     renderRows();
+    wireDateFields(container);
     document.getElementById("structure-effective-from").addEventListener("change", (e) => {
       effectiveFromInput = e.target.value;
     });
@@ -561,7 +568,7 @@ function renderSalaryStructureTab(container, employee, fy, onSaved) {
       const newEffectiveFrom = new Date(effectiveFromInput).toISOString();
       const previouslyActive = db.employeeSalaryStructures.find((s) => s.employeeId === employee.id && s.financialYearId === fy.id && s.isActive);
       if (previouslyActive && new Date(newEffectiveFrom) < new Date(previouslyActive.effectiveFrom)) {
-        errorEl.textContent = `Effective From can't be before the current structure's own Effective From (${previouslyActive.effectiveFrom.slice(0, 10)}). To correct an even earlier period, edit the Structure History records directly.`;
+        errorEl.textContent = `Effective From can't be before the current structure's own Effective From (${formatDateDisplay(previouslyActive.effectiveFrom)}). To correct an even earlier period, edit the Structure History records directly.`;
         return;
       }
       if (previouslyActive) {
@@ -709,7 +716,7 @@ function renderSalaryStructureTab(container, employee, fy, onSaved) {
           ${db.employeeSalaryStructures
             .filter((s) => s.employeeId === employee.id && s.financialYearId === fy.id)
             .sort((a, b) => new Date(b.effectiveFrom) - new Date(a.effectiveFrom))
-            .map((s) => `<tr><td>${s.effectiveFrom.slice(0, 10)}</td><td>${s.effectiveTo ? s.effectiveTo.slice(0, 10) : "-"}</td><td>${rupees(s.annualCTC)}</td><td>${s.isActive ? '<span class="badge good">Active</span>' : '<span class="badge neutral">Superseded</span>'}</td></tr>`)
+            .map((s) => `<tr><td>${formatDateDisplay(s.effectiveFrom)}</td><td>${s.effectiveTo ? formatDateDisplay(s.effectiveTo) : "-"}</td><td>${rupees(s.annualCTC)}</td><td>${s.isActive ? '<span class="badge good">Active</span>' : '<span class="badge neutral">Superseded</span>'}</td></tr>`)
             .join("")}
         </tbody>
       </table>
@@ -801,8 +808,8 @@ function renderInvestmentDeclarationTab(container, employee, fy, onSaved) {
         <h3>HRA / Rent</h3>
         <div class="form-grid">
           <div><label>Monthly Rent</label><input type="number" min="0" name="monthlyRent" value="${d.monthlyRent || 0}" /></div>
-          <div><label>Rent Start Date</label><input type="date" name="rentStartDate" value="${d.rentStartDate || ""}" /></div>
-          <div><label>Rent End Date (if moved out during the FY)</label><input type="date" name="rentEndDate" value="${d.rentEndDate || ""}" /></div>
+          <div><label>Rent Start Date</label>${dateField("rentStartDate", d.rentStartDate)}</div>
+          <div><label>Rent End Date (if moved out during the FY)</label>${dateField("rentEndDate", d.rentEndDate)}</div>
           <div><label>Rental Address</label><input name="rentalAddress" value="${escapeHtml(d.rentalAddress || "")}" /></div>
           <div><label>Landlord Name</label><input name="landlordName" value="${escapeHtml(d.landlordName || "")}" /></div>
           <div><label>Landlord PAN</label><input name="landlordPan" value="${escapeHtml(d.landlordPan || "")}" /></div>
@@ -825,6 +832,7 @@ function renderInvestmentDeclarationTab(container, employee, fy, onSaved) {
     </form>
   `;
 
+  wireDateFields(container);
   document.getElementById("investment-form").addEventListener("submit", async (evt) => {
     evt.preventDefault();
     const fd = new FormData(evt.target);
@@ -860,7 +868,7 @@ function renderPreviousEmployerTab(container, employee, fy, onSaved) {
               .map(
                 (r) => `<tr>
                 <td>${escapeHtml(r.employerName)}</td>
-                <td>${r.periodFrom} to ${r.periodTo}</td>
+                <td>${formatDateDisplay(r.periodFrom)} to ${formatDateDisplay(r.periodTo)}</td>
                 <td>${rupees(r.grossSalary)}</td>
                 <td>${rupees(r.taxableSalary)}</td>
                 <td>${rupees(r.tdsDeducted)}</td>
@@ -876,8 +884,8 @@ function renderPreviousEmployerTab(container, employee, fy, onSaved) {
       <h3>Add Previous Employer Record</h3>
       <div class="form-grid">
         <div><label>Employer Name *</label><input name="employerName" required /></div>
-        <div><label>Period From *</label><input type="date" name="periodFrom" required /></div>
-        <div><label>Period To *</label><input type="date" name="periodTo" required /></div>
+        <div><label>Period From *</label>${dateField("periodFrom", "")}</div>
+        <div><label>Period To *</label>${dateField("periodTo", "")}</div>
         <div><label>Gross Salary *</label><input type="number" min="0" name="grossSalary" required /></div>
         <div><label>Taxable Salary *</label><input type="number" min="0" name="taxableSalary" required /></div>
         <div><label>Exemptions</label><input type="number" min="0" name="exemptions" value="0" /></div>
@@ -901,6 +909,10 @@ function renderPreviousEmployerTab(container, employee, fy, onSaved) {
   document.getElementById("prev-employer-form").addEventListener("submit", async (evt) => {
     evt.preventDefault();
     const fd = new FormData(evt.target);
+    if (!fd.get("periodFrom") || !fd.get("periodTo")) {
+      alert("Enter both Period From and Period To as valid dates.");
+      return;
+    }
     db.previousEmployerIncomes.push({
       id: newId("pei"),
       employeeId: employee.id,
@@ -1226,7 +1238,7 @@ function renderRegimeComparisonTab(container, employee, fy, onSaved) {
           ? `<h3 class="mt-16">Switch History</h3><table><thead><tr><th>Date</th><th>From</th><th>To</th></tr></thead><tbody>${history
               .slice()
               .reverse()
-              .map((h) => `<tr><td>${h.changedAt.slice(0, 10)}</td><td>${sentenceCase(h.from)}</td><td>${sentenceCase(h.to)}</td></tr>`)
+              .map((h) => `<tr><td>${formatDateDisplay(h.changedAt)}</td><td>${sentenceCase(h.from)}</td><td>${sentenceCase(h.to)}</td></tr>`)
               .join("")}</tbody></table>`
           : ""
       }
@@ -1291,7 +1303,7 @@ function renderForm16(container, employee) {
         <table>
           <tr><td class="text-muted">Financial Year</td><td>${fy.code}</td></tr>
           <tr><td class="text-muted">Tax Regime</td><td>${sentenceCase(r.regime)}</td></tr>
-          <tr><td class="text-muted">Period</td><td>${fy.startDate} to ${fy.endDate}</td></tr>
+          <tr><td class="text-muted">Period</td><td>${formatDateDisplay(fy.startDate)} to ${formatDateDisplay(fy.endDate)}</td></tr>
         </table>
       </div>
 
