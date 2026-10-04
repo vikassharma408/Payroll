@@ -86,7 +86,16 @@ function renderPayrollRunsList(container) {
     </form>`
     }
     <div class="card">
-      <table>
+      <div class="row between">
+        <h3 style="margin:0;">Payroll Runs</h3>
+        ${
+          runs.some((r) => r.status !== "LOCKED" && r.status !== "PAID")
+            ? `<button id="btn-run-calc-all">Run Calculation for All</button>`
+            : ""
+        }
+      </div>
+      <div id="run-calc-all-message" class="mt-16"></div>
+      <table class="mt-16">
         <thead><tr><th>Period</th>${showCompanyColumn ? "<th>Company</th>" : ""}<th>Group</th><th>Status</th><th>Employees</th><th>Total Net Pay</th></tr></thead>
         <tbody>${rows || `<tr><td colspan="${showCompanyColumn ? 6 : 5}" class="text-muted">No payroll runs yet.</td></tr>`}</tbody>
       </table>
@@ -177,6 +186,40 @@ function renderPayrollRunsList(container) {
       const existingCount = results.length - createdCount;
       alert(`${createdCount} payroll run(s) created${existingCount ? `, ${existingCount} already existed` : ""} for ${monthLabel(results[0].run)}. Open each one from the list below (widen the company filter at the top if some aren't showing).`);
       renderContent();
+    });
+  }
+
+  const runCalcAllBtn = document.getElementById("btn-run-calc-all");
+  if (runCalcAllBtn) {
+    runCalcAllBtn.addEventListener("click", async () => {
+      const eligible = runs.filter((r) => r.status !== "LOCKED" && r.status !== "PAID");
+      runCalcAllBtn.disabled = true;
+      runCalcAllBtn.textContent = `Calculating 0 of ${eligible.length}...`;
+      let processedTotal = 0;
+      const skippedByRun = [];
+      let i = 0;
+      for (const run of eligible) {
+        i += 1;
+        runCalcAllBtn.textContent = `Calculating ${i} of ${eligible.length}...`;
+        try {
+          const result = PayrollEngine.processPayrollRun(db, run.id);
+          processedTotal += result.processed;
+          if (result.skipped.length) {
+            const company = db.companies.find((c) => c.id === run.companyId);
+            skippedByRun.push(`${company ? company.name : run.companyId} (${monthLabel(run)}): ${result.skipped.map((s) => s.employeeCode).join(", ")}`);
+          }
+        } catch (err) {
+          const company = db.companies.find((c) => c.id === run.companyId);
+          skippedByRun.push(`${company ? company.name : run.companyId} (${monthLabel(run)}): ${err.message}`);
+        }
+      }
+      await persist();
+      renderContent();
+      const msgEl = document.getElementById("run-calc-all-message");
+      if (msgEl) {
+        msgEl.textContent = `Calculated ${eligible.length} payroll run(s), ${processedTotal} employee(s) processed in total.${skippedByRun.length ? ` Issues: ${skippedByRun.join(" | ")}` : ""}`;
+        msgEl.className = skippedByRun.length ? "text-bad mt-16" : "text-good mt-16";
+      }
     });
   }
 }
