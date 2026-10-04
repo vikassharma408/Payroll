@@ -33,6 +33,16 @@ function componentLabel(code) {
   return SLIP_COMPONENT_LABELS[code] || sentenceCase(code);
 }
 
+// Which Legal Entities are checked in the Create Payroll Run panel, kept
+// at module level (not a local inside renderPayrollRunsList) because
+// renderContent() re-invokes that function from scratch after creating
+// run(s) - a local variable would reset every time, snapping the checkbox
+// state back to a single company (see getActiveCompanyId() below) and
+// making a genuine "All Companies" selection look like it had silently
+// collapsed to just the first one. null means "no explicit selection yet
+// this session" - falls back to whichever company is currently active.
+let lastSelectedRunCompanyIds = null;
+
 // Registered once (not inside renderPayrollRunsList, which re-runs on every
 // visit to this page) so outside clicks close the Create Payroll Run Legal
 // Entity panel without ever accumulating duplicate listeners.
@@ -73,6 +83,8 @@ function renderPayrollRunsList(container) {
     })
     .join("");
 
+  const checkedRunCompanyIds = lastSelectedRunCompanyIds || [getActiveCompanyId()];
+
   container.innerHTML = `
     ${
       !fy
@@ -84,9 +96,9 @@ function renderPayrollRunsList(container) {
           <label>Legal Entity (select one or more)</label>
           <button type="button" id="run-company-btn" style="width:100%;text-align:left;">Select Legal Entity &#9662;</button>
           <div id="run-company-panel" class="card" style="display:none;max-height:220px;overflow-y:auto;padding:10px;margin-top:4px;">
-            <label class="row gap-8" style="display:flex;align-items:center;"><input type="checkbox" id="run-company-all" /> <strong>All Companies</strong></label>
+            <label class="row gap-8" style="display:flex;align-items:center;"><input type="checkbox" id="run-company-all" ${checkedRunCompanyIds.length === db.companies.length ? "checked" : ""} /> <strong>All Companies</strong></label>
             <hr style="border-color:var(--line);margin:6px 0;" />
-            ${db.companies.map((c) => `<label class="row gap-8" style="display:flex;align-items:center;"><input type="checkbox" class="run-company-item" value="${c.id}" ${c.id === getActiveCompanyId() ? "checked" : ""} /> ${escapeHtml(c.name)}</label>`).join("")}
+            ${db.companies.map((c) => `<label class="row gap-8" style="display:flex;align-items:center;"><input type="checkbox" class="run-company-item" value="${c.id}" ${checkedRunCompanyIds.includes(c.id) ? "checked" : ""} /> ${escapeHtml(c.name)}</label>`).join("")}
           </div>
         </div>
         <div><label>Financial Year</label><input value="${fy.code}" disabled /></div>
@@ -131,6 +143,10 @@ function renderPayrollRunsList(container) {
       else if (checked.length === db.companies.length) companyBtn.textContent = "All Companies ▾";
       else if (checked.length === 1) companyBtn.textContent = `${(db.companies.find((c) => c.id === checked[0].value) || {}).name || ""} ▾`;
       else companyBtn.textContent = `${checked.length} companies selected ▾`;
+      // Keep the module-level selection in sync with every live edit, so it
+      // survives the next renderContent() call intact (see its declaration
+      // above for why a local variable here wouldn't).
+      lastSelectedRunCompanyIds = checked.map((cb) => cb.value);
     }
     companyBtn.addEventListener("click", (e) => {
       e.stopPropagation();
@@ -160,7 +176,13 @@ function renderPayrollRunsList(container) {
       }
       const payrollMonthIndex = Number(fd.get("payrollMonthIndex"));
       const payrollGroup = String(fd.get("payrollGroup") || "").trim() || null;
-      setActiveCompanyId(companyIds[0]);
+      // Only when exactly one Legal Entity was picked - this is also what
+      // the Legal Entity checkbox panel's own "start checked" state reads
+      // (c.id === getActiveCompanyId()) on the next render, so setting it
+      // unconditionally here was overwriting a genuine multi-company (or
+      // "All Companies") selection down to just the first company the
+      // moment the runs were created.
+      if (companyIds.length === 1) setActiveCompanyId(companyIds[0]);
 
       const { calendarYear, calendarMonth } = fyMonthIndexToCalendar(payrollMonthIndex, new Date(fy.startDate).getFullYear());
       const results = [];

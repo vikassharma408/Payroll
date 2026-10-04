@@ -111,6 +111,7 @@ const IMPORT_TEMPLATES = {
       { header: "Employee Code", field: "employeeCode", required: true, type: "string", example: "EMP101" },
       { header: "Legal Entity", field: "companyId", type: "string", example: "My Company Pvt Ltd", note: "Only needed in a multi-entity setup if the same Employee Code happens to exist under more than one company - otherwise leave blank. Type the exact name of the company from Setup > Companies." },
       { header: "Payroll Month", field: "payrollMonth", required: true, type: "string", example: "April", dropdownSource: "MONTH" },
+      { header: "Payroll Year", field: "payrollYear", required: true, type: "number", example: 2026, note: "The calendar year this Payroll Month actually falls in (e.g. 2026 for April 2026, but 2027 for January 2027 in the same FY 2026-27) - cross-checked against the Financial Year's own dates so a typo here is caught rather than silently applied to the wrong year's run." },
       { header: "Bonus", field: "bonus", type: "number", example: 0 },
       { header: "Incentive", field: "incentive", type: "number", example: 0 },
       { header: "Overtime", field: "overtime", type: "number", example: 0 },
@@ -706,6 +707,16 @@ function importMonthlyPayroll(db, rows) {
     const monthName = String(row["Payroll Month"] ?? "").trim();
     const monthIndex = FY_MONTH_NAMES.findIndex((m) => m.toLowerCase() === monthName.toLowerCase()) + 1;
     if (monthIndex === 0) rowErrors.push(`Invalid Payroll Month '${monthName}' (use April, May, ... March)`);
+
+    const payrollYear = toNumberI(row["Payroll Year"]);
+    if (monthIndex > 0) {
+      const fyStartYear = new Date(fy.startDate).getFullYear();
+      const expectedCalendarYear = monthIndex <= 9 ? fyStartYear : fyStartYear + 1;
+      if (!payrollYear) rowErrors.push("Missing required field 'Payroll Year'");
+      else if (payrollYear !== expectedCalendarYear) {
+        rowErrors.push(`Payroll Year '${payrollYear}' doesn't match ${monthName} in FY ${fy.code} (should be ${expectedCalendarYear})`);
+      }
+    }
 
     const lopDays = toNumberI(row["LOP Days"]);
     if (Number.isNaN(lopDays) || lopDays < 0) rowErrors.push("LOP Days must be a non-negative number");

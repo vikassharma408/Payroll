@@ -669,77 +669,6 @@
     return recalculateLine(db, targetRunId, employeeId);
   }
 
-  /**
-   * Section 89(1) (with Rule 21A) relief applies ONLY when salary received
-   * in one year genuinely RELATES TO a different, earlier financial year -
-   * the relief corrects for that earlier income being taxed all at once,
-   * in a later year, possibly at a higher slab than if it had been taxed
-   * when it was actually earned. It does NOT apply to salary that is simply
-   * paid a bit late within the SAME financial year it relates to (e.g. an
-   * April pay revision processed as arrears in July's run, all within one
-   * FY) - that amount correctly belongs to, and is correctly taxed as,
-   * ordinary current-year income already; there is no cross-year slab
-   * distortion for Section 89 to relieve.
-   *
-   * computeArrears() is itself scoped to a single financialYearId (it only
-   * ever compares a run against other runs in that SAME FY), and a Salary
-   * Structure revision can only be saved against the CURRENTLY active FY
-   * (there is no app flow to revise an already-closed prior FY's
-   * structure) - so every arrears flow this app can currently produce is,
-   * by construction, the same-FY case above. Rather than ship an untested,
-   * unreachable "cross-FY" tax computation, this function recognizes that
-   * case explicitly and reports relief as not applicable, while still
-   * computing the one honestly useful number: how much of the target run's
-   * tax this month is attributable to the arrears being added. If this app
-   * ever gains a way to revise a prior, already-closed FY's structure, a
-   * genuine cross-year relief computation would go here, per the standard
-   * Rule 21A steps: (1) tax on total income of the receipt year including
-   * the arrears, (2) tax on total income of the receipt year excluding it,
-   * (3) their difference ("tax on arrears in year of receipt"), (4)-(5)
-   * for each earlier year the arrears relates to, tax on that year's
-   * actual recorded income with vs without its portion of the arrears
-   * added, (6) sum of those earlier-year differences, (7) relief = (3)
-   * minus (6), floored at zero (relief never makes tax higher).
-   */
-  function computeSection89Relief(db, employeeId, arrears, targetRunId, componentAmounts) {
-    const targetRun = db.payrollRuns.find((r) => r.id === targetRunId);
-    if (!targetRun || !arrears || !arrears.months.length) return null;
-    const amounts = componentAmounts || arrears.perComponentTotal;
-    const totalArrears = Object.values(amounts || {}).reduce((s, v) => s + (v || 0), 0);
-    if (!totalArrears) return null;
-
-    const existing = (targetRun.overrides && targetRun.overrides[employeeId]) || {};
-    const withArrearsVp = { ...(existing.variablePay || {}) };
-    for (const [code, amt] of Object.entries(amounts)) {
-      if (amt) withArrearsVp[`${code}${ARREARS_CODE_SUFFIX}`] = (withArrearsVp[`${code}${ARREARS_CODE_SUFFIX}`] || 0) + amt;
-    }
-    const withoutArrearsVp = Object.fromEntries(Object.entries(withArrearsVp).filter(([code]) => !code.endsWith(ARREARS_CODE_SUFFIX)));
-
-    let withTax, withoutTax, regimeUsed;
-    try {
-      const withResult = computeEmployeePayrollLine(db, targetRunId, employeeId, { lopDays: existing.lopDays, variablePay: withArrearsVp });
-      const withoutResult = computeEmployeePayrollLine(db, targetRunId, employeeId, { lopDays: existing.lopDays, variablePay: withoutArrearsVp });
-      regimeUsed = withResult.regimeUsed;
-      withTax = withResult.taxCalcSnapshot[regimeUsed.toLowerCase()].totalTaxLiability;
-      withoutTax = withoutResult.taxCalcSnapshot[regimeUsed.toLowerCase()].totalTaxLiability;
-    } catch {
-      return null;
-    }
-    const taxAttributableToArrears = Math.max(0, withTax - withoutTax);
-
-    // Every source month computeArrears can return already belongs to the
-    // SAME financial year it was asked to search - see the function-level
-    // comment above for why that's the only case reachable today.
-    return {
-      applicable: false,
-      reason: "These arrears relate to the same financial year they're being paid in, so there's no cross-year slab distortion for Section 89(1) to relieve - they're correctly taxed as ordinary income in this run already.",
-      regimeUsed,
-      totalArrears,
-      taxAttributableToArrears,
-      relief: 0,
-    };
-  }
-
   /** Completed years of service for gratuity, per Sec 4(2) of the Payment of Gratuity Act: a part-year of 6 months or more rounds up to a full year, less than 6 months rounds down. */
   function computeServiceYears(dateOfJoiningIso, dateOfLeavingIso) {
     const start = new Date(dateOfJoiningIso);
@@ -1155,7 +1084,6 @@
     addAdjustment,
     computeArrears,
     applyArrears,
-    computeSection89Relief,
     ARREARS_CODE_SUFFIX,
     computeServiceYears,
     computeAverageBasicDaLast10Months,
