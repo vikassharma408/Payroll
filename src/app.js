@@ -320,6 +320,11 @@ registerView("dashboard", "Overview", "Dashboard", (container) => {
   const pendingDeclarations = currentFy
     ? companyEmployees.filter((e) => e.status !== "INACTIVE" && !db.investmentDeclarations.some((d) => d.employeeId === e.id && d.financialYearId === currentFy.id)).length
     : 0;
+  // Nudge only - see PayrollEngine.regimeSuggestion. Never changes what
+  // TDS actually gets withheld; just flags employees worth a second look.
+  const regimeSuggestionCount = currentFy
+    ? companyEmployees.filter((e) => e.status !== "INACTIVE" && PayrollEngine.regimeSuggestion(db, e.id, currentFy.id)).length
+    : 0;
 
   container.innerHTML = `
     <div class="card-grid">
@@ -327,6 +332,7 @@ registerView("dashboard", "Overview", "Dashboard", (container) => {
       <div class="card"><div class="stat-label">Financial Year</div><div class="stat-value">${currentFy ? currentFy.code : "-"}</div></div>
       <div class="card"><div class="stat-label">Latest Payroll Run Net Pay${latestRunCompany && viewCompanyIds.length > 1 ? ` (${escapeHtml(latestRunCompany.name)})` : ""}</div><div class="stat-value">${rupees(latestNet)}</div></div>
       <div class="card"><div class="stat-label">Pending Investment Declarations</div><div class="stat-value ${pendingDeclarations > 0 ? "text-bad" : "text-good"}">${pendingDeclarations}</div></div>
+      <div class="card"><div class="stat-label">Could Save by Switching Regime</div><div class="stat-value ${regimeSuggestionCount > 0 ? "text-bad" : "text-good"}">${regimeSuggestionCount > 0 ? `<a href="#/employees">${regimeSuggestionCount}</a>` : "0"}</div></div>
     </div>
     <div class="card">
       <h3>Getting started</h3>

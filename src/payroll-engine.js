@@ -845,6 +845,32 @@
   }
 
   /**
+   * Flags when the regime NOT currently set on the employee would save
+   * them more than `minSavings` in full-year tax liability (via
+   * estimateRegimeComparison) - a nudge only. Nothing here ever changes
+   * employee.taxRegime or what TDS actually gets withheld; a human still
+   * has to act on it via applyRegimeSwitch (or the "Switch regime" button
+   * on the employee's Regime Comparison tab). Returns null when there's
+   * nothing to flag (no active salary structure yet, already on the
+   * cheaper regime, or the difference is below the threshold - a small
+   * default of Rs 500 avoids noise from trivial rounding/surcharge-edge
+   * differences that aren't worth a switch).
+   */
+  function regimeSuggestion(db, employeeId, financialYearId, minSavings) {
+    const employee = db.employees.find((e) => e.id === employeeId);
+    if (!employee) return null;
+    const estimate = estimateRegimeComparison(db, employeeId, financialYearId);
+    if (!estimate) return null;
+    const threshold = minSavings ?? 500;
+    const onOld = employee.taxRegime === "OLD";
+    const currentLiability = onOld ? estimate.old.totalTaxLiability : estimate.new.totalTaxLiability;
+    const otherLiability = onOld ? estimate.new.totalTaxLiability : estimate.old.totalTaxLiability;
+    const savings = currentLiability - otherLiability;
+    if (savings <= threshold) return null;
+    return { currentRegime: employee.taxRegime, beneficialRegime: onOld ? "NEW" : "OLD", currentLiability, beneficialLiability: otherLiability, savings };
+  }
+
+  /**
    * Projects a full-year Old vs New regime comparison directly from the
    * active Salary Structure + Investment Declaration + Previous Employer
    * records for a FY - independent of any payroll run ever having been
@@ -988,6 +1014,7 @@
     previewRegimeSwitch,
     applyRegimeSwitch,
     estimateRegimeComparison,
+    regimeSuggestion,
   };
 
   if (isNode) {

@@ -41,10 +41,25 @@ function renderEmployeesList(container) {
   let search = "";
   let selected = new Set();
 
+  // Computed once per view load (not per render(), since it's called on
+  // every keystroke in search) - which employees would save meaningful tax
+  // by switching regime, a nudge only, never auto-applied. See
+  // PayrollEngine.regimeSuggestion.
+  const fy = currentFy();
+  const regimeSuggestions = new Map();
+  if (fy) {
+    for (const e of db.employees) {
+      if (e.status === "INACTIVE") continue;
+      const sug = PayrollEngine.regimeSuggestion(db, e.id, fy.id);
+      if (sug) regimeSuggestions.set(e.id, sug);
+    }
+  }
+
   function render() {
     const viewCompanyIds = filteredCompanyIds();
     const showCompanyColumn = viewCompanyIds.length > 1;
     const companyEmployees = db.employees.filter((e) => viewCompanyIds.includes(e.companyId)).sort((a, b) => a.employeeCode.localeCompare(b.employeeCode));
+    const viewSuggestionCount = companyEmployees.filter((e) => regimeSuggestions.has(e.id)).length;
     const q = search.trim().toLowerCase();
     const filtered = q
       ? companyEmployees.filter((e) => [e.employeeCode, e.fullName, e.department, e.designation].some((v) => (v || "").toLowerCase().includes(q)))
@@ -62,7 +77,7 @@ function renderEmployeesList(container) {
           ${showCompanyColumn ? `<td>${escapeHtml((db.companies.find((c) => c.id === e.companyId) || {}).name || "-")}</td>` : ""}
           <td>${escapeHtml(e.designation || "-")}</td>
           <td>${escapeHtml(e.department || "-")}</td>
-          <td>${sentenceCase(e.taxRegime)}</td>
+          <td>${sentenceCase(e.taxRegime)}${regimeSuggestions.has(e.id) ? ` <span class="badge bad" title="Switching to ${sentenceCase(regimeSuggestions.get(e.id).beneficialRegime)} regime could save about ${rupees(regimeSuggestions.get(e.id).savings)} this year - see their Regime Comparison tab">&#9888; Switch?</span>` : ""}</td>
           <td><span class="badge ${e.status === "ACTIVE" ? "good" : e.status === "LEFT" ? "bad" : "neutral"}">${sentenceCase(e.status)}</span></td>
         </tr>`,
       )
@@ -72,6 +87,11 @@ function renderEmployeesList(container) {
         <span class="text-muted">${escapeHtml(companyFilterLabel())}: ${filtered.length} of ${companyEmployees.length} employee(s)</span>
         <a href="#/employees/new"><button class="primary">+ Add Employee</button></a>
       </div>
+      ${
+        viewSuggestionCount > 0
+          ? `<div class="card text-bad" style="margin-bottom:16px;">&#9888; ${viewSuggestionCount} employee${viewSuggestionCount > 1 ? "s" : ""} could save tax by switching regime - look for the "Switch?" badge below, or open their Regime Comparison tab for the full breakdown.</div>`
+          : ""
+      }
       ${
         selected.size > 0
           ? `<div class="card" style="background:var(--ink);">
