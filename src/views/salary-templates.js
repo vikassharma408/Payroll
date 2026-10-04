@@ -212,8 +212,10 @@ function renderTemplateForm(container, template) {
 
     tbody.querySelectorAll(".tpl-formula-input").forEach((el) =>
       el.addEventListener("input", (e) => {
-        rows[Number(e.target.dataset.idx)].formula = e.target.value;
-        renderRows();
+        const row = rows[Number(e.target.dataset.idx)];
+        row.formula = e.target.value;
+        const fixedInput = e.target.closest("tr").querySelector(".tpl-fixed-input");
+        if (fixedInput) fixedInput.disabled = !!row.formula;
       }),
     );
     tbody.querySelectorAll(".tpl-fixed-input").forEach((el) =>

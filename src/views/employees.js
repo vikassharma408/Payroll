@@ -771,7 +771,7 @@ function renderSalaryStructureTab(container, employee, fy, onSaved) {
         const row = rows[Number(e.target.dataset.idx)];
         row.monthlyAmount = num(e.target.value);
         row.formulaUsed = null;
-        renderRows();
+        e.target.closest("tr").children[3].textContent = rupees(row.monthlyAmount * 12);
         document.getElementById("ctc-display").textContent = rupees(computedCtc());
       }),
     );
