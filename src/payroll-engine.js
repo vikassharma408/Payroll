@@ -44,8 +44,12 @@
 
   /** Whether a declared rent period (start/end dates, either optional) covers any part of the given calendar month - so HRA exemption only applies for months rent was actually being paid. */
   function isRentActiveInMonth(calendarYear, calendarMonth, rentStartDate, rentEndDate) {
-    const monthStart = new Date(calendarYear, calendarMonth - 1, 1);
-    const monthEnd = new Date(calendarYear, calendarMonth, 0);
+    // Built in UTC, like currentMonthDate above, since rentStartDate/
+    // rentEndDate are date-only strings (parsed as UTC midnight) - a
+    // local-time construction would shift month boundaries by a day in
+    // any timezone ahead of UTC and misjudge whether rent was active.
+    const monthStart = new Date(Date.UTC(calendarYear, calendarMonth - 1, 1));
+    const monthEnd = new Date(Date.UTC(calendarYear, calendarMonth, 0));
     if (rentStartDate && monthEnd < new Date(rentStartDate)) return false;
     if (rentEndDate && monthStart > new Date(rentEndDate)) return false;
     return true;
@@ -154,7 +158,17 @@
     const fy = db.financialYears.find((f) => f.id === run.financialYearId);
     const currentIndex = run.payrollMonthIndex;
     const daysInMonth = daysInCalendarMonth(run.calendarYear, run.calendarMonth);
-    const currentMonthDate = new Date(run.calendarYear, run.calendarMonth - 1, 1);
+    // Built directly in UTC (not via the local-time Date constructor + a
+    // separate toISOString() conversion) so this lines up with how the
+    // date-only strings it's compared against below (salary structure /
+    // tax rule set effectiveFrom, DOB) are themselves parsed - those are
+    // always read as UTC midnight per the ISO 8601 spec. Building it in
+    // local time instead would, for any timezone ahead of UTC (e.g. IST,
+    // UTC+5:30 - this is an India payroll app), shift "the 1st of the
+    // month" back to the previous UTC day, making a structure effective
+    // exactly that day look like it starts AFTER this run's date and
+    // wrongly fail "No active salary structure".
+    const currentMonthDate = new Date(Date.UTC(run.calendarYear, run.calendarMonth - 1, 1));
     const currentMonthDateIso = currentMonthDate.toISOString();
 
     const structure = getActiveStructure(db, employeeId, fy.id, currentMonthDateIso);
