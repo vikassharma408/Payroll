@@ -53,8 +53,13 @@ function renderPayrollRunsList(container) {
         : `<form id="new-run-form" class="card">
       <h3>Create Payroll Run</h3>
       <div class="form-grid">
-        <div><label>Legal Entity</label>
-          <select name="companyId">${db.companies.map((c) => `<option value="${c.id}" ${c.id === getActiveCompanyId() ? "selected" : ""}>${escapeHtml(c.name)}</option>`).join("")}</select>
+        <div style="grid-column: span 2;">
+          <label>Legal Entity (select one or more)</label>
+          <div class="card" style="max-height:170px;overflow-y:auto;padding:10px;">
+            <label class="row gap-8" style="display:flex;align-items:center;"><input type="checkbox" id="run-company-all" /> <strong>All Companies</strong></label>
+            <hr style="border-color:var(--line);margin:6px 0;" />
+            ${db.companies.map((c) => `<label class="row gap-8" style="display:flex;align-items:center;"><input type="checkbox" class="run-company-item" value="${c.id}" ${c.id === getActiveCompanyId() ? "checked" : ""} /> ${escapeHtml(c.name)}</label>`).join("")}
+          </div>
         </div>
         <div><label>Financial Year</label><input value="${fy.code}" disabled /></div>
         <div><label>Month</label>
@@ -64,6 +69,7 @@ function renderPayrollRunsList(container) {
         </div>
         <div><label>Payroll Group (optional)</label><input name="payrollGroup" placeholder="Leave blank for all employees" /></div>
       </div>
+      <div id="new-run-error" class="text-bad mt-16"></div>
       <div class="row gap-8 mt-16"><button type="submit" class="primary">Create Run</button></div>
     </form>`
     }
@@ -77,42 +83,71 @@ function renderPayrollRunsList(container) {
 
   const form = document.getElementById("new-run-form");
   if (form) {
+    const allCb = document.getElementById("run-company-all");
+    const itemCbs = () => [...form.querySelectorAll(".run-company-item")];
+    allCb.addEventListener("change", () => {
+      itemCbs().forEach((cb) => { cb.checked = allCb.checked; });
+    });
+    itemCbs().forEach((cb) => {
+      cb.addEventListener("change", () => {
+        allCb.checked = itemCbs().every((c) => c.checked);
+      });
+    });
+
     form.addEventListener("submit", async (evt) => {
       evt.preventDefault();
+      const errorEl = document.getElementById("new-run-error");
+      errorEl.textContent = "";
       const fd = new FormData(evt.target);
-      const companyId = String(fd.get("companyId") || "");
-      const payrollMonthIndex = Number(fd.get("payrollMonthIndex"));
-      const payrollGroup = String(fd.get("payrollGroup") || "").trim() || null;
-      setActiveCompanyId(companyId);
-
-      const existing = db.payrollRuns.find((r) => r.companyId === companyId && r.financialYearId === fy.id && r.payrollMonthIndex === payrollMonthIndex && r.payrollGroup === payrollGroup);
-      if (existing) {
-        navigate(`payroll-runs/${existing.id}`);
+      const companyIds = itemCbs().filter((cb) => cb.checked).map((cb) => cb.value);
+      if (companyIds.length === 0) {
+        errorEl.textContent = "Select at least one Legal Entity.";
         return;
       }
+      const payrollMonthIndex = Number(fd.get("payrollMonthIndex"));
+      const payrollGroup = String(fd.get("payrollGroup") || "").trim() || null;
+      setActiveCompanyId(companyIds[0]);
+
       const { calendarYear, calendarMonth } = fyMonthIndexToCalendar(payrollMonthIndex, new Date(fy.startDate).getFullYear());
-      const run = {
-        id: newId("run"),
-        companyId,
-        financialYearId: fy.id,
-        payrollMonthIndex,
-        calendarYear,
-        calendarMonth,
-        payrollGroup,
-        status: "DRAFT",
-        processedAt: null,
-        reviewedAt: null,
-        approvedAt: null,
-        lockedAt: null,
-        paidAt: null,
-        createdBy: "Payroll Admin",
-        createdAt: new Date().toISOString(),
-        overrides: {},
-        lines: [],
-      };
-      db.payrollRuns.push(run);
+      const results = [];
+      for (const companyId of companyIds) {
+        const existing = db.payrollRuns.find((r) => r.companyId === companyId && r.financialYearId === fy.id && r.payrollMonthIndex === payrollMonthIndex && r.payrollGroup === payrollGroup);
+        if (existing) {
+          results.push({ companyId, run: existing, created: false });
+          continue;
+        }
+        const run = {
+          id: newId("run"),
+          companyId,
+          financialYearId: fy.id,
+          payrollMonthIndex,
+          calendarYear,
+          calendarMonth,
+          payrollGroup,
+          status: "DRAFT",
+          processedAt: null,
+          reviewedAt: null,
+          approvedAt: null,
+          lockedAt: null,
+          paidAt: null,
+          createdBy: "Payroll Admin",
+          createdAt: new Date().toISOString(),
+          overrides: {},
+          lines: [],
+        };
+        db.payrollRuns.push(run);
+        results.push({ companyId, run, created: true });
+      }
       await persist();
-      navigate(`payroll-runs/${run.id}`);
+
+      if (results.length === 1) {
+        navigate(`payroll-runs/${results[0].run.id}`);
+        return;
+      }
+      const createdCount = results.filter((r) => r.created).length;
+      const existingCount = results.length - createdCount;
+      alert(`${createdCount} payroll run(s) created${existingCount ? `, ${existingCount} already existed` : ""} for ${monthLabel(results[0].run)}. Open each one from the list below (widen the company filter at the top if some aren't showing).`);
+      renderContent();
     });
   }
 }

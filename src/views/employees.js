@@ -309,7 +309,7 @@ function renderEmployeeForm(container, employee) {
       return;
     }
     if (!isEdit) setActiveCompanyId(companyId);
-    const dup = db.employees.find((x) => x.companyId === companyId && x.employeeCode === employeeCode && (!isEdit || x.id !== employee.id));
+    const dup = db.employees.find((x) => x.companyId === companyId && x.employeeCode.trim().toLowerCase() === employeeCode.toLowerCase() && (!isEdit || x.id !== employee.id));
     if (dup) {
       errorEl.textContent = `Employee code '${employeeCode}' already exists in this company.`;
       return;

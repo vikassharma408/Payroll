@@ -409,6 +409,11 @@ function resolveRowCompanyId(db, row, defaultCompanyId, rowErrors) {
  * code genuinely exists in more than one company; the other 3 sheets have no
  * such column; see the catch-all error below for that case.
  */
+/** Case/whitespace-insensitive equality for employee codes - matches how Legal Entity names are already compared (c.name.trim().toLowerCase()), so a sheet typed "adh001" still finds an employee stored as "ADH001" instead of silently failing to link them (the root cause behind a "No active salary structure" error on an employee whose structure genuinely was imported, just under a differently-cased code). */
+function sameEmployeeCode(a, b) {
+  return String(a).trim().toLowerCase() === String(b).trim().toLowerCase();
+}
+
 function resolveEmployeeForRow(db, row, employeeCode, rowErrors) {
   const entityInput = String(row["Legal Entity"] ?? "").trim();
   if (entityInput) {
@@ -417,9 +422,9 @@ function resolveEmployeeForRow(db, row, employeeCode, rowErrors) {
       rowErrors.push(`Unrecognized Legal Entity '${entityInput}' - must match a company name exactly as set up under Setup > Companies`);
       return null;
     }
-    return db.employees.find((e) => e.companyId === match.id && e.employeeCode === employeeCode) || null;
+    return db.employees.find((e) => e.companyId === match.id && sameEmployeeCode(e.employeeCode, employeeCode)) || null;
   }
-  const matches = db.employees.filter((e) => e.employeeCode === employeeCode);
+  const matches = db.employees.filter((e) => sameEmployeeCode(e.employeeCode, employeeCode));
   if (matches.length > 1) {
     rowErrors.push(`Employee code '${employeeCode}' exists in more than one Legal Entity - give each company's employees unique Employee Codes to resolve this`);
     return null;
@@ -448,12 +453,12 @@ function importEmployees(db, rows, defaultCompanyId) {
 
     const employeeCode = String(row["Employee Code"] ?? "").trim();
     const pan = String(row["PAN"] ?? "").trim().toUpperCase() || null;
-    const dedupeCodeKey = `${companyId}:${employeeCode}`;
+    const dedupeCodeKey = `${companyId}:${employeeCode.toLowerCase()}`;
     const dedupePanKey = `${companyId}:${pan}`;
     if (employeeCode) {
       if (seenCodes.has(dedupeCodeKey)) rowErrors.push(`Duplicate employee code '${employeeCode}' within this file (for this Legal Entity)`);
       seenCodes.add(dedupeCodeKey);
-      if (db.employees.some((e) => e.companyId === companyId && e.employeeCode === employeeCode)) rowErrors.push(`Employee code '${employeeCode}' already exists in this company`);
+      if (db.employees.some((e) => e.companyId === companyId && sameEmployeeCode(e.employeeCode, employeeCode))) rowErrors.push(`Employee code '${employeeCode}' already exists in this company`);
     }
     if (pan) {
       if (!IMPORT_PAN_REGEX.test(pan)) rowErrors.push(`Invalid PAN format '${pan}'`);
