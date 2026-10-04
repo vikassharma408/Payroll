@@ -553,6 +553,14 @@ function importSalaryStructures(db, rows) {
     if (previouslyActive && new Date(effectiveFrom) < new Date(previouslyActive.effectiveFrom)) {
       rowErrors.push(`Effective From (${formatDateDisplay(effectiveFrom)}) can't be before the current structure's own Effective From (${formatDateDisplay(previouslyActive.effectiveFrom)}) - to correct an even earlier period, edit it directly on the employee's Salary Structure tab`);
     }
+    // A row with the Employee Code filled in but every amount column blank/0
+    // would otherwise silently create (and, if a real structure already
+    // exists, SUPERSEDE it with) an empty structure - the employee would be
+    // paid Rs 0 on every component from their next "Run Calculation" on,
+    // with no error anywhere to explain why. Catch it explicitly instead.
+    if (amounts.length === 0) {
+      rowErrors.push("No salary component amounts entered for this employee - enter a monthly amount greater than 0 for at least one component (e.g. Basic), or remove this row if it wasn't meant to change anything");
+    }
 
     if (rowErrors.length > 0) {
       errors.push({ rowNumber, message: rowErrors.join("; ") });
@@ -563,7 +571,14 @@ function importSalaryStructures(db, rows) {
     const now = new Date().toISOString();
     if (previouslyActive) {
       previouslyActive.isActive = false;
-      previouslyActive.effectiveTo = new Date(new Date(effectiveFrom).getTime() - 86400000).toISOString();
+      // See the matching comment in views/employees.js's structure-save
+      // handler: a same-day correction (effectiveFrom unchanged) must not
+      // compute an effectiveTo before the old structure's own
+      // effectiveFrom - purely a display/audit-trail issue (getActiveStructure
+      // already excludes non-active structures outright), but a confusing
+      // one ("01/Apr/2026 to 31/Mar/2026" in Structure History).
+      const isSameDayRevision = new Date(effectiveFrom).getTime() === new Date(previouslyActive.effectiveFrom).getTime();
+      previouslyActive.effectiveTo = isSameDayRevision ? previouslyActive.effectiveFrom : new Date(new Date(effectiveFrom).getTime() - 86400000).toISOString();
     }
     db.employeeSalaryStructures.push({
       id: newId("ess"), employeeId: employee.id, financialYearId: fy.id, annualCTC, effectiveFrom, effectiveTo: null, isActive: true, createdAt: now,

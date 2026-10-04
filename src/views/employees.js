@@ -600,6 +600,10 @@ function renderSalaryStructureTab(container, employee, fy, onSaved) {
         errorEl.textContent = "Add at least one salary component.";
         return;
       }
+      if (computedCtc() <= 0) {
+        errorEl.textContent = "Enter a non-zero monthly amount for at least one Earning/Employer Contribution component - saving a structure with every amount at 0 would leave this employee with no pay when payroll is run.";
+        return;
+      }
       if (!effectiveFromInput) {
         errorEl.textContent = "Set an Effective From date.";
         return;
@@ -613,7 +617,21 @@ function renderSalaryStructureTab(container, employee, fy, onSaved) {
       }
       if (previouslyActive) {
         previouslyActive.isActive = false;
-        previouslyActive.effectiveTo = new Date(new Date(newEffectiveFrom).getTime() - 86400000).toISOString();
+        // A genuine future revision (newEffectiveFrom strictly after the old
+        // structure's own start) ends the old one the day before the new one
+        // begins, as usual. Saving a CORRECTION on the SAME start date is a
+        // same-day replacement, not a new period - computing "the day
+        // before" there produces a date BEFORE the old structure's own
+        // Effective From (effectiveTo < effectiveFrom), which Structure
+        // History then displays nonsensically (e.g. "01/Apr/2026 to
+        // 31/Mar/2026"). getActiveStructure only ever looks at isActive
+        // structures, so this doesn't change WHICH structure payroll uses
+        // (isActive:false already excludes the old one outright) - but the
+        // display is confusing and the date range is internally
+        // inconsistent, so keep it as a same-day (zero-width) window
+        // instead on a same-day correction.
+        const isSameDayRevision = new Date(newEffectiveFrom).getTime() === new Date(previouslyActive.effectiveFrom).getTime();
+        previouslyActive.effectiveTo = isSameDayRevision ? previouslyActive.effectiveFrom : new Date(new Date(newEffectiveFrom).getTime() - 86400000).toISOString();
       }
       const structure = {
         id: newId("ess"),
