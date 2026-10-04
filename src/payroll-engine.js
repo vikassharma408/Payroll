@@ -240,6 +240,20 @@
       totalDeductionsExclTds += amt;
     }
 
+    // Employee PF contribution always matches Employer PF contribution
+    // rupee-for-rupee (both are the statutory 12% of Basic+DA) - so it's
+    // derived here from whatever Employer PF this structure resolved to
+    // this month, rather than relying on a separately-entered structure
+    // line that could drift out of sync. Only applies when the employee
+    // actually has an Employer PF component (i.e. PF applies to them at
+    // all - see isComponentSuppressed above); any manually-entered
+    // EMPLOYEE_PF structure line is overridden by this.
+    if (Object.prototype.hasOwnProperty.call(employerContributions, "EMPLOYER_PF")) {
+      const mirroredEmployeePf = employerContributions["EMPLOYER_PF"];
+      totalDeductionsExclTds += mirroredEmployeePf - (deductions["EMPLOYEE_PF"] || 0);
+      deductions["EMPLOYEE_PF"] = mirroredEmployeePf;
+    }
+
     // If the employee has a state set (for state-wise Professional Tax) and
     // PT applies to them, auto-compute PT from this month's gross salary and
     // the (editable) db.ptSlabs for that state, overriding whatever the
@@ -294,7 +308,7 @@
         if (l.employeeId === employeeId) priorLines.push(l);
       }
     }
-    let ytdGross = 0, ytdBasicPlusDa = 0, ytdEmployerPfNpsSuper = 0, ytdEmployerNps = 0, ytdPt = 0, ytdHraExemption = 0, ytdTds = 0;
+    let ytdGross = 0, ytdBasicPlusDa = 0, ytdEmployerPfNpsSuper = 0, ytdEmployerNps = 0, ytdPt = 0, ytdHraExemption = 0, ytdTds = 0, ytdEmployeePf = 0;
     for (const line of priorLines) {
       ytdGross += line.grossSalary;
       ytdBasicPlusDa += sumCodes(line.earnings, BASIC_DA_CODES);
@@ -303,6 +317,7 @@
       ytdPt += line.deductions["PROFESSIONAL_TAX"] ?? 0;
       ytdHraExemption += line.metrics.hraExemptionThisMonth ?? 0;
       ytdTds += line.tdsMonthly;
+      ytdEmployeePf += line.deductions["EMPLOYEE_PF"] ?? 0;
     }
 
     // --- Project remaining months (after current, up to last active month) using the current structure ---
@@ -314,6 +329,10 @@
     const projEmployerPfNpsSuperPerMonth = sumCodes(structureEmployerMap, PERQ_CHECK_CODES);
     const projEmployerNpsPerMonth = structureEmployerMap["EMPLOYER_NPS"] ?? 0;
     const projPtPerMonth = structureDeductionMap["PROFESSIONAL_TAX"] ?? 0;
+    // Employee PF mirrors Employer PF (see the mirroring block above), so
+    // future months are projected the same way: from the structure's
+    // Employer PF line, not a separate Employee PF one.
+    const projEmployeePfPerMonth = structureEmployerMap["EMPLOYER_PF"] ?? 0;
     const projBasicPlusDaPerMonth = sumCodes(structureEarningMap, BASIC_DA_CODES);
     // Projected HRA exemption is summed month-by-month (rather than a flat
     // per-month figure x remaining months) since a declared rent period can
@@ -336,14 +355,22 @@
     const annualEmployerNps = ytdEmployerNps + employerNpsThisMonth + remainingProjectionMonths * projEmployerNpsPerMonth;
     const annualPt = ytdPt + ptThisMonth + remainingProjectionMonths * projPtPerMonth;
     const annualHraExemption = ytdHraExemption + hraExemptionThisMonth + projHraExemptionTotal;
+    const employeePfThisMonth = deductions["EMPLOYEE_PF"] ?? 0;
+    const annualEmployeePf = ytdEmployeePf + employeePfThisMonth + remainingProjectionMonths * projEmployeePfPerMonth;
 
     const remainingMonthsForTds = Math.max(1, Math.min(13 - currentIndex, lastActiveMonthIndex - currentIndex + 1));
 
     const ageCategory = deriveAgeCategory(employee.dob, fy.endDate);
+    // Employee's own (statutory, mandatory) PF contribution qualifies for
+    // deduction under Sec 123 (old 80C) same as the voluntary EPF/PPF/ELSS
+    // etc. below - https://www.incometax.gov.in Sec 80C(2)(vi) treats a
+    // contribution to a recognised PF the same as a PF contribution under
+    // the Employees' Provident Funds Act, 1952.
     const section80C =
       (declaration?.lic ?? 0) + (declaration?.epf ?? 0) + (declaration?.ppf ?? 0) + (declaration?.elss ?? 0) +
       (declaration?.lifeInsurance ?? 0) + (declaration?.tuitionFees ?? 0) + (declaration?.housingLoanPrincipal ?? 0) +
-      (declaration?.otherSection80C ?? 0) + (declaration?.section80CCC ?? 0) + (declaration?.section80CCD1 ?? 0);
+      (declaration?.otherSection80C ?? 0) + (declaration?.section80CCC ?? 0) + (declaration?.section80CCD1 ?? 0) +
+      annualEmployeePf;
 
     function buildInput(regime) {
       return {
@@ -1007,6 +1034,8 @@
     const employerPfNpsSuperAnnual = sumCodes(employerAnnual, PERQ_CHECK_CODES);
     const employerNpsAnnual = employerAnnual["EMPLOYER_NPS"] ?? 0;
     const ptAnnual = deductionAnnual["PROFESSIONAL_TAX"] ?? 0;
+    // Employee PF always matches Employer PF (see computeEmployeePayrollLine).
+    const employeePfAnnual = employerAnnual["EMPLOYER_PF"] ?? 0;
 
     const oldConfig = getTaxRuleSetConfig(db, fy.code, "OLD", asOf);
     const newConfig = getTaxRuleSetConfig(db, fy.code, "NEW", asOf);
@@ -1031,7 +1060,8 @@
     const section80C =
       (declaration?.lic ?? 0) + (declaration?.epf ?? 0) + (declaration?.ppf ?? 0) + (declaration?.elss ?? 0) +
       (declaration?.lifeInsurance ?? 0) + (declaration?.tuitionFees ?? 0) + (declaration?.housingLoanPrincipal ?? 0) +
-      (declaration?.otherSection80C ?? 0) + (declaration?.section80CCC ?? 0) + (declaration?.section80CCD1 ?? 0);
+      (declaration?.otherSection80C ?? 0) + (declaration?.section80CCC ?? 0) + (declaration?.section80CCD1 ?? 0) +
+      employeePfAnnual;
 
     function buildInput(regime) {
       return {

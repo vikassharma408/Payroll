@@ -535,6 +535,7 @@ function renderSalaryStructureTab(container, employee, fy, onSaved) {
           <div style="margin-left:auto;"><label>Effective From</label>${dateField("effectiveFrom", effectiveFromInput, { id: "structure-effective-from" })}</div>
         </div>
         <p class="text-muted" style="font-size:12px;">Sum of all Earning + Employer Contribution components below, x12. Enter each component's MONTHLY amount; this total updates automatically. Backdate "Effective From" for a mid-year revision (e.g. revising in June, effective from April) - any already-paid months in between will show up below as Arrears due.</p>
+        <p class="text-muted" style="font-size:12px;">If you add an Employer PF Contribution, a matching Employee PF Contribution deduction (same amount) is applied automatically at payroll time, and counted towards the employee's Sec 80C deduction (Old Regime) - you don't need to add an Employee PF Contribution row yourself.</p>
         <table class="mt-16">
           <thead><tr><th>Component</th><th>Category</th><th>Monthly Amount</th><th>Annual</th><th></th></tr></thead>
           <tbody id="rows-body"></tbody>
@@ -945,6 +946,7 @@ function renderInvestmentDeclarationTab(container, employee, fy, onSaved) {
     ([groupLabel, fields]) => `
     <div class="card">
       <h3>${groupLabel}</h3>
+      ${groupLabel.startsWith("Sec 123") ? `<p class="text-muted" style="font-size:12px;">The employee's own statutory PF contribution deducted every month via payroll is counted towards this Rs 1,50,000 limit automatically - don't re-enter it below. The "EPF (voluntary)" field here is only for any additional voluntary PF contribution on top of that.</p>` : ""}
       <div class="form-grid">
         ${fields.map(([key, label]) => `<div><label>${label}</label><input type="number" min="0" name="${key}" value="${d[key] || 0}" /></div>`).join("")}
       </div>
