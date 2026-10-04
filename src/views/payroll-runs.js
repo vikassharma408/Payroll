@@ -374,21 +374,57 @@ function renderPayrollRunDetail(container, runId) {
         const form = container.querySelector(`.override-form[data-employee-id="${employeeId}"]`);
         const fd = new FormData(form);
         const lopDays = num(fd.get("lopDays"));
-        const editableCodes = ["BONUS", "INCENTIVE", "OVERTIME", "ARREARS", "OTHER_ALLOWANCE"];
-        // Preserve any variablePay entries this form doesn't edit (e.g.
-        // GRATUITY_TAXABLE/LEAVE_ENCASHMENT_TAXABLE posted by F&F Settlement)
-        // rather than wiping them out just because this form was saved.
-        const existingVp = (run.overrides && run.overrides[employeeId] && run.overrides[employeeId].variablePay) || {};
-        const variablePay = Object.fromEntries(Object.entries(existingVp).filter(([code]) => !editableCodes.includes(code)));
-        for (const code of editableCodes) {
-          const amt = num(fd.get(code));
-          if (amt) variablePay[code] = amt;
+
+        // Every earning/deduction/employer-contribution field currently
+        // shown in the form (one per component on this month's line) is
+        // gathered fresh - there's no need to separately preserve anything
+        // not in the form, since the form always covers every code
+        // currently on the line (including e.g. GRATUITY_TAXABLE/
+        // LEAVE_ENCASHMENT_TAXABLE posted by F&F Settlement, which show up
+        // here like any other earning once they have a value).
+        const variablePay = {};
+        form.querySelectorAll(".earn-adj-field").forEach((inp) => {
+          const amt = num(inp.value);
+          if (amt) variablePay[inp.name] = amt;
+        });
+        const deductionAdjustments = {};
+        form.querySelectorAll(".ded-adj-field").forEach((inp) => {
+          const amt = num(inp.value);
+          if (amt) deductionAdjustments[inp.name] = amt;
+        });
+        const employerContribAdjustments = {};
+        form.querySelectorAll(".emp-adj-field").forEach((inp) => {
+          const amt = num(inp.value);
+          if (amt) employerContribAdjustments[inp.name] = amt;
+        });
+
+        const tdsOverrideRaw = form.querySelector(".tds-override-amount").value.trim();
+        const tdsOverrideReason = form.querySelector(".tds-override-reason").value.trim();
+        if (tdsOverrideRaw && !tdsOverrideReason) {
+          alert("Enter a reason for overriding TDS, or leave the Override TDS amount blank to use the computed figure.");
+          return;
         }
+
         if (!run.overrides) run.overrides = {};
-        if (lopDays || Object.keys(variablePay).length) run.overrides[employeeId] = { lopDays, variablePay };
-        else delete run.overrides[employeeId];
+        const hasAnyOverride = lopDays || Object.keys(variablePay).length || Object.keys(deductionAdjustments).length || Object.keys(employerContribAdjustments).length || tdsOverrideRaw;
+        if (hasAnyOverride) {
+          run.overrides[employeeId] = {
+            lopDays,
+            variablePay,
+            deductionAdjustments,
+            employerContribAdjustments,
+            tdsOverride: tdsOverrideRaw ? num(tdsOverrideRaw) : undefined,
+            tdsOverrideReason: tdsOverrideRaw ? tdsOverrideReason : undefined,
+          };
+        } else {
+          delete run.overrides[employeeId];
+        }
         try {
-          PayrollEngine.recalculateLine(db, run.id, employeeId);
+          const wasOverridden = run.overrides[employeeId] && run.overrides[employeeId].tdsOverride !== undefined;
+          const line = PayrollEngine.recalculateLine(db, run.id, employeeId);
+          if (wasOverridden) {
+            logAudit("PayrollTdsOverride", line.id, "OVERRIDE", `TDS for ${monthLabel(run)} manually set to ${rupees(line.tdsMonthly)} (computed was ${rupees(line.computedTdsMonthly)}): ${tdsOverrideReason}`);
+          }
           await persist();
           render();
         } catch (err) {
@@ -398,11 +434,34 @@ function renderPayrollRunDetail(container, runId) {
     });
   }
 
+  // One-time BONUS/INCENTIVE/OVERTIME/ARREARS/OTHER_ALLOWANCE have no
+  // structure component to begin with, so they only show up as an editable
+  // field once they already have a non-zero value (via Object.keys(line.
+  // earnings)) unless always offered - this keeps them available up front
+  // without needing a value already set.
+  const ALWAYS_OFFERED_EARNING_CODES = ["BONUS", "INCENTIVE", "OVERTIME", "ARREARS", "OTHER_ALLOWANCE"];
+  function componentLabel(code) {
+    return SLIP_COMPONENT_LABELS[code] || sentenceCase(code);
+  }
+
   function renderLineDetail(line, emp, run) {
     const snap = line.taxCalcSnapshot[line.regimeUsed.toLowerCase()];
     const override = (run.overrides && run.overrides[line.employeeId]) || {};
     const vp = override.variablePay || {};
+    const da = override.deductionAdjustments || {};
+    const ea = override.employerContribAdjustments || {};
     const canEdit = run.status !== "LOCKED" && run.status !== "PAID";
+    const dis = canEdit ? "" : "disabled";
+    // Every field a reader can see on this month's payslip (earnings,
+    // deductions, employer contributions) is editable here as a delta on
+    // top of whatever the salary structure/auto-calc produced - scoped to
+    // this one run only, never written back to the structure, never
+    // carried into future months. TDS is the one exception: it isn't built
+    // from independent line items, so it gets a direct absolute override
+    // instead of a delta (see the field below).
+    const earningCodes = [...new Set([...Object.keys(line.earnings), ...ALWAYS_OFFERED_EARNING_CODES])];
+    const deductionCodes = Object.keys(line.deductions);
+    const employerCodes = Object.keys(line.employerContributions);
     return `
       <div class="card" style="margin:8px 0;">
         <div class="row between">
@@ -412,30 +471,53 @@ function renderPayrollRunDetail(container, runId) {
           </div>
         </div>
         <div class="card" style="background:var(--ink); margin-top:12px;">
-          <h3>Leave Without Pay &amp; One-Time Pay (this month only)</h3>
-          <p class="text-muted" style="font-size:12px;">Set LOP days for this employee this month, or a one-time taxable Bonus/Incentive/Overtime/Arrears - these affect only this month's pay and tax, not the salary structure, and never carry over to future months.</p>
-          <form class="override-form form-grid" data-employee-id="${line.employeeId}">
-            <div><label>LOP Days</label><input type="number" min="0" name="lopDays" value="${override.lopDays || 0}" ${canEdit ? "" : "disabled"} /></div>
-            <div><label>Bonus</label><input type="number" min="0" name="BONUS" value="${vp.BONUS || 0}" ${canEdit ? "" : "disabled"} /></div>
-            <div><label>Incentive</label><input type="number" min="0" name="INCENTIVE" value="${vp.INCENTIVE || 0}" ${canEdit ? "" : "disabled"} /></div>
-            <div><label>Overtime</label><input type="number" min="0" name="OVERTIME" value="${vp.OVERTIME || 0}" ${canEdit ? "" : "disabled"} /></div>
-            <div><label>Arrears</label><input type="number" name="ARREARS" value="${vp.ARREARS || 0}" ${canEdit ? "" : "disabled"} /></div>
-            <div><label>Other Allowance</label><input type="number" min="0" name="OTHER_ALLOWANCE" value="${vp.OTHER_ALLOWANCE || 0}" ${canEdit ? "" : "disabled"} /></div>
+          <h3>Manual Changes (this month only)</h3>
+          <p class="text-muted" style="font-size:12px;">Every amount below is added to (or, entered negative, subtracted from) whatever the salary structure/auto-calculation produced for THIS run only - the salary structure itself is never changed, and nothing here carries over to future months. To change Basic by, say, +Rs 1 for just this month, enter 1 in the Basic field below, not 10001.</p>
+          <form class="override-form" data-employee-id="${line.employeeId}">
+            <div class="form-grid">
+              <div><label>LOP Days</label><input type="number" min="0" name="lopDays" value="${override.lopDays || 0}" ${dis} /></div>
+            </div>
+            <h4 class="mt-16">Earnings adjustment</h4>
+            <div class="form-grid">
+              ${earningCodes.map((code) => `<div><label>${componentLabel(code)}</label><input type="number" class="earn-adj-field" name="${code}" value="${vp[code] || 0}" ${dis} /></div>`).join("")}
+            </div>
+            ${
+              deductionCodes.length
+                ? `<h4 class="mt-16">Deductions adjustment</h4>
+            <div class="form-grid">
+              ${deductionCodes.map((code) => `<div><label>${componentLabel(code)}</label><input type="number" class="ded-adj-field" name="${code}" value="${da[code] || 0}" ${dis} /></div>`).join("")}
+            </div>`
+                : ""
+            }
+            ${
+              employerCodes.length
+                ? `<h4 class="mt-16">Employer contribution adjustment</h4>
+            <div class="form-grid">
+              ${employerCodes.map((code) => `<div><label>${componentLabel(code)}</label><input type="number" class="emp-adj-field" name="${code}" value="${ea[code] || 0}" ${dis} /></div>`).join("")}
+            </div>`
+                : ""
+            }
+            <h4 class="mt-16">TDS override</h4>
+            <p class="text-muted" style="font-size:12px;">Replaces the computed monthly TDS outright (not a delta) for this run only - the tax calculation trace below still shows what the engine itself computed. Leave the amount blank to use the computed figure.</p>
+            <div class="form-grid">
+              <div><label>Override TDS to (Rs)</label><input type="number" min="0" class="tds-override-amount" name="tdsOverrideAmount" value="${line.tdsOverridden ? line.tdsMonthly : ""}" placeholder="${rupees(line.computedTdsMonthly ?? line.tdsMonthly)}" ${dis} /></div>
+              <div><label>Reason (required if overriding)</label><input type="text" class="tds-override-reason" name="tdsOverrideReason" value="${escapeHtml(line.tdsOverrideReason || "")}" ${dis} /></div>
+            </div>
           </form>
-          ${canEdit ? `<div class="row gap-8 mt-16"><button class="primary save-override" data-employee-id="${line.employeeId}">Save &amp; Recalculate</button></div>` : `<p class="text-muted mt-16">This run is ${run.status.toLowerCase()} - LOP/one-time pay can no longer be changed here. Use a Manual Adjustment instead.</p>`}
+          ${canEdit ? `<div class="row gap-8 mt-16"><button class="primary save-override" data-employee-id="${line.employeeId}">Save &amp; Recalculate</button></div>` : `<p class="text-muted mt-16">This run is ${run.status.toLowerCase()} - manual changes can no longer be made here. Use a Manual Adjustment instead.</p>`}
         </div>
         <div class="card-grid mt-16">
           <div>
             <h3>Earnings</h3>
-            <table>${Object.entries(line.earnings).map(([k, v]) => `<tr><td>${SLIP_COMPONENT_LABELS[k] || sentenceCase(k)}</td><td>${rupees(v)}</td></tr>`).join("")}</table>
+            <table>${Object.entries(line.earnings).map(([k, v]) => `<tr><td>${componentLabel(k)}</td><td>${rupees(v)}</td></tr>`).join("")}</table>
           </div>
           <div>
             <h3>Deductions</h3>
-            <table>${Object.entries(line.deductions).map(([k, v]) => `<tr><td>${SLIP_COMPONENT_LABELS[k] || sentenceCase(k)}</td><td>${rupees(v)}</td></tr>`).join("")}<tr><td>TDS</td><td>${rupees(line.tdsMonthly)}</td></tr></table>
+            <table>${Object.entries(line.deductions).map(([k, v]) => `<tr><td>${componentLabel(k)}</td><td>${rupees(v)}</td></tr>`).join("")}<tr><td>TDS${line.tdsOverridden ? ` <span class="badge bad" title="Manually overridden${line.tdsOverrideReason ? `: ${escapeHtml(line.tdsOverrideReason)}` : ""}. Computed figure was ${rupees(line.computedTdsMonthly)}.">Overridden</span>` : ""}</td><td>${rupees(line.tdsMonthly)}</td></tr></table>
           </div>
           <div>
             <h3>Employer Contributions</h3>
-            <table>${Object.entries(line.employerContributions).map(([k, v]) => `<tr><td>${SLIP_COMPONENT_LABELS[k] || sentenceCase(k)}</td><td>${rupees(v)}</td></tr>`).join("")}</table>
+            <table>${Object.entries(line.employerContributions).map(([k, v]) => `<tr><td>${componentLabel(k)}</td><td>${rupees(v)}</td></tr>`).join("")}</table>
           </div>
         </div>
         ${

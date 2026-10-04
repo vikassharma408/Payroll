@@ -222,6 +222,15 @@
       employerContributions[c.code] = amt;
       totalEmployerContrib += amt;
     }
+    // Manual per-run tweak to an employer-contribution line (e.g. a one-off
+    // top-up to Employer PF this month) - additive on top of the structure's
+    // figure, same shape/intent as variablePay above, and equally never
+    // projected into future months or written back to the structure.
+    for (const [code, amount] of Object.entries(options.employerContribAdjustments || {})) {
+      if (!amount) continue;
+      employerContributions[code] = (employerContributions[code] || 0) + amount;
+      totalEmployerContrib += amount;
+    }
 
     const deductions = {};
     let totalDeductionsExclTds = 0;
@@ -244,6 +253,17 @@
         totalDeductionsExclTds += roundedPt - (deductions["PROFESSIONAL_TAX"] || 0);
         deductions["PROFESSIONAL_TAX"] = roundedPt;
       }
+    }
+
+    // Manual per-run tweak to a deduction line (e.g. correcting one month's
+    // PF or PT by a few rupees) - applied last so it has the final say even
+    // over the auto-PT recompute just above, additive on top of whatever the
+    // structure/auto-calc produced, and (like variablePay) scoped to this
+    // month only.
+    for (const [code, amount] of Object.entries(options.deductionAdjustments || {})) {
+      if (!amount) continue;
+      deductions[code] = (deductions[code] || 0) + amount;
+      totalDeductionsExclTds += amount;
     }
 
     const basicPlusDaThisMonth = sumCodes(earnings, BASIC_DA_CODES);
@@ -371,7 +391,15 @@
     const newResult = calculateTax(buildInput("NEW"), newConfig);
 
     const regimeUsed = employee.taxRegime;
-    const tdsMonthly = regimeUsed === "OLD" ? oldResult.monthlyTds : newResult.monthlyTds;
+    const computedTdsMonthly = regimeUsed === "OLD" ? oldResult.monthlyTds : newResult.monthlyTds;
+    // An explicit manual TDS override (with its own required reason, checked
+    // by the caller) replaces the engine's own figure outright for this
+    // month only - unlike every other adjustment above, TDS has no
+    // meaningful "delta on top of the computed value" since it isn't built
+    // from independent line items. The tax calculation trace still shows
+    // what the engine itself computed, so the override is never silent.
+    const tdsOverridden = options.tdsOverride !== undefined && options.tdsOverride !== null && options.tdsOverride !== "";
+    const tdsMonthly = tdsOverridden ? Math.round(Number(options.tdsOverride)) : computedTdsMonthly;
     const totalDeductions = totalDeductionsExclTds + tdsMonthly;
     const netSalary = grossSalary - totalDeductions;
 
@@ -385,6 +413,8 @@
       totalEmployerCost: grossSalary + totalEmployerContrib,
       deductions,
       tdsMonthly,
+      computedTdsMonthly,
+      tdsOverridden,
       totalDeductions,
       netSalary,
       regimeUsed,
@@ -407,7 +437,13 @@
   /** Computes one employee's line (honoring any saved run.overrides for them) and upserts it into run.lines. Shared by processPayrollRun (bulk) and recalculateLine (single row, e.g. after editing LOP/bonus overrides). */
   function computeAndUpsertLine(db, run, employee) {
     const override = (run.overrides && run.overrides[employee.id]) || {};
-    const result = computeEmployeePayrollLine(db, run.id, employee.id, { lopDays: override.lopDays, variablePay: override.variablePay });
+    const result = computeEmployeePayrollLine(db, run.id, employee.id, {
+      lopDays: override.lopDays,
+      variablePay: override.variablePay,
+      deductionAdjustments: override.deductionAdjustments,
+      employerContribAdjustments: override.employerContribAdjustments,
+      tdsOverride: override.tdsOverride,
+    });
     const existingIdx = run.lines.findIndex((l) => l.employeeId === employee.id);
     const line = {
       id: existingIdx >= 0 ? run.lines[existingIdx].id : newId("prl"),
@@ -421,6 +457,9 @@
       totalEmployerCost: result.totalEmployerCost,
       deductions: result.deductions,
       tdsMonthly: result.tdsMonthly,
+      computedTdsMonthly: result.computedTdsMonthly,
+      tdsOverridden: result.tdsOverridden,
+      tdsOverrideReason: result.tdsOverridden ? override.tdsOverrideReason || "" : null,
       totalDeductions: result.totalDeductions,
       netSalary: result.netSalary,
       regimeUsed: result.regimeUsed,
