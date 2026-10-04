@@ -17,6 +17,22 @@ function monthLabel(run) {
   return `${name} ${run.calendarYear}`;
 }
 
+// A component-wise arrears top-up (see PayrollEngine.applyArrears /
+// ARREARS_CODE_SUFFIX) is a distinct earning code like "BASIC__ARREARS" so
+// it stays a separate payslip line rather than merging into that month's
+// own Basic figure - this unwraps it back to a human label, e.g. "Basic
+// Salary (Arrears)", reusing whatever label the base code already has.
+// Declared at true top level (not nested in a render function) since it's
+// also called from employees.js's Arrears panel and from renderSalarySlip
+// below, both outside whichever render function originally needed it.
+function componentLabel(code) {
+  if (code.endsWith(PayrollEngine.ARREARS_CODE_SUFFIX)) {
+    const baseCode = code.slice(0, -PayrollEngine.ARREARS_CODE_SUFFIX.length);
+    return `${SLIP_COMPONENT_LABELS[baseCode] || sentenceCase(baseCode)} (Arrears)`;
+  }
+  return SLIP_COMPONENT_LABELS[code] || sentenceCase(code);
+}
+
 // Registered once (not inside renderPayrollRunsList, which re-runs on every
 // visit to this page) so outside clicks close the Create Payroll Run Legal
 // Entity panel without ever accumulating duplicate listeners.
@@ -440,9 +456,6 @@ function renderPayrollRunDetail(container, runId) {
   // earnings)) unless always offered - this keeps them available up front
   // without needing a value already set.
   const ALWAYS_OFFERED_EARNING_CODES = ["BONUS", "INCENTIVE", "OVERTIME", "ARREARS", "OTHER_ALLOWANCE"];
-  function componentLabel(code) {
-    return SLIP_COMPONENT_LABELS[code] || sentenceCase(code);
-  }
 
   function renderLineDetail(line, emp, run) {
     const snap = line.taxCalcSnapshot[line.regimeUsed.toLowerCase()];
@@ -670,9 +683,9 @@ function renderSalarySlip(container, runId, lineId) {
   const adjustmentsTotal = line.adjustments.reduce((s, a) => s + a.amount, 0);
   const annualTaxLiability = line.taxCalcSnapshot[line.regimeUsed.toLowerCase()].totalTaxLiability;
 
-  const earningRows = Object.entries(line.earnings).filter(([, v]) => v !== 0).map(([code, amt]) => `<tr><td>${SLIP_COMPONENT_LABELS[code] || code}</td><td>${rupees(amt)}</td></tr>`).join("");
-  const employerRows = Object.entries(line.employerContributions).filter(([, v]) => v !== 0).map(([code, amt]) => `<tr><td>${SLIP_COMPONENT_LABELS[code] || code}</td><td>${rupees(amt)}</td></tr>`).join("");
-  const deductionRows = Object.entries(line.deductions).filter(([, v]) => v !== 0).map(([code, amt]) => `<tr><td>${SLIP_COMPONENT_LABELS[code] || code}</td><td>${rupees(amt)}</td></tr>`).join("");
+  const earningRows = Object.entries(line.earnings).filter(([, v]) => v !== 0).map(([code, amt]) => `<tr><td>${componentLabel(code)}</td><td>${rupees(amt)}</td></tr>`).join("");
+  const employerRows = Object.entries(line.employerContributions).filter(([, v]) => v !== 0).map(([code, amt]) => `<tr><td>${componentLabel(code)}</td><td>${rupees(amt)}</td></tr>`).join("");
+  const deductionRows = Object.entries(line.deductions).filter(([, v]) => v !== 0).map(([code, amt]) => `<tr><td>${componentLabel(code)}</td><td>${rupees(amt)}</td></tr>`).join("");
 
   container.innerHTML = `
     <div class="row between no-print">

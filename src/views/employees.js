@@ -672,6 +672,20 @@ function renderSalaryStructureTab(container, employee, fy, onSaved) {
         </tr>`,
       )
       .join("");
+    const componentRows = Object.entries(arrears.perComponentTotal)
+      .map(([code, amt]) => `<tr><td>${componentLabel(code)}</td><td><input type="number" class="arrears-component-field" name="${code}" value="${amt}" style="max-width:160px;" /></td></tr>`)
+      .join("");
+    const relief = targetRunId ? PayrollEngine.computeSection89Relief(db, employee.id, arrears, targetRunId) : null;
+    const reliefBlock = relief
+      ? `<div class="card" style="background:var(--ink); margin-top:12px;">
+          <h4 style="margin-top:0;">Section 89(1) Relief</h4>
+          ${
+            relief.applicable
+              ? `<p>Relief of <strong>${rupees(relief.relief)}</strong> applies - tax on this arrears in the year of receipt is ${rupees(relief.taxAttributableToArrears)}, vs ${rupees(relief.taxAttributableToArrears - relief.relief)} had it been taxed in the year(s) it relates to.</p>`
+              : `<p class="text-muted" style="font-size:12px;">${escapeHtml(relief.reason)} (Tax on this arrears in ${monthLabel(runs.find((r) => r.id === targetRunId) || {})}'s run: ${rupees(relief.taxAttributableToArrears)}.)</p>`
+          }
+        </div>`
+      : "";
     return `
       <div class="card">
         <h3>Arrears Due</h3>
@@ -682,11 +696,18 @@ function renderSalaryStructureTab(container, employee, fy, onSaved) {
         </table>
         <div class="row between mt-16"><strong>Total Arrears</strong><strong>${rupees(arrears.total)}</strong></div>
         ${reprocessNote}
+        <h4 class="mt-16">Component-wise breakdown (editable)</h4>
+        <p class="text-muted" style="font-size:12px;">Auto-calculated from each component's revised vs. previously-paid monthly amount across the months above. Adjust any figure before confirming if needed - each component is posted to the payslip as its own separate Arrears line (e.g. "Basic Salary (Arrears)"), not merged into this month's regular amount.</p>
+        <table class="mt-16">
+          <thead><tr><th>Component</th><th>Arrears Amount</th></tr></thead>
+          <tbody>${componentRows}</tbody>
+        </table>
+        ${reliefBlock}
         <div class="row gap-8 mt-16" style="align-items:flex-end;">
           <div><label>Apply To Run</label>
             <select id="arrears-target-run">${runs.map((r) => `<option value="${r.id}" ${r.id === targetRunId ? "selected" : ""}>${monthLabel(r)}${r.payrollGroup ? " - " + r.payrollGroup : ""}</option>`).join("") || `<option value="">No open run available</option>`}</select>
           </div>
-          <button class="primary" id="btn-apply-arrears" ${runs.length === 0 ? "disabled" : ""}>Add ${rupees(arrears.total)} as Arrears to Selected Run</button>
+          <button class="primary" id="btn-apply-arrears" ${runs.length === 0 ? "disabled" : ""}>Confirm &amp; Apply to Selected Run</button>
         </div>
         <div id="arrears-error" class="text-bad mt-16"></div>
       </div>
@@ -695,16 +716,26 @@ function renderSalaryStructureTab(container, employee, fy, onSaved) {
 
   function wireArrearsPanel(arrears) {
     const runSelect = document.getElementById("arrears-target-run");
-    if (runSelect) runSelect.addEventListener("change", (e) => { targetRunId = e.target.value; });
+    // Re-renders the whole tab (not just this panel) so the Section 89(1)
+    // relief block - which depends on which run the arrears would land in -
+    // reflects the newly-selected run immediately.
+    if (runSelect) runSelect.addEventListener("change", (e) => { targetRunId = e.target.value; render(); });
     const applyBtn = document.getElementById("btn-apply-arrears");
     if (applyBtn) {
       applyBtn.addEventListener("click", async () => {
         const errorEl = document.getElementById("arrears-error");
         errorEl.textContent = "";
+        const componentAmounts = {};
+        document.querySelectorAll(".arrears-component-field").forEach((inp) => {
+          const amt = num(inp.value);
+          if (amt) componentAmounts[inp.name] = amt;
+        });
         try {
-          PayrollEngine.applyArrears(db, employee.id, targetRunId, arrears);
+          PayrollEngine.applyArrears(db, employee.id, targetRunId, arrears, componentAmounts);
           const run = db.payrollRuns.find((r) => r.id === targetRunId);
-          logAudit("PayrollRun", targetRunId, "ARREARS_APPLIED", `${rupees(arrears.total)} arrears for ${employee.fullName} (${employee.employeeCode}), covering ${arrears.months.length} month(s), applied to ${monthLabel(run)}`);
+          const total = Object.values(componentAmounts).reduce((s, v) => s + v, 0);
+          const breakdown = Object.entries(componentAmounts).map(([code, amt]) => `${componentLabel(code)}: ${rupees(amt)}`).join(", ");
+          logAudit("PayrollRun", targetRunId, "ARREARS_APPLIED", `${rupees(total)} arrears for ${employee.fullName} (${employee.employeeCode}), covering ${arrears.months.length} month(s), applied to ${monthLabel(run)} (${breakdown})`);
           await persist();
           render();
         } catch (err) {

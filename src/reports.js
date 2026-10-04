@@ -32,9 +32,15 @@ function getSalaryRegisterRows(db, payrollRunId) {
     .map((line) => {
       const e = db.employees.find((x) => x.id === line.employeeId) || {};
       const earn = line.earnings, ec = line.employerContributions, d = line.deductions;
+      // A component-wise arrears top-up (e.g. "BASIC__ARREARS", posted by
+      // PayrollEngine.applyArrears - must match its ARREARS_CODE_SUFFIX) is
+      // its own distinct earning code, not literally "BASIC" or "ARREARS",
+      // so it needs its own catch into the Other Allowances bucket to keep
+      // this register's columns summing to Gross Salary.
+      const arrearsTopUps = Object.entries(earn).reduce((s, [code, v]) => (code.endsWith("__ARREARS") ? s + v : s), 0);
       return {
         employeeCode: e.employeeCode || "", employeeName: e.fullName || "", pan: e.pan || "", department: e.department || "", designation: e.designation || "",
-        basic: earn["BASIC"] ?? 0, hra: earn["HRA"] ?? 0, specialAllowance: earn["SPECIAL_ALLOWANCE"] ?? 0, otherAllowances: sumCodesR(earn, OTHER_ALLOWANCE_CODES),
+        basic: earn["BASIC"] ?? 0, hra: earn["HRA"] ?? 0, specialAllowance: earn["SPECIAL_ALLOWANCE"] ?? 0, otherAllowances: sumCodesR(earn, OTHER_ALLOWANCE_CODES) + arrearsTopUps,
         bonus: earn["BONUS"] ?? 0, incentive: earn["INCENTIVE"] ?? 0, grossSalary: line.grossSalary,
         employeePf: d["EMPLOYEE_PF"] ?? 0, employeeEsi: d["EMPLOYEE_ESI"] ?? 0, professionalTax: d["PROFESSIONAL_TAX"] ?? 0, lwf: d["LWF"] ?? 0,
         otherDeductions: sumCodesR(d, OTHER_DEDUCTION_CODES), tds: line.tdsMonthly, totalDeductions: line.totalDeductions, netSalary: line.netSalary,

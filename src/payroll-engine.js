@@ -610,29 +610,54 @@
       total += diff;
     }
 
-    return { months, total, reprocessableRunIds };
+    const perComponentTotal = {};
+    for (const m of months) {
+      for (const [code, amt] of Object.entries(m.perComponent)) {
+        perComponentTotal[code] = (perComponentTotal[code] || 0) + amt;
+      }
+    }
+
+    return { months, total, perComponentTotal, reprocessableRunIds };
   }
+
+  // Suffix marking an earning code as an arrears top-up of that same
+  // component, rather than a change to the component's regular monthly
+  // amount - keeps it a distinct, separately-labeled line on the payslip
+  // (see componentDisplayLabel in payroll-runs.js) instead of silently
+  // merging into (and so masking) this month's own BASIC/HRA/etc. figure.
+  const ARREARS_CODE_SUFFIX = "__ARREARS";
 
   /**
    * Commits an arrears calculation (from computeArrears) into a still-open
-   * run: adds the total to that run's ARREARS override for this employee
-   * (on top of anything already entered there), recalculates the line, and
-   * flags every source month's line as settled so a later computeArrears
-   * call for the same gap doesn't re-offer or double-count it.
+   * run, one line item per salary component (Basic, HRA, etc.) rather than
+   * a single lump sum, so the employee's payslip shows exactly which
+   * component(s) the arrears relate to. `componentAmounts` lets the admin
+   * apply an edited breakdown (e.g. rounding, or a deliberate partial
+   * payment) instead of the auto-computed `arrears.perComponentTotal` -
+   * passing it through unedited reproduces the previous lump-sum behavior,
+   * just split by component. Recalculates the line and flags every source
+   * month's line as settled so a later computeArrears call for the same
+   * gap doesn't re-offer or double-count it.
    */
-  function applyArrears(db, employeeId, targetRunId, arrears) {
+  function applyArrears(db, employeeId, targetRunId, arrears, componentAmounts) {
     const targetRun = db.payrollRuns.find((r) => r.id === targetRunId);
     if (!targetRun) throw new Error("Target payroll run not found");
     if (targetRun.status === "LOCKED" || targetRun.status === "PAID") {
       throw new Error(`That run is ${targetRun.status.toLowerCase()} - choose a run that's still open to receive the arrears.`);
     }
     if (!arrears || !arrears.months.length) throw new Error("Nothing to apply.");
+    const amounts = componentAmounts || arrears.perComponentTotal;
+    if (!amounts || Object.values(amounts).every((v) => !v)) throw new Error("Nothing to apply.");
 
     if (!targetRun.overrides) targetRun.overrides = {};
     const existing = targetRun.overrides[employeeId] || {};
     const variablePay = { ...(existing.variablePay || {}) };
-    variablePay.ARREARS = (variablePay.ARREARS || 0) + arrears.total;
-    targetRun.overrides[employeeId] = { lopDays: existing.lopDays, variablePay };
+    for (const [code, amt] of Object.entries(amounts)) {
+      if (!amt) continue;
+      const arrearsCode = `${code}${ARREARS_CODE_SUFFIX}`;
+      variablePay[arrearsCode] = (variablePay[arrearsCode] || 0) + amt;
+    }
+    targetRun.overrides[employeeId] = { ...existing, lopDays: existing.lopDays, variablePay };
 
     const settledAt = new Date().toISOString();
     for (const m of arrears.months) {
@@ -642,6 +667,77 @@
     }
 
     return recalculateLine(db, targetRunId, employeeId);
+  }
+
+  /**
+   * Section 89(1) (with Rule 21A) relief applies ONLY when salary received
+   * in one year genuinely RELATES TO a different, earlier financial year -
+   * the relief corrects for that earlier income being taxed all at once,
+   * in a later year, possibly at a higher slab than if it had been taxed
+   * when it was actually earned. It does NOT apply to salary that is simply
+   * paid a bit late within the SAME financial year it relates to (e.g. an
+   * April pay revision processed as arrears in July's run, all within one
+   * FY) - that amount correctly belongs to, and is correctly taxed as,
+   * ordinary current-year income already; there is no cross-year slab
+   * distortion for Section 89 to relieve.
+   *
+   * computeArrears() is itself scoped to a single financialYearId (it only
+   * ever compares a run against other runs in that SAME FY), and a Salary
+   * Structure revision can only be saved against the CURRENTLY active FY
+   * (there is no app flow to revise an already-closed prior FY's
+   * structure) - so every arrears flow this app can currently produce is,
+   * by construction, the same-FY case above. Rather than ship an untested,
+   * unreachable "cross-FY" tax computation, this function recognizes that
+   * case explicitly and reports relief as not applicable, while still
+   * computing the one honestly useful number: how much of the target run's
+   * tax this month is attributable to the arrears being added. If this app
+   * ever gains a way to revise a prior, already-closed FY's structure, a
+   * genuine cross-year relief computation would go here, per the standard
+   * Rule 21A steps: (1) tax on total income of the receipt year including
+   * the arrears, (2) tax on total income of the receipt year excluding it,
+   * (3) their difference ("tax on arrears in year of receipt"), (4)-(5)
+   * for each earlier year the arrears relates to, tax on that year's
+   * actual recorded income with vs without its portion of the arrears
+   * added, (6) sum of those earlier-year differences, (7) relief = (3)
+   * minus (6), floored at zero (relief never makes tax higher).
+   */
+  function computeSection89Relief(db, employeeId, arrears, targetRunId, componentAmounts) {
+    const targetRun = db.payrollRuns.find((r) => r.id === targetRunId);
+    if (!targetRun || !arrears || !arrears.months.length) return null;
+    const amounts = componentAmounts || arrears.perComponentTotal;
+    const totalArrears = Object.values(amounts || {}).reduce((s, v) => s + (v || 0), 0);
+    if (!totalArrears) return null;
+
+    const existing = (targetRun.overrides && targetRun.overrides[employeeId]) || {};
+    const withArrearsVp = { ...(existing.variablePay || {}) };
+    for (const [code, amt] of Object.entries(amounts)) {
+      if (amt) withArrearsVp[`${code}${ARREARS_CODE_SUFFIX}`] = (withArrearsVp[`${code}${ARREARS_CODE_SUFFIX}`] || 0) + amt;
+    }
+    const withoutArrearsVp = Object.fromEntries(Object.entries(withArrearsVp).filter(([code]) => !code.endsWith(ARREARS_CODE_SUFFIX)));
+
+    let withTax, withoutTax, regimeUsed;
+    try {
+      const withResult = computeEmployeePayrollLine(db, targetRunId, employeeId, { lopDays: existing.lopDays, variablePay: withArrearsVp });
+      const withoutResult = computeEmployeePayrollLine(db, targetRunId, employeeId, { lopDays: existing.lopDays, variablePay: withoutArrearsVp });
+      regimeUsed = withResult.regimeUsed;
+      withTax = withResult.taxCalcSnapshot[regimeUsed.toLowerCase()].totalTaxLiability;
+      withoutTax = withoutResult.taxCalcSnapshot[regimeUsed.toLowerCase()].totalTaxLiability;
+    } catch {
+      return null;
+    }
+    const taxAttributableToArrears = Math.max(0, withTax - withoutTax);
+
+    // Every source month computeArrears can return already belongs to the
+    // SAME financial year it was asked to search - see the function-level
+    // comment above for why that's the only case reachable today.
+    return {
+      applicable: false,
+      reason: "These arrears relate to the same financial year they're being paid in, so there's no cross-year slab distortion for Section 89(1) to relieve - they're correctly taxed as ordinary income in this run already.",
+      regimeUsed,
+      totalArrears,
+      taxAttributableToArrears,
+      relief: 0,
+    };
   }
 
   /** Completed years of service for gratuity, per Sec 4(2) of the Payment of Gratuity Act: a part-year of 6 months or more rounds up to a full year, less than 6 months rounds down. */
@@ -1059,6 +1155,8 @@
     addAdjustment,
     computeArrears,
     applyArrears,
+    computeSection89Relief,
+    ARREARS_CODE_SUFFIX,
     computeServiceYears,
     computeAverageBasicDaLast10Months,
     computeGratuityExemption,
