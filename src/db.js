@@ -33,6 +33,7 @@ function createEmptyDb() {
     payrollRuns: [],
     importBatches: [],
     auditLog: [],
+    payrollSettings: { useProportionalTdsForVariablePay: false },
   };
 }
 
@@ -78,6 +79,7 @@ function migrateDb(db) {
   if (!db.companies) db.companies = [];
   if (!db.employeePerquisites) db.employeePerquisites = [];
   if (!db.salaryStructureTemplates) db.salaryStructureTemplates = [];
+  if (!db.payrollSettings) db.payrollSettings = { useProportionalTdsForVariablePay: false };
   if (!db.ptSlabs || db.ptSlabs.length === 0) {
     const ptSlabsMod = typeof module !== "undefined" && module.exports ? require("./pt-slabs.js") : { PT_STATES };
     db.ptSlabs = JSON.parse(JSON.stringify(ptSlabsMod.PT_STATES || []));

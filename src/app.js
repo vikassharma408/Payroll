@@ -376,6 +376,14 @@ registerView("tax-rules", "Setup", "Tax Rules", (container) => {
       .join("");
     container.innerHTML = `
       <div class="card">
+        <h3>TDS Calculation Method</h3>
+        <p class="text-muted" style="font-size:12px;">The default "Standard" method spreads the remaining tax balance evenly over the remaining months of the FY every month. "Proportional" instead ties a specific month's TDS to how much of the employee's annual income has actually been paid out so far (total tax liability &divide; total annual gross &times; gross paid to date, less TDS already deducted) - applied automatically ONLY in a month where a Bonus or Arrears is paid, or an employee's joining month (where the standard method's even monthly split can badly over- or under-deduct against that month's own small actual pay). Every other month is unaffected either way.</p>
+        <label class="row gap-8" style="display:flex;align-items:center;">
+          <input type="checkbox" id="use-proportional-tds" ${db.payrollSettings && db.payrollSettings.useProportionalTdsForVariablePay ? "checked" : ""} />
+          Use the Proportional method for Bonus/Arrears/joining months (otherwise always Standard)
+        </label>
+      </div>
+      <div class="card">
         <p class="text-muted">These are the tax parameters built into the app for each financial year and regime - every slab, rebate, surcharge, deduction cap and HRA percentage the engine actually uses. Click "View full logic" to see everything behind a FY/regime's calculation, or "Edit" to change it when the law changes.</p>
         <p class="text-muted" style="font-size:12px;"><strong>Correcting a mistake</strong> (e.g. the provisional FY 2027-28 placeholder, once that year's real Budget is out)? Edit the rule set in place. <strong>A genuine mid-year law change?</strong> Use "Clone as new rule set" (inside Edit) with a later Effective From date instead - the engine always uses the latest rule set effective on or before the month being calculated, so earlier months keep using the old rule and nothing already paid/locked is retroactively affected.</p>
         <table>
@@ -385,6 +393,11 @@ registerView("tax-rules", "Setup", "Tax Rules", (container) => {
       </div>
     `;
     wireDateFields(container);
+    document.getElementById("use-proportional-tds").addEventListener("change", async (e) => {
+      if (!db.payrollSettings) db.payrollSettings = {};
+      db.payrollSettings.useProportionalTdsForVariablePay = e.target.checked;
+      await persist();
+    });
     container.querySelectorAll(".toggle-rule-detail").forEach((btn) => {
       btn.addEventListener("click", () => {
         const id = btn.getAttribute("data-id");

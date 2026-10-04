@@ -391,7 +391,30 @@
     const newResult = calculateTax(buildInput("NEW"), newConfig);
 
     const regimeUsed = employee.taxRegime;
-    const computedTdsMonthly = regimeUsed === "OLD" ? oldResult.monthlyTds : newResult.monthlyTds;
+    const standardTdsMonthly = regimeUsed === "OLD" ? oldResult.monthlyTds : newResult.monthlyTds;
+    // Optional alternate method (Setup > Tax Rules > TDS Calculation Method):
+    // instead of spreading the remaining tax balance evenly over the
+    // remaining months, this month's TDS is this month's share of total
+    // annual tax PROPORTIONAL TO INCOME EARNED SO FAR - i.e. (total tax
+    // liability / total annual gross) x (gross paid so far, including this
+    // month) minus TDS already deducted this FY. Triggered only for a
+    // month that would otherwise distort the even-spread method: a bonus
+    // or arrears payment (a lump sum concentrated in one month, which
+    // even-spread would otherwise average into every future month's TDS
+    // too, under- or over-deducting along the way) or an employee's
+    // joining month (where even-spread divides the full remaining tax by
+    // every remaining month without regard to how little was actually
+    // earned in a partial first month, which can deduct TDS exceeding
+    // that month's own net pay).
+    const usesProportionalTdsMethod = !!(db.payrollSettings && db.payrollSettings.useProportionalTdsForVariablePay);
+    const hasBonusThisMonth = (earnings.BONUS || 0) > 0;
+    const hasArrearsThisMonth = Object.entries(earnings).some(([code, amt]) => amt > 0 && (code === "ARREARS" || code.endsWith(ARREARS_CODE_SUFFIX)));
+    const joiningDate = employee.dateOfJoining ? new Date(employee.dateOfJoining) : null;
+    const isJoiningMonth = !!(joiningDate && joiningDate.getUTCFullYear() === run.calendarYear && joiningDate.getUTCMonth() + 1 === run.calendarMonth);
+    const useProportionalTdsThisMonth = usesProportionalTdsMethod && (hasBonusThisMonth || hasArrearsThisMonth || isJoiningMonth);
+    const totalTaxLiabilityForRegime = regimeUsed === "OLD" ? oldResult.totalTaxLiability : newResult.totalTaxLiability;
+    const proportionalTdsMonthly = annualGross > 0 ? Math.max(0, Math.round((totalTaxLiabilityForRegime / annualGross) * (ytdGross + grossSalary)) - ytdTds) : standardTdsMonthly;
+    const computedTdsMonthly = useProportionalTdsThisMonth ? proportionalTdsMonthly : standardTdsMonthly;
     // An explicit manual TDS override (with its own required reason, checked
     // by the caller) replaces the engine's own figure outright for this
     // month only - unlike every other adjustment above, TDS has no
@@ -414,6 +437,7 @@
       deductions,
       tdsMonthly,
       computedTdsMonthly,
+      tdsMethodUsed: useProportionalTdsThisMonth ? "PROPORTIONAL" : "STANDARD",
       tdsOverridden,
       totalDeductions,
       netSalary,
@@ -458,6 +482,7 @@
       deductions: result.deductions,
       tdsMonthly: result.tdsMonthly,
       computedTdsMonthly: result.computedTdsMonthly,
+      tdsMethodUsed: result.tdsMethodUsed,
       tdsOverridden: result.tdsOverridden,
       tdsOverrideReason: result.tdsOverridden ? override.tdsOverrideReason || "" : null,
       totalDeductions: result.totalDeductions,

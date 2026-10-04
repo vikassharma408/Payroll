@@ -548,7 +548,7 @@ function renderPayrollRunDetail(container, runId) {
           </div>
           <div>
             <h3>Deductions</h3>
-            <table>${Object.entries(line.deductions).map(([k, v]) => `<tr><td>${componentLabel(k)}</td><td>${rupees(v)}</td></tr>`).join("")}<tr><td>TDS${line.tdsOverridden ? ` <span class="badge bad" title="Manually overridden${line.tdsOverrideReason ? `: ${escapeHtml(line.tdsOverrideReason)}` : ""}. Computed figure was ${rupees(line.computedTdsMonthly)}.">Overridden</span>` : ""}</td><td>${rupees(line.tdsMonthly)}</td></tr></table>
+            <table>${Object.entries(line.deductions).map(([k, v]) => `<tr><td>${componentLabel(k)}</td><td>${rupees(v)}</td></tr>`).join("")}<tr><td>TDS${line.tdsOverridden ? ` <span class="badge bad" title="Manually overridden${line.tdsOverrideReason ? `: ${escapeHtml(line.tdsOverrideReason)}` : ""}. Computed figure was ${rupees(line.computedTdsMonthly)}.">Overridden</span>` : line.tdsMethodUsed === "PROPORTIONAL" ? ` <span class="badge neutral" title="Computed by the Proportional method (Setup > Tax Rules) - triggered by a Bonus, Arrears or this employee's joining month - instead of the Standard even monthly spread.">Proportional</span>` : ""}</td><td>${rupees(line.tdsMonthly)}</td></tr></table>
           </div>
           <div>
             <h3>Employer Contributions</h3>
