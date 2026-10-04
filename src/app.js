@@ -91,8 +91,12 @@ function getCompanyFilter() {
     if (raw) {
       const parsed = JSON.parse(raw);
       if (parsed && parsed.mode === "selected" && Array.isArray(parsed.ids)) {
+        // Drop ids for companies that no longer exist, but otherwise trust
+        // this literally - including a deliberate empty selection (every
+        // checkbox unticked), which is a real, distinct "showing nothing"
+        // state now, not an error to silently paper over as "all".
         const validIds = parsed.ids.filter((id) => db.companies.some((c) => c.id === id));
-        if (validIds.length > 0 && validIds.length < db.companies.length) return { mode: "selected", ids: validIds };
+        if (validIds.length < db.companies.length) return { mode: "selected", ids: validIds };
       }
     }
   } catch (err) {
@@ -119,11 +123,25 @@ function companyFilterLabel() {
   const filter = getCompanyFilter();
   if (filter.mode === "all") return "All Companies";
   const names = filter.ids.map((id) => db.companies.find((c) => c.id === id)).filter(Boolean).map((c) => c.name);
-  if (names.length === 0) return "All Companies";
+  if (names.length === 0) return "No Companies Selected";
   if (names.length === 1) return names[0];
   if (names.length === 2) return names.join(", ");
   return `${names[0]} +${names.length - 1} more`;
 }
+
+// Whether the filter panel is open, remembered across re-renders of this
+// control (e.g. triggered by renderContent() below as the user ticks
+// boxes) so it doesn't visually snap shut after every single click -
+// previously `draw()` re-ran on every checkbox change and threw away the
+// whole panel's DOM, so the bubbling "click" from that same checkbox then
+// landed on an orphaned (just-replaced) node, which the document-level
+// outside-click handler below couldn't find inside the new panel and so
+// closed it immediately. Now a checkbox change only patches the specific
+// bits that need to change (the button label, checkbox states) and calls
+// the lighter renderContent() instead of a full route(), so the panel's
+// own DOM is never torn down while it's open - you can tick company A,
+// then company B, then company C without it closing in between.
+let companyFilterPanelOpen = false;
 
 function renderCompanyFilterControl() {
   const el = document.getElementById("company-filter");
@@ -133,14 +151,25 @@ function renderCompanyFilterControl() {
     return;
   }
 
+  function applyFilterChange(filter) {
+    setCompanyFilter(filter);
+    const resolved = getCompanyFilter();
+    const btn = document.getElementById("company-filter-btn");
+    if (btn) btn.innerHTML = `&#128065; ${escapeHtml(companyFilterLabel())} &#9662;`;
+    const allCb = document.getElementById("company-filter-all");
+    if (allCb) allCb.checked = resolved.mode === "all";
+    renderContent();
+  }
+
   function draw() {
     const filter = getCompanyFilter();
     const selectedIds = filteredCompanyIds();
     el.innerHTML = `
       <div style="position:relative;display:inline-block;">
         <button type="button" id="company-filter-btn" title="Which companies' data to show in lists and reports">&#128065; ${escapeHtml(companyFilterLabel())} &#9662;</button>
-        <div id="company-filter-panel" class="card" style="display:none;position:absolute;right:0;top:calc(100% + 4px);z-index:100;min-width:240px;max-height:320px;overflow-y:auto;">
+        <div id="company-filter-panel" class="card" style="display:${companyFilterPanelOpen ? "block" : "none"};position:absolute;right:0;top:calc(100% + 4px);z-index:100;min-width:240px;max-height:320px;overflow-y:auto;">
           <label class="row gap-8" style="display:flex;align-items:center;"><input type="checkbox" id="company-filter-all" ${filter.mode === "all" ? "checked" : ""} /><strong>All Companies</strong></label>
+          <p class="text-muted" style="font-size:11px;margin:2px 0 0;">Click again to clear every selection.</p>
           <hr style="border-color:var(--line);margin:8px 0;" />
           ${db.companies.map((c) => `<label class="row gap-8" style="display:flex;align-items:center;"><input type="checkbox" class="company-filter-item" value="${c.id}" ${selectedIds.includes(c.id) ? "checked" : ""} /> ${escapeHtml(c.name)}</label>`).join("")}
         </div>
@@ -148,24 +177,20 @@ function renderCompanyFilterControl() {
     `;
     document.getElementById("company-filter-btn").addEventListener("click", (e) => {
       e.stopPropagation();
-      const panel = document.getElementById("company-filter-panel");
-      panel.style.display = panel.style.display === "block" ? "none" : "block";
+      companyFilterPanelOpen = !companyFilterPanelOpen;
+      document.getElementById("company-filter-panel").style.display = companyFilterPanelOpen ? "block" : "none";
     });
-    document.getElementById("company-filter-all").addEventListener("change", () => {
-      setCompanyFilter({ mode: "all" });
-      draw();
-      document.getElementById("company-filter-panel").style.display = "block";
-      route();
+    document.getElementById("company-filter-all").addEventListener("change", (e) => {
+      const checked = e.target.checked;
+      applyFilterChange(checked ? { mode: "all" } : { mode: "selected", ids: [] });
+      el.querySelectorAll(".company-filter-item").forEach((cb) => { cb.checked = checked; });
     });
     el.querySelectorAll(".company-filter-item").forEach((cb) => {
       cb.addEventListener("change", () => {
         const next = new Set(filteredCompanyIds());
         if (cb.checked) next.add(cb.value);
         else next.delete(cb.value);
-        setCompanyFilter(next.size === 0 || next.size === db.companies.length ? { mode: "all" } : { mode: "selected", ids: [...next] });
-        draw();
-        document.getElementById("company-filter-panel").style.display = "block";
-        route();
+        applyFilterChange(next.size === db.companies.length ? { mode: "all" } : { mode: "selected", ids: [...next] });
       });
     });
   }
@@ -175,6 +200,7 @@ document.addEventListener("click", (e) => {
   const panel = document.getElementById("company-filter-panel");
   if (panel && panel.style.display === "block" && !panel.contains(e.target) && e.target.id !== "company-filter-btn") {
     panel.style.display = "none";
+    companyFilterPanelOpen = false;
   }
 });
 
@@ -245,11 +271,10 @@ function toggleTheme() {
   applyTheme(currentTheme() === "light" ? "dark" : "light");
 }
 
-function route() {
+/** Re-renders just the current page's content (not the sidebar or the company filter control itself) - used after a company-filter change so the filter panel's own DOM is never torn down while the user has it open. */
+function renderContent() {
   const hash = location.hash.replace(/^#\/?/, "") || "dashboard";
   const segments = hash.split("/");
-  document.getElementById("sidebar").innerHTML = renderSidebar(segments[0]);
-  renderCompanyFilterControl();
   const container = document.getElementById("content");
   container.innerHTML = "";
 
@@ -261,6 +286,14 @@ function route() {
   const view = Views[segments[0]] || Views["dashboard"];
   document.getElementById("page-title").textContent = view.label;
   view.render(container);
+}
+
+function route() {
+  const hash = location.hash.replace(/^#\/?/, "") || "dashboard";
+  const segments = hash.split("/");
+  document.getElementById("sidebar").innerHTML = renderSidebar(segments[0]);
+  renderCompanyFilterControl();
+  renderContent();
 }
 
 function navigate(path) {
@@ -739,6 +772,14 @@ registerView("backup", "Setup", "Backup & Restore", (container) => {
             : `<p class="text-bad">Your browser doesn't support folder auto-save (this needs Chrome or Edge). Use manual download/restore instead.</p>`
         }
       </div>
+      <div class="card" style="border:1px solid var(--bad);">
+        <h3 class="text-bad">Danger Zone</h3>
+        <p class="text-muted">Permanently erase <strong>every</strong> company, employee, salary structure, payroll run, declaration and setting in this browser, and start over from a completely blank app - the same state as a fresh install. This cannot be undone.${folderHandle ? " If you have auto-save to a folder set up, the very next change will overwrite that file too - download a manual backup above first if you want to keep a copy." : " Download a manual backup above first if you want to keep a copy."}</p>
+        <div class="row gap-8" style="align-items:center;">
+          <input type="text" id="delete-all-confirm-input" placeholder="Type DELETE to confirm" style="max-width:220px;" />
+          <button class="danger" id="btn-delete-all-data" disabled>Delete All Data</button>
+        </div>
+      </div>
     `;
 
     document.getElementById("btn-download-backup").addEventListener("click", () => Persistence.downloadBackupFile(db));
@@ -781,6 +822,21 @@ registerView("backup", "Setup", "Backup & Restore", (container) => {
         await render();
       });
     }
+
+    const confirmInput = document.getElementById("delete-all-confirm-input");
+    const deleteBtn = document.getElementById("btn-delete-all-data");
+    confirmInput.addEventListener("input", () => {
+      deleteBtn.disabled = confirmInput.value.trim() !== "DELETE";
+    });
+    deleteBtn.addEventListener("click", async () => {
+      if (!confirm("This permanently erases every company, employee, payroll run, declaration and setting in this browser and starts the app over from scratch. This cannot be undone. Continue?")) return;
+      db = createEmptyDb();
+      seedMasterData(db);
+      await Persistence.saveDb(db);
+      localStorage.removeItem("activeCompanyId");
+      localStorage.removeItem("companyFilter");
+      location.reload();
+    });
   }
 });
 

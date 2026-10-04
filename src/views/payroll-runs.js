@@ -242,6 +242,25 @@ function renderPayrollRunDetail(container, runId) {
       });
     });
 
+    container.querySelectorAll(".quick-deduction-form").forEach((form) => {
+      form.addEventListener("submit", async (evt) => {
+        evt.preventDefault();
+        const fd = new FormData(evt.target);
+        try {
+          const kind = String(fd.get("kind") || "Other Deduction");
+          const note = String(fd.get("note") || "").trim();
+          const reason = note ? `${kind}: ${note}` : kind;
+          const amount = -Math.abs(num(fd.get("amount")));
+          PayrollEngine.addAdjustment(db, form.dataset.lineId, { amount, reason, enteredBy: String(fd.get("enteredBy") || "") });
+          logAudit("PayrollAdjustment", form.dataset.lineId, "CREATE", `${reason}: ${rupees(amount)}`);
+          await persist();
+          render();
+        } catch (err) {
+          alert(err.message);
+        }
+      });
+    });
+
     container.querySelectorAll(".save-override").forEach((btn) => {
       btn.addEventListener("click", async () => {
         const employeeId = btn.getAttribute("data-employee-id");
@@ -323,11 +342,25 @@ function renderPayrollRunDetail(container, runId) {
         <table>
           ${line.adjustments.map((a) => `<tr><td>${formatDateDisplay(a.createdAt)}</td><td>${escapeHtml(a.reason)}</td><td>${escapeHtml(a.enteredBy)}</td><td>${rupees(a.amount)}</td></tr>`).join("") || `<tr><td colspan="4" class="text-muted">No adjustments.</td></tr>`}
         </table>
+        <p class="text-muted mt-16" style="font-size:12px;">Reduces net pay only - not taxed, not added to gross salary (for loan EMI recovery, interest recovery, or any other post-tax one-time deduction). Enter a positive amount; it's deducted automatically.</p>
+        <form class="quick-deduction-form row gap-8 mt-16" data-line-id="${line.id}">
+          <select name="kind" style="max-width:160px;">
+            <option value="Loan Recovery">Loan Recovery</option>
+            <option value="Interest Recovery">Interest Recovery</option>
+            <option value="Other Deduction">Other Deduction</option>
+          </select>
+          <input name="note" placeholder="Note (optional)" style="flex:1;" />
+          <input type="number" name="amount" min="0" step="0.01" placeholder="Amount" required style="max-width:140px;" />
+          <input name="enteredBy" placeholder="Entered by" required style="max-width:140px;" />
+          <button type="submit" class="primary">Add Deduction</button>
+        </form>
+        <h4 class="mt-16">Add a custom adjustment instead</h4>
+        <p class="text-muted" style="font-size:12px;">For anything else - a positive amount adds to net pay, negative subtracts.</p>
         <form class="adjustment-form row gap-8 mt-16" data-line-id="${line.id}">
           <input type="number" name="amount" placeholder="Amount (+/-)" required style="max-width:140px;" />
           <input name="reason" placeholder="Reason" required style="flex:1;" />
           <input name="enteredBy" placeholder="Entered by" required style="max-width:140px;" />
-          <button type="submit" class="primary">Add Adjustment</button>
+          <button type="submit">Add Adjustment</button>
         </form>
       </div>
     `;

@@ -7,7 +7,7 @@ const IMPORT_TEMPLATES = {
     sheetName: "Employee Master",
     columns: [
       { header: "Employee Code", field: "employeeCode", required: true, type: "string", example: "EMP101" },
-      { header: "Legal Entity", field: "companyId", type: "string", example: "My Company Pvt Ltd", dropdownSource: "COMPANY", note: "Which Company (legal entity) this employee belongs to, for a multi-entity setup. Pick one from the dropdown (built from Setup > Companies as of when you downloaded this template); typing a name not in the list creates a new company automatically with that exact name (PAN/TAN/bank details can be filled in afterwards under Setup > Companies). Leave blank to use the Default Company selected on the Import Wizard screen (fine if you only ever import one entity at a time)." },
+      { header: "Legal Entity", field: "companyId", type: "string", example: "My Company Pvt Ltd", note: "Which Company (legal entity) this employee belongs to, for a multi-entity setup. Type the exact name of an existing company (from Setup > Companies), or a brand-new name to auto-create that company (PAN/TAN/bank details can be filled in afterwards under Setup > Companies). Leave blank to use the Default Company selected on the Import Wizard screen (fine if you only ever import one entity at a time)." },
       { header: "Employee Name", field: "fullName", required: true, type: "string", example: "Ravi Kumar" },
       { header: "PAN", field: "pan", type: "string", example: "ABCPK1234A" },
       { header: "DOB", field: "dob", type: "date", example: "31/Jan/1990" },
@@ -109,7 +109,7 @@ const IMPORT_TEMPLATES = {
     sheetName: "Monthly Payroll Input",
     columns: [
       { header: "Employee Code", field: "employeeCode", required: true, type: "string", example: "EMP101" },
-      { header: "Legal Entity", field: "companyId", type: "string", example: "My Company Pvt Ltd", dropdownSource: "COMPANY", note: "Only needed in a multi-entity setup if the same Employee Code happens to exist under more than one company - otherwise leave blank. Pick one from the dropdown (built from Setup > Companies)." },
+      { header: "Legal Entity", field: "companyId", type: "string", example: "My Company Pvt Ltd", note: "Only needed in a multi-entity setup if the same Employee Code happens to exist under more than one company - otherwise leave blank. Type the exact name of the company from Setup > Companies." },
       { header: "Payroll Month", field: "payrollMonth", required: true, type: "string", example: "April", dropdownSource: "MONTH" },
       { header: "Bonus", field: "bonus", type: "number", example: 0 },
       { header: "Incentive", field: "incentive", type: "number", example: 0 },

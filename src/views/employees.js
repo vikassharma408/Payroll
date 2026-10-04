@@ -347,11 +347,12 @@ function renderEmployeeForm(container, employee) {
 }
 
 function renderEmployeeDetail(container, employee, initialTab) {
-  const TAB_KEYS = ["profile", "salary", "investment", "previous-employer", "perquisites", "regime", "fnf"];
+  const TAB_KEYS = ["profile", "salary", "salary-paid", "investment", "previous-employer", "perquisites", "regime", "fnf"];
   let activeTab = TAB_KEYS.includes(initialTab) ? initialTab : "profile";
   const TABS = [
     ["profile", "Profile"],
     ["salary", "Salary Structure"],
+    ["salary-paid", "Salary Paid"],
     ["investment", "Investment Declaration"],
     ["previous-employer", "Previous Employer"],
     ["perquisites", "Perquisites"],
@@ -411,6 +412,7 @@ function renderEmployeeDetail(container, employee, initialTab) {
     if (!fy) return;
     if (activeTab === "profile") renderProfileTab(tabContent, employee);
     else if (activeTab === "salary") renderSalaryStructureTab(tabContent, employee, fy, render);
+    else if (activeTab === "salary-paid") renderSalaryPaidTab(tabContent, employee, fy);
     else if (activeTab === "investment") renderInvestmentDeclarationTab(tabContent, employee, fy, render);
     else if (activeTab === "previous-employer") renderPreviousEmployerTab(tabContent, employee, fy, render);
     else if (activeTab === "perquisites") renderPerquisitesTab(tabContent, employee, fy, render);
@@ -458,8 +460,14 @@ function renderSalaryStructureTab(container, employee, fy, onSaved) {
   // today) when one exists, so simply reopening this tab and re-saving
   // without deliberately changing the date doesn't silently create an
   // unintended new revision dated today - only change it if you actually
-  // mean to backdate/postdate a real revision.
-  let effectiveFromInput = active ? active.effectiveFrom.slice(0, 10) : new Date().toISOString().slice(0, 10);
+  // mean to backdate/postdate a real revision. For a brand-new structure,
+  // defaults to the later of the FY start and the employee's Date of
+  // Joining (not today) - defaulting to today would silently leave every
+  // earlier month in the FY (or since joining) without an active
+  // structure, so payroll for those months would fail with "No active
+  // salary structure" until someone noticed and backdated it by hand.
+  const fyStart = fy.startDate.slice(0, 10);
+  let effectiveFromInput = active ? active.effectiveFrom.slice(0, 10) : (employee.dateOfJoining > fyStart ? employee.dateOfJoining : fyStart);
   let targetRunId = "";
   let selectedTemplateId = "";
   let targetCtcInput = "";
@@ -790,6 +798,88 @@ const DEDUCTION_LIMIT_REFERENCE = [
   ["Home Loan Interest (Self-Occupied) - Sec 24(b)", "Rs 2,00,000"],
   ["House Property Loss Set-Off (self-occupied + let-out combined) - old Sec 71(3A) (new Act number not independently verified)", "Rs 2,00,000 against other income per year; any excess carries forward (not tracked by this app)"],
 ];
+
+// --- Salary Paid (actual, month-wise) ---------------------------------------
+const SALARY_PAID_EARNING_ORDER = [
+  "BASIC", "DA", "HRA", "SPECIAL_ALLOWANCE", "CONVEYANCE", "TRANSPORT_ALLOWANCE", "MEDICAL_ALLOWANCE", "LTA",
+  "BONUS", "INCENTIVE", "COMMISSION", "OVERTIME", "ARREARS", "PERFORMANCE_PAY", "OTHER_ALLOWANCE",
+  "GRATUITY_TAXABLE", "LEAVE_ENCASHMENT_TAXABLE",
+];
+const SALARY_PAID_EMPLOYER_ORDER = ["EMPLOYER_PF", "EMPLOYER_NPS", "EMPLOYER_SUPERANNUATION", "GRATUITY", "OTHER_EMPLOYER_BENEFIT"];
+const SALARY_PAID_DEDUCTION_ORDER = ["EMPLOYEE_PF", "EMPLOYEE_ESI", "PROFESSIONAL_TAX", "LWF", "SALARY_ADVANCE", "LOAN_RECOVERY", "OTHER_DEDUCTION"];
+
+/** Every code actually used (non-zero in at least one shown line) across `lines`, for one of the three maps, in a fixed preferred order with any unlisted codes appended alphabetically. */
+function usedCodesInOrder(lines, mapKey, preferredOrder) {
+  const used = new Set();
+  for (const { line } of lines) {
+    for (const [code, amt] of Object.entries(line[mapKey] || {})) {
+      if (amt) used.add(code);
+    }
+  }
+  const extras = [...used].filter((c) => !preferredOrder.includes(c)).sort();
+  return [...preferredOrder.filter((c) => used.has(c)), ...extras];
+}
+
+function renderSalaryPaidTab(container, employee, fy) {
+  const lines = db.payrollRuns
+    .filter((r) => r.companyId === employee.companyId && r.financialYearId === fy.id && !r.payrollGroup)
+    .slice()
+    .sort((a, b) => a.payrollMonthIndex - b.payrollMonthIndex)
+    .map((r) => ({ run: r, line: r.lines.find((l) => l.employeeId === employee.id) }))
+    .filter((x) => x.line);
+
+  if (lines.length === 0) {
+    container.innerHTML = `<div class="card text-muted">No payroll has been processed yet for this employee in FY ${fy.code}. Actual month-wise salary paid will appear here once a payroll run is calculated.</div>`;
+    return;
+  }
+
+  const earningCodes = usedCodesInOrder(lines, "earnings", SALARY_PAID_EARNING_ORDER);
+  const employerCodes = usedCodesInOrder(lines, "employerContributions", SALARY_PAID_EMPLOYER_ORDER);
+  const deductionCodes = usedCodesInOrder(lines, "deductions", SALARY_PAID_DEDUCTION_ORDER);
+  const labelOf = (code) => SLIP_COMPONENT_LABELS[code] || sentenceCase(code);
+
+  const cols = lines.map(({ run }) => monthLabel(run));
+  const showTotal = lines.length > 1;
+
+  function dataRow(label, getValue) {
+    const values = lines.map(({ line }) => getValue(line));
+    const total = values.reduce((s, v) => s + v, 0);
+    return `<tr><td>${escapeHtml(label)}</td>${values.map((v) => `<td>${v ? rupees(v) : "-"}</td>`).join("")}${showTotal ? `<td class="text-muted">${rupees(total)}</td>` : ""}</tr>`;
+  }
+  function totalRow(label, getValue) {
+    const values = lines.map(({ line }) => getValue(line));
+    const total = values.reduce((s, v) => s + v, 0);
+    return `<tr style="font-weight:600;border-top:1px solid var(--line);"><td>${escapeHtml(label)}</td>${values.map((v) => `<td>${rupees(v)}</td>`).join("")}${showTotal ? `<td>${rupees(total)}</td>` : ""}</tr>`;
+  }
+
+  const totalSalaryIncome = (line) => line.grossSalary + Object.values(line.employerContributions || {}).reduce((s, v) => s + v, 0);
+  const totalDeductionsRow = (line) =>
+    Object.values(line.employerContributions || {}).reduce((s, v) => s + v, 0) + Object.values(line.deductions || {}).reduce((s, v) => s + v, 0) + line.tdsMonthly;
+
+  container.innerHTML = `
+    <div class="card">
+      <p class="text-muted" style="font-size:12px;">Actual salary paid each processed month in FY ${fy.code}, from the calculated payroll runs - not the Salary Structure (which is the plan; this is what was actually run, including any LOP, bonus, arrears or F&amp;F adjustments for that month).</p>
+      <div style="overflow-x:auto;">
+        <table>
+          <thead><tr><th></th>${cols.map((c) => `<th>${escapeHtml(c)}</th>`).join("")}${showTotal ? "<th>Total</th>" : ""}</tr></thead>
+          <tbody>
+            ${earningCodes.map((code) => dataRow(labelOf(code), (line) => line.earnings[code] || 0)).join("")}
+            ${employerCodes.map((code) => dataRow(labelOf(code), (line) => line.employerContributions[code] || 0)).join("")}
+            ${totalRow("Total Salary Income", totalSalaryIncome)}
+            <tr><td colspan="${cols.length + 1 + (showTotal ? 1 : 0)}">&nbsp;</td></tr>
+            <tr><td colspan="${cols.length + 1 + (showTotal ? 1 : 0)}"><strong>Deductions</strong></td></tr>
+            ${employerCodes.map((code) => dataRow(labelOf(code), (line) => line.employerContributions[code] || 0)).join("")}
+            ${deductionCodes.map((code) => dataRow(labelOf(code), (line) => line.deductions[code] || 0)).join("")}
+            ${dataRow("TDS", (line) => line.tdsMonthly)}
+            ${totalRow("Total Deductions", totalDeductionsRow)}
+            <tr><td colspan="${cols.length + 1 + (showTotal ? 1 : 0)}">&nbsp;</td></tr>
+            ${totalRow("Net Payment", (line) => line.netSalary)}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  `;
+}
 
 function renderInvestmentDeclarationTab(container, employee, fy, onSaved) {
   const existing = db.investmentDeclarations.find((d) => d.employeeId === employee.id && d.financialYearId === fy.id);
@@ -1134,9 +1224,9 @@ function buildComputationRows(estimate) {
     { section: "spacer" },
     { section: "less", label: "Less: HRA Exemption (old Sec 10(13A))", ...stepOldOnly("Less: HRA Exemption (old Sec 10(13A) - now a new Act Schedule provision)") },
     { section: "less", label: "Less: LTA Exemption (old Sec 10(5))", ...stepOldOnly("Less: LTA Exemption (old Sec 10(5))") },
-    { section: "less-header", label: "Less: Deduction u/s 16" },
-    { section: "less", label: "Profession Tax u/s 16(iii)", ...stepOldOnly("Less: Profession Tax u/s 19 (old Sec 16(iii))") },
-    { section: "less", label: "Standard Deduction u/s 16(ia)", ...stepBoth("Less: Standard Deduction u/s 19 (old Sec 16(ia))") },
+    { section: "less-header", label: "Less: Deduction u/s 19 (old Sec 16)" },
+    { section: "less", label: "Profession Tax u/s 19 (old Sec 16(iii))", ...stepOldOnly("Less: Profession Tax u/s 19 (old Sec 16(iii))") },
+    { section: "less", label: "Standard Deduction u/s 19 (old Sec 16(ia))", ...stepBoth("Less: Standard Deduction u/s 19 (old Sec 16(ia))") },
     { section: "total", label: "Income from Salary", bold: true, ...stepBoth("Income from Salary") },
     { section: "spacer" },
     { section: "header", label: "Income from House Property (Self-Occupied)" },
@@ -1172,7 +1262,7 @@ function buildComputationRows(estimate) {
     { section: "total", label: "Rounded off Net Taxable Income u/s 288A", bold: true, old: oldR.taxableIncome, new: newR.taxableIncome },
     { section: "spacer" },
     { section: "tax", label: "Tax", old: oldR.taxBeforeRebate, new: newR.taxBeforeRebate },
-    { section: "tax", label: "Less: Rebate u/s 87A", old: -oldR.rebate, new: -newR.rebate },
+    { section: "tax", label: "Less: Rebate u/s 156 (old Sec 87A)", old: -oldR.rebate, new: -newR.rebate },
     { section: "total", label: "Total Tax", bold: true, old: oldR.taxAfterRebate, new: newR.taxAfterRebate },
     { section: "tax", label: "Surcharge", old: oldR.surcharge, new: newR.surcharge },
     { section: "tax", label: "Health & Education Cess", old: oldR.cess, new: newR.cess },
@@ -1186,7 +1276,7 @@ function renderComputationTable(estimate) {
   const savings = estimate.old.totalTaxLiability - estimate.new.totalTaxLiability;
   const rowHtml = (r) => {
     if (r.section === "spacer") return `<tr><td colspan="3">&nbsp;</td></tr>`;
-    if (r.section === "perq-header") return `<tr><td colspan="3"><em>Add : Perquisite u/s 17</em></td></tr>`;
+    if (r.section === "perq-header") return `<tr><td colspan="3"><em>Add : Perquisite u/s 17 (old Sec 17(2))</em></td></tr>`;
     if (r.section === "less-header") return `<tr><td colspan="3"><em>${escapeHtml(r.label)}</em></td></tr>`;
     if (r.section === "header") return `<tr><td colspan="3"><strong>${escapeHtml(r.label)}</strong></td></tr>`;
     const indent = r.section === "perq" || r.section === "less" || r.section === "hp" || r.section === "vi-a";
