@@ -272,16 +272,18 @@ function renderPayrollRunDetail(container, runId) {
       return;
     }
     const fy = db.financialYears.find((f) => f.id === run.financialYearId);
+    const company = db.companies.find((c) => c.id === run.companyId);
     const nextStatus = PayrollEngine.PAYROLL_STATUS_ORDER[PayrollEngine.PAYROLL_STATUS_ORDER.indexOf(run.status) + 1];
     const totalNet = run.lines.reduce((s, l) => s + l.netSalary, 0);
     const totalGross = run.lines.reduce((s, l) => s + l.grossSalary, 0);
     const totalTds = run.lines.reduce((s, l) => s + l.tdsMonthly, 0);
 
     container.innerHTML = `
-      <div class="row between">
+      <a href="#/payroll-runs"><button class="no-print">&larr; Back to Payroll Runs</button></a>
+      <div class="row between mt-16">
         <div>
-          <h2 style="margin-bottom:2px;">${fy ? fy.code : ""} - ${monthLabel(run)}</h2>
-          <div class="text-muted">${run.payrollGroup || "All employees"} · <span class="badge good">${sentenceCase(run.status)}</span></div>
+          <h2 style="margin-bottom:2px;">${company ? escapeHtml(company.name) : ""}</h2>
+          <div class="text-muted">${fy ? fy.code : ""} - ${monthLabel(run)} · ${run.payrollGroup || "All employees"} · <span class="badge good">${sentenceCase(run.status)}</span></div>
         </div>
         <div class="row gap-8">
           <button id="btn-calculate" ${run.status === "LOCKED" || run.status === "PAID" ? "disabled" : ""}>${run.lines.length ? "Recalculate" : "Run Calculation"}</button>
