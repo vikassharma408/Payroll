@@ -602,6 +602,7 @@ function renderSalaryRegister(container, runId) {
     container.innerHTML = `<div class="card">Payroll run not found.</div>`;
     return;
   }
+  const company = db.companies.find((c) => c.id === run.companyId);
   const rows = getSalaryRegisterRows(db, runId);
   container.innerHTML = `
     <div class="row between no-print">
@@ -612,7 +613,7 @@ function renderSalaryRegister(container, runId) {
       </div>
     </div>
     <div class="card mt-16">
-      <h2>Salary Register - ${monthLabel(run)}</h2>
+      <h2>Salary Register - ${company ? escapeHtml(company.name) + " - " : ""}${monthLabel(run)}</h2>
       <div style="overflow-x:auto;">
         <table>
           <thead><tr>${SALARY_REGISTER_COLUMNS.map(([h]) => `<th>${h}</th>`).join("")}</tr></thead>
@@ -634,6 +635,7 @@ function renderBankFile(container, runId) {
     container.innerHTML = `<div class="card">Payroll run not found.</div>`;
     return;
   }
+  const company = db.companies.find((c) => c.id === run.companyId);
   const { rows, issues, monthLabel: ml } = buildBankFileData(db, runId);
   const templates = db.bankFileTemplates.filter((t) => t.isActive);
 
@@ -654,7 +656,7 @@ function renderBankFile(container, runId) {
           : ""
       }
       <div class="card mt-16">
-        <h2>Bank Payment File - ${ml} (${template.bankName})</h2>
+        <h2>Bank Payment File - ${company ? escapeHtml(company.name) + " - " : ""}${ml} (${template.bankName})</h2>
         <div style="overflow-x:auto;">
           <table>
             <thead><tr>${columns.map((c) => `<th>${c.header}</th>`).join("")}</tr></thead>

@@ -382,11 +382,13 @@ function renderEmployeeDetail(container, employee, initialTab) {
 
   function render() {
     const fy = currentFy();
+    const company = db.companies.find((c) => c.id === employee.companyId);
     container.innerHTML = `
-      <div class="row between">
+      <a href="#/employees"><button class="no-print">&larr; Back to Employees</button></a>
+      <div class="row between mt-16">
         <div>
           <h2 style="margin-bottom:2px;">${escapeHtml(employee.fullName)} <span class="text-muted" style="font-size:14px;">(${escapeHtml(employee.employeeCode)})</span></h2>
-          <div class="text-muted">${escapeHtml(employee.designation || "")}${employee.department ? " · " + escapeHtml(employee.department) : ""}</div>
+          <div class="text-muted">${company ? escapeHtml(company.name) + " · " : ""}${escapeHtml(employee.designation || "")}${employee.department ? " · " + escapeHtml(employee.department) : ""}</div>
         </div>
         <div class="row gap-8">
           <a href="#/employees/${employee.id}/edit"><button>Edit Profile</button></a>
