@@ -154,12 +154,11 @@ function seedMasterData(db) {
   if (!db.ptSlabs || db.ptSlabs.length === 0) {
     db.ptSlabs = JSON.parse(JSON.stringify(ptSlabsMod.PT_STATES || []));
   }
-  if (db.companies.length === 0) {
-    db.companies.push({
-      id: newId("co"), name: "My Company Pvt Ltd", address: "", pan: "", tan: "",
-      bankName: "", bankAccountNo: "", bankIfsc: "", isActive: true, createdAt: new Date().toISOString(),
-    });
-  }
+  // No placeholder company is seeded here on purpose - a fresh install
+  // starts with zero companies, and every screen already has a "no company
+  // set up yet, add your first company" guard for that state. Auto-seeding
+  // a "My Company Pvt Ltd" stub was confusing: it looked like real data and
+  // had to be noticed and deleted by hand in a genuine multi-entity setup.
 }
 
 if (typeof module !== "undefined" && module.exports) {

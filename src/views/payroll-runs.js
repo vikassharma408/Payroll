@@ -17,6 +17,17 @@ function monthLabel(run) {
   return `${name} ${run.calendarYear}`;
 }
 
+// Registered once (not inside renderPayrollRunsList, which re-runs on every
+// visit to this page) so outside clicks close the Create Payroll Run Legal
+// Entity panel without ever accumulating duplicate listeners.
+document.addEventListener("click", (e) => {
+  const panel = document.getElementById("run-company-panel");
+  const btn = document.getElementById("run-company-btn");
+  if (panel && panel.style.display === "block" && !panel.contains(e.target) && e.target !== btn) {
+    panel.style.display = "none";
+  }
+});
+
 function renderPayrollRunsList(container) {
   if (db.companies.length === 0) {
     container.innerHTML = `<div class="card"><p class="text-muted">No company set up yet. <a href="#/companies/new">Add your first company</a> to get started.</p></div>`;
@@ -53,9 +64,10 @@ function renderPayrollRunsList(container) {
         : `<form id="new-run-form" class="card">
       <h3>Create Payroll Run</h3>
       <div class="form-grid">
-        <div style="grid-column: span 2;">
+        <div style="grid-column: 1 / -1;">
           <label>Legal Entity (select one or more)</label>
-          <div class="card" style="max-height:170px;overflow-y:auto;padding:10px;">
+          <button type="button" id="run-company-btn" style="width:100%;text-align:left;">Select Legal Entity &#9662;</button>
+          <div id="run-company-panel" class="card" style="display:none;max-height:220px;overflow-y:auto;padding:10px;margin-top:4px;">
             <label class="row gap-8" style="display:flex;align-items:center;"><input type="checkbox" id="run-company-all" /> <strong>All Companies</strong></label>
             <hr style="border-color:var(--line);margin:6px 0;" />
             ${db.companies.map((c) => `<label class="row gap-8" style="display:flex;align-items:center;"><input type="checkbox" class="run-company-item" value="${c.id}" ${c.id === getActiveCompanyId() ? "checked" : ""} /> ${escapeHtml(c.name)}</label>`).join("")}
@@ -83,16 +95,33 @@ function renderPayrollRunsList(container) {
 
   const form = document.getElementById("new-run-form");
   if (form) {
+    const companyBtn = document.getElementById("run-company-btn");
+    const companyPanel = document.getElementById("run-company-panel");
     const allCb = document.getElementById("run-company-all");
     const itemCbs = () => [...form.querySelectorAll(".run-company-item")];
+
+    function updateCompanyBtnLabel() {
+      const checked = itemCbs().filter((cb) => cb.checked);
+      if (checked.length === 0) companyBtn.textContent = "Select Legal Entity ▾";
+      else if (checked.length === db.companies.length) companyBtn.textContent = "All Companies ▾";
+      else if (checked.length === 1) companyBtn.textContent = `${(db.companies.find((c) => c.id === checked[0].value) || {}).name || ""} ▾`;
+      else companyBtn.textContent = `${checked.length} companies selected ▾`;
+    }
+    companyBtn.addEventListener("click", (e) => {
+      e.stopPropagation();
+      companyPanel.style.display = companyPanel.style.display === "block" ? "none" : "block";
+    });
     allCb.addEventListener("change", () => {
       itemCbs().forEach((cb) => { cb.checked = allCb.checked; });
+      updateCompanyBtnLabel();
     });
     itemCbs().forEach((cb) => {
       cb.addEventListener("change", () => {
         allCb.checked = itemCbs().every((c) => c.checked);
+        updateCompanyBtnLabel();
       });
     });
+    updateCompanyBtnLabel();
 
     form.addEventListener("submit", async (evt) => {
       evt.preventDefault();
