@@ -9,6 +9,7 @@ registerDetailView("payroll-runs", (container, segments) => {
   if (sub === "register") return renderSalaryRegister(container, runId);
   if (sub === "bank-file") return renderBankFile(container, runId);
   if (sub === "slip" && lineId) return renderSalarySlip(container, runId, lineId);
+  if (sub === "line" && lineId) return renderPayrollLineDetailPage(container, runId, lineId);
   renderPayrollRunDetail(container, runId);
 });
 
@@ -263,8 +264,6 @@ function renderPayrollRunsList(container) {
 }
 
 function renderPayrollRunDetail(container, runId) {
-  let expandedLineId = null;
-
   function render() {
     const run = db.payrollRuns.find((r) => r.id === runId);
     if (!run) {
@@ -322,7 +321,6 @@ function renderPayrollRunDetail(container, runId) {
                 .map((l) => {
                   const emp = db.employees.find((e) => e.id === l.employeeId);
                   const adjTotal = l.adjustments.reduce((s, a) => s + a.amount, 0);
-                  const colspan = 7 + DEDUCTION_COLUMNS.length;
                   return `
                   <tr>
                     <td>${emp ? `${escapeHtml(emp.employeeCode)} - ${escapeHtml(emp.fullName)}` : l.employeeId}</td>
@@ -333,11 +331,10 @@ function renderPayrollRunDetail(container, runId) {
                     <td><strong>${rupees(l.netSalary)}</strong></td>
                     <td>${sentenceCase(l.regimeUsed)}${emp && emp.taxRegime !== l.regimeUsed ? ` <span class="text-muted" style="font-size:11px;" title="This line was already computed under ${sentenceCase(l.regimeUsed)} - the employee has since switched regime. Recalculate this run to apply ${sentenceCase(emp.taxRegime)} here.">(now ${sentenceCase(emp.taxRegime)})</span>` : ""}</td>
                     <td class="row gap-8">
-                      <button data-line="${l.id}" class="toggle-line">${expandedLineId === l.id ? "Hide" : "Details"}</button>
+                      <a href="#/payroll-runs/${run.id}/line/${l.id}"><button>Details</button></a>
                       <a href="#/payroll-runs/${run.id}/slip/${l.id}"><button>Slip</button></a>
                     </td>
                   </tr>
-                  ${expandedLineId === l.id ? `<tr><td colspan="${colspan}">${renderLineDetail(l, emp, run)}</td></tr>` : ""}
                 `;
                 })
                 .join("") || `<tr><td colspan="${7 + DEDUCTION_COLUMNS.length}" class="text-muted">Not calculated yet. Click "Run Calculation" above.</td></tr>`
@@ -396,6 +393,48 @@ function renderPayrollRunDetail(container, runId) {
       });
     }
 
+  }
+
+  render();
+}
+
+// One-time BONUS/INCENTIVE/OVERTIME/ARREARS/OTHER_ALLOWANCE have no
+// structure component to begin with, so they only show up as an editable
+// field once they already have a non-zero value (via Object.keys(line.
+// earnings)) unless always offered - this keeps them available up front
+// without needing a value already set. Declared at top level since it's
+// used by both renderPayrollLineDetailPage and renderLineDetail below.
+const ALWAYS_OFFERED_EARNING_CODES = ["BONUS", "INCENTIVE", "OVERTIME", "ARREARS", "OTHER_ALLOWANCE"];
+
+/**
+ * Full-page view of one employee's line within a payroll run - manual
+ * overrides, earnings/deductions/employer-contributions breakdown, tax
+ * trace, and adjustments. Its own route (not an inline expand within the
+ * run's table) so opening it doesn't push every other row around, same
+ * as the Slip page right next to it.
+ */
+function renderPayrollLineDetailPage(container, runId, lineId) {
+  function render() {
+    const run = db.payrollRuns.find((r) => r.id === runId);
+    const line = run && run.lines.find((l) => l.id === lineId);
+    if (!run || !line) {
+      container.innerHTML = `<div class="card">Payroll line not found. <a href="#/payroll-runs/${runId}">Back to Payroll Run</a></div>`;
+      return;
+    }
+    const emp = db.employees.find((e) => e.id === line.employeeId);
+    const company = db.companies.find((c) => c.id === run.companyId);
+    container.innerHTML = `
+      <a href="#/payroll-runs/${run.id}"><button class="no-print">&larr; Back to Payroll Run</button></a>
+      <div class="row between mt-16">
+        <div>
+          <h2 style="margin-bottom:2px;">${emp ? escapeHtml(emp.fullName) : line.employeeId}</h2>
+          <div class="text-muted">${company ? escapeHtml(company.name) + " · " : ""}${monthLabel(run)}${emp ? ` · ${escapeHtml(emp.employeeCode)}` : ""}</div>
+        </div>
+        <a href="#/payroll-runs/${run.id}/slip/${line.id}"><button>View Slip</button></a>
+      </div>
+      <div class="mt-16">${renderLineDetail(line, emp, run)}</div>
+    `;
+
     container.querySelectorAll(".switch-regime-btn").forEach((btn) => {
       btn.addEventListener("click", async () => {
         const employee = db.employees.find((e) => e.id === btn.dataset.emp);
@@ -411,14 +450,6 @@ function renderPayrollRunDetail(container, runId) {
         } catch (err) {
           alert(err.message);
         }
-      });
-    });
-
-    container.querySelectorAll(".toggle-line").forEach((btn) => {
-      btn.addEventListener("click", () => {
-        const id = btn.getAttribute("data-line");
-        expandedLineId = expandedLineId === id ? null : id;
-        render();
       });
     });
 
@@ -511,9 +542,9 @@ function renderPayrollRunDetail(container, runId) {
         }
         try {
           const wasOverridden = run.overrides[employeeId] && run.overrides[employeeId].tdsOverride !== undefined;
-          const line = PayrollEngine.recalculateLine(db, run.id, employeeId);
+          const recalculated = PayrollEngine.recalculateLine(db, run.id, employeeId);
           if (wasOverridden) {
-            logAudit("PayrollTdsOverride", line.id, "OVERRIDE", `TDS for ${monthLabel(run)} manually set to ${rupees(line.tdsMonthly)} (computed was ${rupees(line.computedTdsMonthly)}): ${tdsOverrideReason}`);
+            logAudit("PayrollTdsOverride", recalculated.id, "OVERRIDE", `TDS for ${monthLabel(run)} manually set to ${rupees(recalculated.tdsMonthly)} (computed was ${rupees(recalculated.computedTdsMonthly)}): ${tdsOverrideReason}`);
           }
           await persist();
           render();
@@ -524,14 +555,10 @@ function renderPayrollRunDetail(container, runId) {
     });
   }
 
-  // One-time BONUS/INCENTIVE/OVERTIME/ARREARS/OTHER_ALLOWANCE have no
-  // structure component to begin with, so they only show up as an editable
-  // field once they already have a non-zero value (via Object.keys(line.
-  // earnings)) unless always offered - this keeps them available up front
-  // without needing a value already set.
-  const ALWAYS_OFFERED_EARNING_CODES = ["BONUS", "INCENTIVE", "OVERTIME", "ARREARS", "OTHER_ALLOWANCE"];
+  render();
+}
 
-  function renderLineDetail(line, emp, run) {
+function renderLineDetail(line, emp, run) {
     const snap = line.taxCalcSnapshot[line.regimeUsed.toLowerCase()];
     const override = (run.overrides && run.overrides[line.employeeId]) || {};
     const vp = override.variablePay || {};
@@ -648,9 +675,6 @@ function renderPayrollRunDetail(container, runId) {
         </form>
       </div>
     `;
-  }
-
-  render();
 }
 
 // --- Salary Register ---------------------------------------------------
