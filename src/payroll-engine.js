@@ -601,6 +601,27 @@
     return run;
   }
 
+  /**
+   * Undoes one review/approval step - e.g. after marking a run Reviewed,
+   * noticing an error, and wanting to take another look before approving.
+   * Only REVIEWED and APPROVED can be reverted this way (back to Calculated
+   * or Reviewed respectively); once a run is Locked or Paid, this error is
+   * meant to be fixed with a tracked adjustment instead, not an un-review -
+   * same reasoning as processPayrollRun's own Locked/Paid guard.
+   */
+  function revertPayrollStatus(db, runId) {
+    const run = db.payrollRuns.find((r) => r.id === runId);
+    if (!run) throw new Error("Payroll run not found");
+    if (run.status !== "REVIEWED" && run.status !== "APPROVED") {
+      throw new Error(`A ${run.status.toLowerCase()} payroll run cannot be reverted this way${run.status === "LOCKED" || run.status === "PAID" ? " - use an adjustment instead to correct it" : ""}.`);
+    }
+    const currentIndex = PAYROLL_STATUS_ORDER.indexOf(run.status);
+    const clearedField = TIMESTAMP_FIELD[run.status];
+    run.status = PAYROLL_STATUS_ORDER[currentIndex - 1];
+    if (clearedField) run[clearedField] = null;
+    return run;
+  }
+
   function addAdjustment(db, payrollRunLineId, input) {
     if (!input.reason || !input.reason.trim()) throw new Error("A reason is required for every manual adjustment.");
     if (!input.enteredBy || !input.enteredBy.trim()) throw new Error("Adjustments must record who entered them.");
@@ -1164,6 +1185,7 @@
     processPayrollRun,
     recalculateLine,
     advancePayrollStatus,
+    revertPayrollStatus,
     addAdjustment,
     computeArrears,
     applyArrears,

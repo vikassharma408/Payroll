@@ -289,6 +289,7 @@ function renderPayrollRunDetail(container, runId) {
           <button id="btn-calculate" ${run.status === "LOCKED" || run.status === "PAID" ? "disabled" : ""}>${run.lines.length ? "Recalculate" : "Run Calculation"}</button>
           ${run.lines.length ? `<a href="#/payroll-runs/${run.id}/register"><button>Salary Register</button></a>` : ""}
           ${run.lines.length ? `<a href="#/payroll-runs/${run.id}/bank-file"><button>Bank Payment File</button></a>` : ""}
+          ${run.status === "REVIEWED" || run.status === "APPROVED" ? `<button id="btn-revert" title="Found an error after marking this? Send it back one step to fix and re-review.">&larr; Revert to ${sentenceCase(PayrollEngine.PAYROLL_STATUS_ORDER[PayrollEngine.PAYROLL_STATUS_ORDER.indexOf(run.status) - 1])}</button>` : ""}
           ${nextStatus && run.lines.length ? `<button class="primary" id="btn-advance">Mark as ${nextStatus}</button>` : ""}
         </div>
       </div>
@@ -300,8 +301,9 @@ function renderPayrollRunDetail(container, runId) {
       </div>
       <div id="calc-message" class="text-muted mt-16"></div>
       <div class="card mt-16">
+        <div style="overflow-x:auto;">
         <table>
-          <thead><tr><th>Employee</th><th>Gross</th><th>Deductions</th><th>TDS</th><th>Adjustments</th><th>Net Pay</th><th>Regime</th><th></th></tr></thead>
+          <thead><tr><th>Employee</th><th>Gross</th><th>Employee PF</th><th>Employee ESI</th><th>Professional Tax</th><th>LWF</th><th>Other Deductions</th><th>TDS</th><th>Adjustments</th><th>Net Pay</th><th>Regime</th><th></th></tr></thead>
           <tbody>
             ${
               run.lines
@@ -312,7 +314,11 @@ function renderPayrollRunDetail(container, runId) {
                   <tr>
                     <td>${emp ? `${escapeHtml(emp.employeeCode)} - ${escapeHtml(emp.fullName)}` : l.employeeId}</td>
                     <td>${rupees(l.grossSalary)}</td>
-                    <td>${rupees(l.totalDeductions - l.tdsMonthly)}</td>
+                    <td>${rupees(l.deductions["EMPLOYEE_PF"] ?? 0)}</td>
+                    <td>${rupees(l.deductions["EMPLOYEE_ESI"] ?? 0)}</td>
+                    <td>${rupees(l.deductions["PROFESSIONAL_TAX"] ?? 0)}</td>
+                    <td>${rupees(l.deductions["LWF"] ?? 0)}</td>
+                    <td>${rupees(sumCodesR(l.deductions, OTHER_DEDUCTION_CODES))}</td>
                     <td>${rupees(l.tdsMonthly)}</td>
                     <td>${adjTotal ? rupees(adjTotal) : "-"}</td>
                     <td><strong>${rupees(l.netSalary)}</strong></td>
@@ -322,13 +328,14 @@ function renderPayrollRunDetail(container, runId) {
                       <a href="#/payroll-runs/${run.id}/slip/${l.id}"><button>Slip</button></a>
                     </td>
                   </tr>
-                  ${expandedLineId === l.id ? `<tr><td colspan="8">${renderLineDetail(l, emp, run)}</td></tr>` : ""}
+                  ${expandedLineId === l.id ? `<tr><td colspan="12">${renderLineDetail(l, emp, run)}</td></tr>` : ""}
                 `;
                 })
-                .join("") || `<tr><td colspan="8" class="text-muted">Not calculated yet. Click "Run Calculation" above.</td></tr>`
+                .join("") || `<tr><td colspan="12" class="text-muted">Not calculated yet. Click "Run Calculation" above.</td></tr>`
             }
           </tbody>
         </table>
+        </div>
       </div>
     `;
 
@@ -356,6 +363,22 @@ function renderPayrollRunDetail(container, runId) {
         try {
           PayrollEngine.advancePayrollStatus(db, run.id, nextStatus);
           logAudit("PayrollRun", run.id, "STATUS_CHANGE", `${monthLabel(run)} marked as ${nextStatus}`);
+          await persist();
+          render();
+        } catch (err) {
+          alert(err.message);
+        }
+      });
+    }
+
+    const revertBtn = document.getElementById("btn-revert");
+    if (revertBtn) {
+      revertBtn.addEventListener("click", async () => {
+        const fromStatus = run.status;
+        if (!confirm(`Revert ${monthLabel(run)} from ${sentenceCase(fromStatus)} back a step so you can make changes and re-review? You'll need to mark it as ${sentenceCase(fromStatus)} again when ready.`)) return;
+        try {
+          PayrollEngine.revertPayrollStatus(db, run.id);
+          logAudit("PayrollRun", run.id, "STATUS_CHANGE", `${monthLabel(run)} reverted from ${fromStatus} to ${run.status}`);
           await persist();
           render();
         } catch (err) {
