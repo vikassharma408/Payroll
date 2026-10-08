@@ -5,20 +5,25 @@
 // same Mr. A/B/C fixtures (see html-app/src/validate-fixtures.js).
 
 /**
- * Surcharge with marginal relief: at each threshold, surcharge is the lesser
- * of (a) tax at the slab's own rate and (b) tax at the next-lower slab's
- * rate plus the income in excess of the threshold. `slabsDescending` must
+ * Surcharge with marginal relief: per the statutory rule, the total of tax +
+ * surcharge at the actual income must not exceed (tax at the threshold
+ * income, with NO surcharge, since surcharge only applies strictly above
+ * the threshold) + (the income in excess of the threshold) - i.e. crossing
+ * a surcharge threshold can never cost more in extra tax than the extra
+ * income itself. That requires knowing tax at the threshold income under
+ * the SAME slab table, not just a ratio of rates - `taxAtIncome(income)`
+ * computes that (see calculateTax's _slabTax call). `slabsDescending` must
  * be sorted by threshold, highest first.
  */
-function computeSurcharge(taxableIncome, taxBeforeSurcharge, slabsDescending) {
+function computeSurcharge(taxableIncome, taxBeforeSurcharge, slabsDescending, taxAtIncome) {
   for (let i = 0; i < slabsDescending.length; i++) {
     const { threshold, rate } = slabsDescending[i];
     if (taxableIncome > threshold) {
-      const prevRate = i + 1 < slabsDescending.length ? slabsDescending[i + 1].rate : 0;
       const fullSurcharge = taxBeforeSurcharge * rate;
-      const reliefCapped = taxBeforeSurcharge * prevRate + (taxableIncome - threshold);
-      const surcharge = Math.round(Math.min(fullSurcharge, reliefCapped));
-      const marginalReliefApplied = reliefCapped < fullSurcharge;
+      const taxAtThreshold = Math.round(taxAtIncome(threshold));
+      const reliefCap = Math.max(0, taxableIncome - threshold - (taxBeforeSurcharge - taxAtThreshold));
+      const surcharge = Math.round(Math.min(fullSurcharge, reliefCap));
+      const marginalReliefApplied = reliefCap < fullSurcharge;
       return {
         surcharge,
         applicableRate: rate,
@@ -26,7 +31,7 @@ function computeSurcharge(taxableIncome, taxBeforeSurcharge, slabsDescending) {
         steps: [
           `Taxable income Rs ${taxableIncome.toLocaleString("en-IN")} > Rs ${threshold.toLocaleString("en-IN")} => surcharge slab ${rate * 100}%`,
           marginalReliefApplied
-            ? `Marginal relief applied: surcharge capped at tax(prev slab ${prevRate * 100}%) + income over threshold = Rs ${surcharge.toLocaleString("en-IN")}`
+            ? `Marginal relief applied: tax+surcharge capped at tax(Rs ${threshold.toLocaleString("en-IN")}) + income over threshold => surcharge = Rs ${surcharge.toLocaleString("en-IN")}`
             : `Surcharge = ${rate * 100}% of tax = Rs ${surcharge.toLocaleString("en-IN")}`,
         ],
       };
@@ -257,7 +262,7 @@ function calculateTax(input, config) {
   steps.push({ label: "Tax after Rebate", amount: taxAfterRebate });
 
   // --- Surcharge ----------------------------------------------------------
-  const surchargeResult = computeSurcharge(taxableIncome, taxAfterRebate, config.surchargeConfig);
+  const surchargeResult = computeSurcharge(taxableIncome, taxAfterRebate, config.surchargeConfig, (income) => _slabTax(income, config.slabs, input.ageCategory).tax);
   if (surchargeResult.surcharge > 0) {
     steps.push({ label: "Add: Surcharge", amount: surchargeResult.surcharge, note: surchargeResult.steps.join(" ") });
     if (surchargeResult.marginalReliefApplied) warnings.push("Marginal relief applied on surcharge.");
