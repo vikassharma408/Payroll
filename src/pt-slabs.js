@@ -36,10 +36,9 @@ const PT_STATES = [
     seniorExemptionAge: 60, // Karnataka Tax on Professions, Trades, Callings and Employments Act, 1976 - senior citizens (60+) are an exempted class.
     slabs: [
       { upTo: 25000, amount: 0 },
-      { upTo: 41666, amount: 150 },
-      { upTo: null, amount: 200 },
+      { upTo: null, amount: 200, calendarMonthOverrides: { 2: 300 } },
     ],
-    note: "Employees aged 60+ are fully exempt (see seniorExemptionAge).",
+    note: "Rs 200/month, except Rs 300 in February (to reach the Rs 2,500 annual cap) - applied automatically based on the payroll run's calendar month, per the Karnataka Tax on Professions... (Amendment) Act, 2025 (Act No. 33 of 2025, effective 1 April 2025), which also raised the exemption threshold to Rs 25,000/month. The earlier Rs 150 intermediate slab (for Rs 15,001-24,999) is gone post-amendment - sources describe only Nil below Rs 25,000 and a flat Rs 200 (Rs 300 in Feb) above it. Employees aged 60+ are fully exempt (see seniorExemptionAge).",
   },
   {
     key: "WEST_BENGAL", label: "West Bengal", type: "MONTHLY",
@@ -70,7 +69,7 @@ const PT_STATES = [
       { upTo: 20000, amount: 150 },
       { upTo: null, amount: 200 },
     ],
-    note: "Employees aged 65+ are fully exempt (see seniorExemptionAge).",
+    note: "Employees aged 65+ are fully exempt (see seniorExemptionAge). Specifically researched (Oct 2026) for a Maharashtra/Karnataka-style February step-up to the Rs 2,500 cap - found none; this flat Rs 200/month (Rs 2,400/year) matches every current source, including for Andhra Pradesh (which shares the same pre-bifurcation Act).",
   },
   {
     key: "GUJARAT", label: "Gujarat", type: "MONTHLY",
@@ -81,17 +80,26 @@ const PT_STATES = [
       { upTo: 11999, amount: 150 },
       { upTo: null, amount: 200 },
     ],
-    note: "Employees aged 65+ are fully exempt (see seniorExemptionAge).",
+    note: "Employees aged 65+ are fully exempt (see seniorExemptionAge). Specifically researched (Oct 2026) for a February step-up to the Rs 2,500 cap - one source hinted at one without giving a figure, but no source actually stated an amount, so none is modelled; this flat Rs 200/month (Rs 2,400/year) matches every current source that gives a figure.",
   },
   {
     key: "MADHYA_PRADESH", label: "Madhya Pradesh", type: "MONTHLY",
     seniorExemptionAge: 65, // MP Vritti Kar Adhiniyam (Professional Tax Act) - exempts senior citizens over 65.
+    // Bands are set by ANNUAL income (Rs 2,25,000 / 3,00,000 / 4,00,000),
+    // converted here to their monthly-gross equivalents (/12) since the
+    // engine buckets by monthly gross: 225000/12=18750, 300000/12=25000,
+    // 400000/12=33333. Previously modelled as only 2 paid tiers (125 flat,
+    // 208.33 flat) with thresholds that didn't match the actual annual
+    // bands at all - corrected after research (Oct 2026) found a 3rd tier
+    // (Rs 166/month) was missing entirely, and that the top two tiers each
+    // step up in their FY's final month rather than being a flat amount.
     slabs: [
-      { upTo: 15000, amount: 0 },
-      { upTo: 18000, amount: 125 },
-      { upTo: null, amount: 208.33 },
+      { upTo: 18750, amount: 0 },
+      { upTo: 25000, amount: 125 },
+      { upTo: 33333, amount: 166, calendarMonthOverrides: { 3: 174 } },
+      { upTo: null, amount: 208, calendarMonthOverrides: { 3: 212 } },
     ],
-    note: "Employees aged 65+ are fully exempt (see seniorExemptionAge).",
+    note: "Rs 125/month (Rs 1,500/year, no step-up needed) for Rs 18,751-25,000/month; Rs 166/month except Rs 174 in March above that up to Rs 33,333/month (Rs 2,000/year); Rs 208/month except Rs 212 in March above Rs 33,333/month (Rs 2,500/year) - applied automatically based on the payroll run's calendar month. Unlike Maharashtra/Karnataka's February step-up, sources consistently place MP's step-up in March (the FY's actual final month) - a minority say February, so verify with the MP Commercial Tax Dept if in doubt. Employees aged 65+ are fully exempt (see seniorExemptionAge).",
   },
   {
     key: "ASSAM", label: "Assam", type: "MONTHLY",
