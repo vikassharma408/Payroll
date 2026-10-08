@@ -55,6 +55,30 @@
     return true;
   }
 
+  /**
+   * Projects a full FY's state-wise Professional Tax from a flat monthly
+   * gross estimate - for estimateRegimeComparison, which (unlike an actual
+   * payroll run) has no real month-by-month gross to compute PT from.
+   * Mirrors computeEmployeePayrollLine's own per-month auto-PT logic
+   * (including the senior-citizen exemption applying from the month the
+   * employee actually reaches that age, and Maharashtra's February top-up),
+   * but falls back to the structure's own fixed PT figure if the employee
+   * has no state set, PT doesn't apply to them, or the state is
+   * MANUAL/unrecognized - same as the real per-month calculation does.
+   */
+  function estimateAnnualPt(db, employee, fyStartYear, monthlyGrossEstimate, structureFallbackAnnual) {
+    if (!(employee.ptApplicable && employee.state)) return structureFallbackAnnual;
+    let total = 0;
+    for (let m = 1; m <= 12; m++) {
+      const { calendarYear: cy, calendarMonth: cm } = fyMonthIndexToCalendar(m, fyStartYear);
+      const ageThatMonth = computeAge(employee.dob, new Date(Date.UTC(cy, cm - 1, 1)).toISOString());
+      const autoPt = computeMonthlyPT(db.ptSlabs, employee.state, monthlyGrossEstimate, ageThatMonth, cm);
+      if (autoPt === null) return structureFallbackAnnual;
+      total += Math.round(autoPt);
+    }
+    return total;
+  }
+
   /** Resolves the tax rule set in force for a FY+regime as of a date - mirrors lib/tax-engine/index.ts's DB resolver. */
   function getTaxRuleSetConfig(db, financialYearCode, regime, asOfDateIso) {
     const fy = db.financialYears.find((f) => f.code === financialYearCode);
@@ -261,7 +285,7 @@
     // structure's figure for MANUAL/unrecognized states.
     if (employee.ptApplicable && employee.state) {
       const employeeAgeThisMonth = computeAge(employee.dob, currentMonthDateIso);
-      const autoPt = computeMonthlyPT(db.ptSlabs, employee.state, grossSalary, employeeAgeThisMonth);
+      const autoPt = computeMonthlyPT(db.ptSlabs, employee.state, grossSalary, employeeAgeThisMonth, run.calendarMonth);
       if (autoPt !== null) {
         const roundedPt = Math.round(autoPt);
         totalDeductionsExclTds += roundedPt - (deductions["PROFESSIONAL_TAX"] || 0);
@@ -1033,7 +1057,6 @@
     const basicPlusDaAnnual = sumCodes(earningsAnnual, BASIC_DA_CODES);
     const employerPfNpsSuperAnnual = sumCodes(employerAnnual, PERQ_CHECK_CODES);
     const employerNpsAnnual = employerAnnual["EMPLOYER_NPS"] ?? 0;
-    const ptAnnual = deductionAnnual["PROFESSIONAL_TAX"] ?? 0;
     // Employee PF always matches Employer PF (see computeEmployeePayrollLine).
     const employeePfAnnual = employerAnnual["EMPLOYER_PF"] ?? 0;
 
@@ -1043,6 +1066,11 @@
     // Summed month-by-month (not monthlyRent x 12) since a declared rent
     // period can start or end partway through the year.
     const fyStartYearForEstimate = new Date(fy.startDate).getFullYear();
+    // Auto-computed from state PT slabs (same as a real payroll run would),
+    // not just whatever fixed PROFESSIONAL_TAX figure the structure has -
+    // which is usually absent/stale since PT is normally auto-calculated,
+    // not manually entered (see computeEmployeePayrollLine).
+    const ptAnnual = estimateAnnualPt(db, employee, fyStartYearForEstimate, annualGross / 12, deductionAnnual["PROFESSIONAL_TAX"] ?? 0);
     let hraExemptionAnnual = 0;
     for (let m = 1; m <= 12; m++) {
       const { calendarYear: cy, calendarMonth: cm } = fyMonthIndexToCalendar(m, fyStartYearForEstimate);

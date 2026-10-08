@@ -27,9 +27,9 @@ const PT_STATES = [
     slabs: [
       { upTo: 7500, amount: 0 },
       { upTo: 10000, amount: 175 },
-      { upTo: null, amount: 200 },
+      { upTo: null, amount: 200, calendarMonthOverrides: { 2: 300 } },
     ],
-    note: "Rs 200/month, except Rs 300 in February (to reach the Rs 2,500 annual cap) - simplified here to a flat Rs 200/month; adjust February manually if you need the exact cap. Employees aged 65+ are fully exempt (see seniorExemptionAge).",
+    note: "Rs 200/month, except Rs 300 in February (to reach the Rs 2,500 annual cap, per the Maharashtra Act) - applied automatically based on the payroll run's calendar month. Employees aged 65+ are fully exempt (see seniorExemptionAge).",
   },
   {
     key: "KARNATAKA", label: "Karnataka", type: "MONTHLY",
@@ -161,11 +161,16 @@ const PT_STATES = [
  * Slabs screen take effect. `employeeAge` (completed years as of the
  * payroll month, see dates.js computeAge) triggers the state's senior
  * citizen exemption, if any, once reached - pass null/undefined if the
- * employee's date of birth isn't known. Returns null for MANUAL/unknown
- * state (caller should fall back to the salary structure's own fixed PT
- * component).
+ * employee's date of birth isn't known. `calendarMonth` (1-12) triggers a
+ * slab's `calendarMonthOverrides` if it has one - e.g. Maharashtra's top
+ * slab charges Rs 300 in February instead of Rs 200, to land exactly on
+ * the Rs 2,500 annual cap (200 x 11 + 300) rather than Rs 2,400; pass
+ * null/undefined to always get that slab's plain `amount` instead (e.g.
+ * for a flat once-a-year estimate where no specific month applies).
+ * Returns null for MANUAL/unknown state (caller should fall back to the
+ * salary structure's own fixed PT component).
  */
-function computeMonthlyPT(ptSlabsList, stateKey, monthlyGross, employeeAge) {
+function computeMonthlyPT(ptSlabsList, stateKey, monthlyGross, employeeAge, calendarMonth) {
   const state = (ptSlabsList || PT_STATES).find((s) => s.key === stateKey);
   if (!state || state.type === "MANUAL") return null;
   if (state.seniorExemptionAge != null && employeeAge != null && employeeAge >= state.seniorExemptionAge) return 0;
@@ -174,7 +179,10 @@ function computeMonthlyPT(ptSlabsList, stateKey, monthlyGross, employeeAge) {
 
   const basisGross = state.type === "HALF_YEARLY" ? monthlyGross * 6 : monthlyGross;
   const slab = state.slabs.find((s) => s.upTo == null || basisGross <= s.upTo) || state.slabs[state.slabs.length - 1];
-  return state.type === "HALF_YEARLY" ? Math.round((slab.amount / 6) * 100) / 100 : slab.amount;
+  const amount = slab.calendarMonthOverrides && calendarMonth != null && slab.calendarMonthOverrides[calendarMonth] != null
+    ? slab.calendarMonthOverrides[calendarMonth]
+    : slab.amount;
+  return state.type === "HALF_YEARLY" ? Math.round((amount / 6) * 100) / 100 : amount;
 }
 
 if (typeof module !== "undefined" && module.exports) {
