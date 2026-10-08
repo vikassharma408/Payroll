@@ -171,10 +171,21 @@ function calculateTax(input, config) {
     houseProperty += letOutIncome;
     steps.push({ label: "Income from House Property (Let-out)", amount: letOutIncome });
   }
-  const houseCap = config.deductionLimits.HOUSE_PROPERTY_LOSS_SETOFF;
+  // Sec 115BAC disallows setting off a house property LOSS against any
+  // other head of income under the new regime at all (it can only be
+  // carried forward to later years) - unlike the old regime, which allows
+  // it up to the usual Rs 2,00,000 cap (Sec 71(3A)). A house property
+  // PROFIT (houseProperty > 0) is unaffected either way - only a loss is
+  // restricted, so capping at 0 here (vs the old regime's real cap) never
+  // touches a positive figure.
+  const houseCap = isOld ? config.deductionLimits.HOUSE_PROPERTY_LOSS_SETOFF : 0;
   const houseCapped = Math.max(houseProperty, -houseCap);
   if (houseCapped !== houseProperty) {
-    warnings.push(`House property loss set-off capped at Rs ${houseCap.toLocaleString("en-IN")} against other income.`);
+    warnings.push(
+      isOld
+        ? `House property loss set-off capped at Rs ${houseCap.toLocaleString("en-IN")} against other income.`
+        : "House property loss cannot be set off against other income under the new regime (Sec 115BAC) - excluded here; carry it forward against future house property income instead.",
+    );
   }
   if (houseCapped !== 0) {
     steps.push({ label: "Total Income from House Property", amount: houseCapped });
