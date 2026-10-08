@@ -166,6 +166,18 @@ button:disabled { opacity: 0.5; cursor: not-allowed; }
 .stat-label { font-size: 12px; color: var(--ivory-dim); letter-spacing: 0.02em; }
 .stat-value { font-size: 26px; font-family: var(--serif); margin-top: 4px; }
 
+/* Hero stat cards (Dashboard headline KPIs): icon chip + big sans figure +
+   a colored delta/context line - the figure is deliberately sans, not the
+   app's usual serif heading face (a hero number reads as off-brand
+   decoration in a display serif; see the dataviz skill's figure spec). */
+.hero-card-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 14px; }
+.hero-card { background: var(--ink-3); border: 1px solid var(--line); border-radius: 12px; padding: 20px; display: block; text-decoration: none; color: inherit; }
+.hero-icon { width: 44px; height: 44px; border-radius: 10px; display: flex; align-items: center; justify-content: center; margin-bottom: 18px; font-size: 20px; font-weight: 700; }
+.hero-icon svg { width: 22px; height: 22px; }
+.hero-label { font-size: 13px; color: var(--ivory-dim); }
+.hero-value { font-size: 30px; font-weight: 700; font-family: var(--sans); font-variant-numeric: normal; margin-top: 6px; color: var(--ivory); }
+.hero-sub { font-size: 13px; margin-top: 10px; display: inline-flex; align-items: center; gap: 4px; }
+
 .badge { display: inline-block; padding: 2px 8px; border-radius: 999px; font-size: 11px; font-weight: 600; }
 .badge.good { background: color-mix(in srgb, var(--good) 18%, transparent); color: var(--good); }
 .badge.bad { background: color-mix(in srgb, var(--bad) 18%, transparent); color: var(--bad-text); }

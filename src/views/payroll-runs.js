@@ -277,6 +277,18 @@ function renderPayrollRunDetail(container, runId) {
     const totalNet = run.lines.reduce((s, l) => s + l.netSalary, 0);
     const totalGross = run.lines.reduce((s, l) => s + l.grossSalary, 0);
     const totalTds = run.lines.reduce((s, l) => s + l.tdsMonthly, 0);
+    // Only show a deduction-component column when at least one line in this
+    // run actually has a nonzero amount for it - most companies don't use
+    // ESI/LWF at all, so showing 2-3 columns instead of a fixed 5 is the
+    // common case, keeping the table scannable without losing anything (the
+    // full per-line breakdown is always in Details regardless).
+    const DEDUCTION_COLUMNS = [
+      ["Employee PF", (l) => l.deductions["EMPLOYEE_PF"] ?? 0],
+      ["Employee ESI", (l) => l.deductions["EMPLOYEE_ESI"] ?? 0],
+      ["Professional Tax", (l) => l.deductions["PROFESSIONAL_TAX"] ?? 0],
+      ["LWF", (l) => l.deductions["LWF"] ?? 0],
+      ["Other Deductions", (l) => sumCodesR(l.deductions, OTHER_DEDUCTION_CODES)],
+    ].filter(([, get]) => run.lines.some((l) => get(l) !== 0));
 
     container.innerHTML = `
       <a href="#/payroll-runs"><button class="no-print">&larr; Back to Payroll Runs</button></a>
@@ -303,39 +315,32 @@ function renderPayrollRunDetail(container, runId) {
       <div class="card mt-16">
         <div style="overflow-x:auto;">
         <table>
-          <thead><tr><th>Employee</th><th>Gross</th><th>Employee PF</th><th>Employee ESI</th><th>Professional Tax</th><th>LWF</th><th>Other Deductions</th><th>TDS</th><th>Adjustments</th><th>Net Pay</th><th>Regime</th><th></th></tr></thead>
+          <thead><tr><th>Employee</th><th>Gross</th>${DEDUCTION_COLUMNS.map(([h]) => `<th>${h}</th>`).join("")}<th>TDS</th><th>Adjustments</th><th>Net Pay</th><th>Regime</th><th></th></tr></thead>
           <tbody>
             ${
               run.lines
                 .map((l) => {
                   const emp = db.employees.find((e) => e.id === l.employeeId);
                   const adjTotal = l.adjustments.reduce((s, a) => s + a.amount, 0);
+                  const colspan = 7 + DEDUCTION_COLUMNS.length;
                   return `
                   <tr>
                     <td>${emp ? `${escapeHtml(emp.employeeCode)} - ${escapeHtml(emp.fullName)}` : l.employeeId}</td>
                     <td>${rupees(l.grossSalary)}</td>
-                    <td>${rupees(l.deductions["EMPLOYEE_PF"] ?? 0)}</td>
-                    <td>${rupees(l.deductions["EMPLOYEE_ESI"] ?? 0)}</td>
-                    <td>${rupees(l.deductions["PROFESSIONAL_TAX"] ?? 0)}</td>
-                    <td>${rupees(l.deductions["LWF"] ?? 0)}</td>
-                    <td>${rupees(sumCodesR(l.deductions, OTHER_DEDUCTION_CODES))}</td>
+                    ${DEDUCTION_COLUMNS.map(([, get]) => `<td>${rupees(get(l))}</td>`).join("")}
                     <td>${rupees(l.tdsMonthly)}</td>
                     <td>${adjTotal ? rupees(adjTotal) : "-"}</td>
                     <td><strong>${rupees(l.netSalary)}</strong></td>
-                    <td>
-                      ${sentenceCase(l.regimeUsed)}${emp && emp.taxRegime !== l.regimeUsed ? ` <span class="text-muted" style="font-size:11px;" title="This line was already computed under ${sentenceCase(l.regimeUsed)} - the employee has since switched regime. Recalculate this run to apply ${sentenceCase(emp.taxRegime)} here.">(now ${sentenceCase(emp.taxRegime)})</span>` : ""}
-                      ${emp ? `<button data-emp="${emp.id}" data-switch-to="${emp.taxRegime === "OLD" ? "NEW" : "OLD"}" class="switch-regime-btn" style="display:block;margin-top:4px;font-size:11px;padding:2px 6px;" title="Switches the employee's regime for future payroll runs - already-calculated lines (including this one) are unaffected until recalculated.">Switch to ${sentenceCase(emp.taxRegime === "OLD" ? "NEW" : "OLD")}</button>` : ""}
-                    </td>
+                    <td>${sentenceCase(l.regimeUsed)}${emp && emp.taxRegime !== l.regimeUsed ? ` <span class="text-muted" style="font-size:11px;" title="This line was already computed under ${sentenceCase(l.regimeUsed)} - the employee has since switched regime. Recalculate this run to apply ${sentenceCase(emp.taxRegime)} here.">(now ${sentenceCase(emp.taxRegime)})</span>` : ""}</td>
                     <td class="row gap-8">
                       <button data-line="${l.id}" class="toggle-line">${expandedLineId === l.id ? "Hide" : "Details"}</button>
                       <a href="#/payroll-runs/${run.id}/slip/${l.id}"><button>Slip</button></a>
-                      ${emp ? `<a href="#/employees/${emp.id}/regime/from-run/${run.id}"><button>Regime Comparison</button></a>` : ""}
                     </td>
                   </tr>
-                  ${expandedLineId === l.id ? `<tr><td colspan="12">${renderLineDetail(l, emp, run)}</td></tr>` : ""}
+                  ${expandedLineId === l.id ? `<tr><td colspan="${colspan}">${renderLineDetail(l, emp, run)}</td></tr>` : ""}
                 `;
                 })
-                .join("") || `<tr><td colspan="12" class="text-muted">Not calculated yet. Click "Run Calculation" above.</td></tr>`
+                .join("") || `<tr><td colspan="${7 + DEDUCTION_COLUMNS.length}" class="text-muted">Not calculated yet. Click "Run Calculation" above.</td></tr>`
             }
           </tbody>
         </table>
@@ -549,8 +554,16 @@ function renderPayrollRunDetail(container, runId) {
         <div class="row between">
           <div>
             <h3 style="margin-bottom:2px;">${emp ? escapeHtml(emp.fullName) : ""}</h3>
-            <div class="text-muted">Days worked ${line.daysWorked}/${line.daysInMonth}${line.lopDays ? ` (LOP: ${line.lopDays})` : ""}</div>
+            <div class="text-muted">Days worked ${line.daysWorked}/${line.daysInMonth}${line.lopDays ? ` (LOP: ${line.lopDays})` : ""} · Regime used: ${sentenceCase(line.regimeUsed)}</div>
           </div>
+          ${
+            emp
+              ? `<div class="row gap-8">
+            <button data-emp="${emp.id}" data-switch-to="${emp.taxRegime === "OLD" ? "NEW" : "OLD"}" class="switch-regime-btn" title="Switches the employee's regime for future payroll runs - already-calculated lines (including this one) are unaffected until recalculated.">Switch to ${sentenceCase(emp.taxRegime === "OLD" ? "NEW" : "OLD")}</button>
+            <a href="#/employees/${emp.id}/regime/from-run/${run.id}"><button>Regime Comparison</button></a>
+          </div>`
+              : ""
+          }
         </div>
         <div class="card" style="background:var(--ink); margin-top:12px;">
           <h3>Manual Changes (this month only)</h3>

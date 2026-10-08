@@ -300,6 +300,214 @@ function navigate(path) {
   location.hash = `#/${path}`;
 }
 
+// --- Dashboard charts ----------------------------------------------------
+// Dark-mode categorical pair (blue/orange) independently re-validated for
+// CVD separation + contrast against THIS app's actual surfaces (the raw
+// --teal/--clay tokens share too close a lightness band to pass as a
+// categorical pair - see scripts/validate_palette.js from the dataviz
+// skill); the single-series trend chart instead reuses the app's own
+// --gold brand teal, so it reads as this app's chart rather than a
+// foreign component.
+const CHART_COLORS = {
+  trend: { dark: "#1fd6a8", light: "#0b7a70" },
+  info: { dark: "#3987e5", light: "#2a78d6" },
+  oldRegime: { dark: "#3987e5", light: "#2a78d6" },
+  newRegime: { dark: "#d95926", light: "#eb6834" },
+};
+function chartColor(key) {
+  return currentTheme() === "light" ? CHART_COLORS[key].light : CHART_COLORS[key].dark;
+}
+
+/** "Nice" (1/2/5 x 10^n) number for an axis max/step - Paul Heckbert's classic algorithm, so gridlines land on round values instead of odd fractions. */
+function niceNumber(range, round) {
+  if (range <= 0) return 1;
+  const exponent = Math.floor(Math.log10(range));
+  const fraction = range / Math.pow(10, exponent);
+  let niceFraction;
+  if (round) niceFraction = fraction < 1.5 ? 1 : fraction < 3 ? 2 : fraction < 7 ? 5 : 10;
+  else niceFraction = fraction <= 1 ? 1 : fraction <= 2 ? 2 : fraction <= 5 ? 5 : 10;
+  return niceFraction * Math.pow(10, exponent);
+}
+/** Axis ceiling with ~15% headroom above the data (so a peak never touches the card edge) + an evenly-spaced nice step. */
+function niceAxisScale(maxVal, targetSteps) {
+  if (!(maxVal > 0)) return { max: targetSteps, step: 1 };
+  const headroomRange = niceNumber(maxVal * 1.15, false);
+  const step = niceNumber(headroomRange / targetSteps, true);
+  return { max: Math.ceil(headroomRange / step) * step, step };
+}
+/** Compact Rs formatting for axis ticks/tooltips on large payroll figures - Cr/L/K, same convention as common Indian finance UI. */
+function compactRupees(n) {
+  const abs = Math.abs(n);
+  const fmt = (v, suffix) => `₹${(Math.round(v * 10) / 10).toLocaleString("en-IN")}${suffix}`;
+  if (abs >= 1e7) return fmt(n / 1e7, "Cr");
+  if (abs >= 1e5) return fmt(n / 1e5, "L");
+  if (abs >= 1e3) return fmt(n / 1e3, "K");
+  return rupees(n);
+}
+/** Uniform Catmull-Rom -> cubic Bezier conversion (tension 0) - the standard construction for a smooth curve that still passes exactly through every data point (unlike a generic spline that can drift off them). */
+function smoothPathD(pts) {
+  if (pts.length < 2) return "";
+  const d = [`M ${pts[0].x} ${pts[0].y}`];
+  for (let i = 0; i < pts.length - 1; i++) {
+    const p0 = pts[i === 0 ? i : i - 1];
+    const p1 = pts[i];
+    const p2 = pts[i + 1];
+    const p3 = pts[i + 2 < pts.length ? i + 2 : i + 1];
+    const c1x = p1.x + (p2.x - p0.x) / 6, c1y = p1.y + (p2.y - p0.y) / 6;
+    const c2x = p2.x - (p3.x - p1.x) / 6, c2y = p2.y - (p3.y - p1.y) / 6;
+    d.push(`C ${c1x} ${c1y} ${c2x} ${c2y} ${p2.x} ${p2.y}`);
+  }
+  return d.join(" ");
+}
+
+/**
+ * Smooth area/line trend chart for a single series (e.g. monthly payroll
+ * cost) - mirrors the "trend over time, single series" form: one hue, a
+ * soft gradient wash under the line (never a saturated block), labelled
+ * gridlines, and a hover crosshair+tooltip per point (wired up by
+ * wireTrendChartHover, called after this HTML is inserted into the DOM).
+ */
+function renderTrendChart(points, { chartId, color }) {
+  const W = 640, H = 230, padLeft = 54, padRight = 14, padTop = 16, padBottom = 34;
+  const plotW = W - padLeft - padRight, plotH = H - padTop - padBottom;
+  const plotBottom = padTop + plotH;
+  const values = points.map((p) => p.value);
+  const { max, step } = niceAxisScale(Math.max(...values, 0), 5);
+  const xAt = (i) => (points.length === 1 ? padLeft + plotW / 2 : padLeft + (i / (points.length - 1)) * plotW);
+  const yAt = (v) => plotBottom - (v / max) * plotH;
+  const pts = points.map((p, i) => ({ x: xAt(i), y: yAt(p.value) }));
+  const lineD = smoothPathD(pts);
+  const areaD = `${lineD} L ${pts[pts.length - 1].x} ${plotBottom} L ${pts[0].x} ${plotBottom} Z`;
+
+  const gridLines = [];
+  for (let v = 0; v <= max + 1e-9; v += step) {
+    const y = yAt(v);
+    gridLines.push(`<line x1="${padLeft}" y1="${y}" x2="${W - padRight}" y2="${y}" stroke="var(--line)" stroke-width="1" />`);
+    gridLines.push(`<text x="${padLeft - 8}" y="${y + 4}" text-anchor="end" font-size="11" fill="var(--ivory-dim)">${compactRupees(v)}</text>`);
+  }
+  const xLabels = points.map((p, i) => `<text x="${xAt(i)}" y="${H - 10}" text-anchor="middle" font-size="11" fill="var(--ivory-dim)">${escapeHtml(p.label)}</text>`).join("");
+  // Wider, invisible hit-targets (per the dataviz skill's interaction spec: hit
+  // target bigger than the mark) carry the hover - the visible marker is
+  // drawn/positioned by JS only on the hovered point, not one per point.
+  const hitTargets = pts.map((pt, i) => `<circle class="trend-hit" data-i="${i}" cx="${pt.x}" cy="${pt.y}" r="14" fill="transparent" />`).join("");
+  const last = pts[pts.length - 1];
+
+  return `
+    <div class="chart-wrap" data-chart="${chartId}" style="position:relative;">
+      <svg viewBox="0 0 ${W} ${H}" style="width:100%;height:auto;display:block;" preserveAspectRatio="xMidYMid meet">
+        <defs>
+          <linearGradient id="${chartId}-grad" x1="0" y1="0" x2="0" y2="1">
+            <stop offset="0%" stop-color="${color}" stop-opacity="0.22" />
+            <stop offset="100%" stop-color="${color}" stop-opacity="0" />
+          </linearGradient>
+        </defs>
+        ${gridLines.join("")}
+        ${xLabels}
+        <path d="${areaD}" fill="url(#${chartId}-grad)" stroke="none" />
+        <path d="${lineD}" fill="none" stroke="${color}" stroke-width="2" stroke-linejoin="round" stroke-linecap="round" />
+        <circle cx="${last.x}" cy="${last.y}" r="4" fill="${color}" stroke="var(--ink-3)" stroke-width="2" />
+        <g class="trend-hover-marker" style="display:none;"><circle r="4" fill="${color}" stroke="var(--ink-3)" stroke-width="2" /></g>
+        <line class="trend-hover-line" x1="0" y1="${padTop}" x2="0" y2="${plotBottom}" stroke="var(--ivory-dim)" stroke-width="1" style="display:none;" />
+        ${hitTargets}
+      </svg>
+      <div class="chart-tooltip" style="position:absolute;display:none;pointer-events:none;background:var(--ink-2);border:1px solid var(--line);border-radius:6px;padding:6px 10px;font-size:12px;white-space:nowrap;transform:translate(-50%,-110%);z-index:5;"></div>
+    </div>
+  `;
+}
+/** Attaches the hover crosshair+tooltip for a renderTrendChart - call once after the returned HTML is in the DOM. `points` must be the same array passed to renderTrendChart. */
+function wireTrendChartHover(container, chartId, points, formatValue) {
+  const wrap = container.querySelector(`.chart-wrap[data-chart="${chartId}"]`);
+  if (!wrap) return;
+  const svg = wrap.querySelector("svg");
+  const tooltip = wrap.querySelector(".chart-tooltip");
+  const hoverMarker = wrap.querySelector(".trend-hover-marker");
+  const hoverLine = wrap.querySelector(".trend-hover-line");
+  wrap.querySelectorAll(".trend-hit").forEach((hit) => {
+    hit.addEventListener("mouseenter", () => {
+      const i = Number(hit.dataset.i);
+      const cx = hit.getAttribute("cx"), cy = hit.getAttribute("cy");
+      hoverMarker.style.display = "";
+      hoverMarker.querySelector("circle").setAttribute("cx", cx);
+      hoverMarker.querySelector("circle").setAttribute("cy", cy);
+      hoverLine.style.display = "";
+      hoverLine.setAttribute("x1", cx);
+      hoverLine.setAttribute("x2", cx);
+      const svgRect = svg.getBoundingClientRect();
+      const scale = svgRect.width / svg.viewBox.baseVal.width;
+      tooltip.style.left = `${Number(cx) * scale}px`;
+      tooltip.style.top = `${Number(cy) * scale}px`;
+      tooltip.innerHTML = `<strong>${escapeHtml(points[i].label)}</strong><br/>${formatValue(points[i].value)}`;
+      tooltip.style.display = "block";
+    });
+    hit.addEventListener("mouseleave", () => {
+      hoverMarker.style.display = "none";
+      hoverLine.style.display = "none";
+      tooltip.style.display = "none";
+    });
+  });
+}
+
+/**
+ * Part-to-whole split (e.g. Old vs New regime headcount) as a single
+ * stacked bar with a 2px surface gap between segments (the dataviz skill's
+ * spacer mechanism for telling touching segments apart) - plus a legend
+ * with counts/percentages, since 2 categorical series always need one
+ * (never rely on color-matching alone), and labels inside each segment
+ * when they fit.
+ */
+function renderSplitBarChart(segments) {
+  const total = segments.reduce((s, seg) => s + seg.value, 0);
+  if (total === 0) return `<p class="text-muted">No active employees yet.</p>`;
+  const gap = 2;
+  let x = 0;
+  const W = 640, H = 28;
+  const bars = segments
+    .map((seg) => {
+      const w = Math.max(0, (seg.value / total) * W - gap);
+      const rect = seg.value > 0 ? `<rect x="${x}" y="0" width="${w}" height="${H}" rx="4" fill="${seg.color}" />` : "";
+      const pct = Math.round((seg.value / total) * 100);
+      const label = w > 46 ? `<text x="${x + w / 2}" y="${H / 2 + 4}" text-anchor="middle" font-size="12" font-weight="600" fill="var(--on-accent)">${seg.value} (${pct}%)</text>` : "";
+      x += w + gap;
+      return rect + label;
+    })
+    .join("");
+  const legend = segments
+    .map((seg) => {
+      const pct = total ? Math.round((seg.value / total) * 100) : 0;
+      return `<div class="row gap-8" style="align-items:center;"><span style="width:10px;height:10px;border-radius:3px;background:${seg.color};display:inline-block;"></span><span>${escapeHtml(seg.label)}: <strong>${seg.value}</strong> (${pct}%)</span></div>`;
+    })
+    .join("");
+  return `
+    <svg viewBox="0 0 ${W} ${H}" style="width:100%;height:${H}px;display:block;">${bars}</svg>
+    <div class="row gap-16 mt-16" style="flex-wrap:wrap;">${legend}</div>
+  `;
+}
+
+// Simple 24x24 line icons (stroke=currentColor, so the hero card's own
+// color sets both the chip tint and the icon stroke) - kept to the same
+// handful used across the Dashboard's hero cards, not a general icon set.
+const HERO_ICONS = {
+  rupee: `<span style="font-size:20px;font-weight:700;line-height:1;">₹</span>`,
+  payslip: `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="5" width="18" height="14" rx="2"/><path d="M3 7l9 6 9-6"/></svg>`,
+  document: `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><path d="M14 2v6h6"/><path d="M9 13h6"/><path d="M9 17h6"/></svg>`,
+  clock: `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 3"/></svg>`,
+};
+/**
+ * Headline-KPI "hero" card: icon chip + big sans value + an optional
+ * colored context/delta line with a direction arrow - the Dashboard's
+ * replacement for a plain stat tile where the number has a story (a
+ * trend, a count, a call to action) worth surfacing at a glance.
+ */
+function renderHeroCard({ icon, color, label, value, sub, href }) {
+  const body = `
+    <div class="hero-icon" style="background:color-mix(in srgb, ${color} 18%, transparent); color:${color};">${icon}</div>
+    <div class="hero-label">${label}</div>
+    <div class="hero-value">${value}</div>
+    ${sub ? `<div class="hero-sub" style="color:${color};">${sub} <span aria-hidden="true">&#8599;</span></div>` : ""}
+  `;
+  return href ? `<a class="hero-card" href="${href}">${body}</a>` : `<div class="hero-card">${body}</div>`;
+}
+
 // --- Dashboard ---------------------------------------------------------
 registerView("dashboard", "Overview", "Dashboard", (container) => {
   if (db.companies.length === 0) {
@@ -326,19 +534,84 @@ registerView("dashboard", "Overview", "Dashboard", (container) => {
     ? companyEmployees.filter((e) => e.status !== "INACTIVE" && PayrollEngine.regimeSuggestion(db, e.id, currentFy.id)).length
     : 0;
 
+  // Monthly payroll cost (gross + employer contributions - the actual
+  // business expense, not just employee take-home) across every processed
+  // run this FY, in calendar order - the trend chart below.
+  const costTrendPoints = runsThisFy
+    .filter((r) => r.lines.length > 0)
+    .slice()
+    .sort((a, b) => a.payrollMonthIndex - b.payrollMonthIndex)
+    .map((r) => ({ label: FY_MONTH_NAMES[r.payrollMonthIndex - 1].slice(0, 3), value: r.lines.reduce((s, l) => s + l.totalEmployerCost, 0) }));
+
+  const activeEmployeeList = companyEmployees.filter((e) => e.status !== "INACTIVE");
+  const oldRegimeCount = activeEmployeeList.filter((e) => e.taxRegime === "OLD").length;
+  const newRegimeCount = activeEmployeeList.length - oldRegimeCount;
+
+  const latestCostPoint = costTrendPoints[costTrendPoints.length - 1];
+  const priorCostPoint = costTrendPoints[costTrendPoints.length - 2];
+  let costDeltaSub = null;
+  if (latestCostPoint && priorCostPoint && priorCostPoint.value > 0) {
+    const pctChange = ((latestCostPoint.value - priorCostPoint.value) / priorCostPoint.value) * 100;
+    costDeltaSub = `${pctChange >= 0 ? "+" : ""}${Math.round(pctChange * 10) / 10}% vs ${priorCostPoint.label}`;
+  }
+
+  const heroCards = [
+    latestCostPoint
+      ? renderHeroCard({
+          icon: HERO_ICONS.rupee, color: chartColor("trend"), label: "Monthly Payroll Cost",
+          value: compactRupees(latestCostPoint.value),
+          sub: costDeltaSub, href: "#/payroll-runs",
+        })
+      : null,
+    latestRun
+      ? renderHeroCard({
+          icon: HERO_ICONS.payslip, color: chartColor("info"), label: `Latest Net Pay${latestRunCompany && viewCompanyIds.length > 1 ? ` (${escapeHtml(latestRunCompany.name)})` : ""}`,
+          value: compactRupees(latestNet),
+          sub: `${latestRun.lines.length} employee${latestRun.lines.length === 1 ? "" : "s"}`, href: `#/payroll-runs/${latestRun.id}`,
+        })
+      : null,
+    renderHeroCard({
+      icon: HERO_ICONS.document, color: pendingDeclarations > 0 ? "var(--clay)" : "var(--good)", label: "Pending Investment Declarations",
+      value: String(pendingDeclarations),
+      sub: pendingDeclarations > 0 ? "Review now" : "All filed", href: "#/employees",
+    }),
+    renderHeroCard({
+      icon: HERO_ICONS.clock, color: regimeSuggestionCount > 0 ? "var(--bad-text)" : "var(--good)", label: "Could Save by Switching Regime",
+      value: String(regimeSuggestionCount),
+      sub: regimeSuggestionCount > 0 ? "Needs review" : "All optimal", href: "#/employees",
+    }),
+  ].filter(Boolean).join("");
+
   container.innerHTML = `
-    <div class="card-grid">
-      <div class="card"><div class="stat-label">Active Employees${viewCompanyIds.length > 1 ? ` (${companyFilterLabel()})` : ""}</div><div class="stat-value">${activeEmployees}</div></div>
-      <div class="card"><div class="stat-label">Financial Year</div><div class="stat-value">${currentFy ? currentFy.code : "-"}</div></div>
-      <div class="card"><div class="stat-label">Latest Payroll Run Net Pay${latestRunCompany && viewCompanyIds.length > 1 ? ` (${escapeHtml(latestRunCompany.name)})` : ""}</div><div class="stat-value">${rupees(latestNet)}</div></div>
-      <div class="card"><div class="stat-label">Pending Investment Declarations</div><div class="stat-value ${pendingDeclarations > 0 ? "text-bad" : "text-good"}">${pendingDeclarations}</div></div>
-      <div class="card"><div class="stat-label">Could Save by Switching Regime</div><div class="stat-value ${regimeSuggestionCount > 0 ? "text-bad" : "text-good"}">${regimeSuggestionCount > 0 ? `<a href="#/employees">${regimeSuggestionCount}</a>` : "0"}</div></div>
-    </div>
+    <p class="text-muted">FY ${currentFy ? currentFy.code : "-"} · ${activeEmployees} active employee${activeEmployees === 1 ? "" : "s"}${viewCompanyIds.length > 1 ? ` (${escapeHtml(companyFilterLabel())})` : ""}</p>
+    <div class="hero-card-grid">${heroCards}</div>
+    ${
+      costTrendPoints.length > 0
+        ? `<div class="card">
+      <h3>Payroll Cost Trend</h3>
+      <p class="text-muted" style="font-size:12px;">Monthly payroll cost (gross salary + employer contributions)${viewCompanyIds.length > 1 ? ` - ${escapeHtml(companyFilterLabel())}` : ""}, FY ${currentFy.code}.</p>
+      ${renderTrendChart(costTrendPoints, { chartId: "payroll-cost-trend", color: chartColor("trend") })}
+    </div>`
+        : ""
+    }
+    ${
+      activeEmployeeList.length > 0
+        ? `<div class="card">
+      <h3>Regime Split</h3>
+      <p class="text-muted" style="font-size:12px;">Active employees${viewCompanyIds.length > 1 ? ` (${companyFilterLabel()})` : ""} by tax regime.</p>
+      ${renderSplitBarChart([
+        { label: "Old Regime", value: oldRegimeCount, color: chartColor("oldRegime") },
+        { label: "New Regime", value: newRegimeCount, color: chartColor("newRegime") },
+      ])}
+    </div>`
+        : ""
+    }
     <div class="card">
       <h3>Getting started</h3>
       <p class="text-muted">Add employees, define their salary structure, and process a monthly payroll run from the sidebar - each "New"/"Create" form has its own Legal Entity field for a multi-company setup. The eye icon at the top controls which compan${db.companies.length > 1 ? "ies you're viewing here" : "y you're viewing"}. <a href="#/backup">Backup &amp; Restore</a> keeps your data safe - this app stores everything locally in your browser.</p>
     </div>
   `;
+  if (costTrendPoints.length > 0) wireTrendChartHover(container, "payroll-cost-trend", costTrendPoints, (v) => rupees(v));
 });
 
 // --- Tax Rules (read-only viewer) --------------------------------------
