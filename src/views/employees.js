@@ -21,7 +21,7 @@ registerDetailView("employees", (container, segments) => {
     container.innerHTML = `<div class="card"><p class="text-muted">No company set up yet. <a href="#/companies/new">Add your first company</a> before adding employees.</p></div>`;
     return;
   }
-  const [id, action] = segments;
+  const [id, action, fromKey, fromRunId] = segments;
   if (id === "new") return renderEmployeeForm(container, null);
   const employee = db.employees.find((e) => e.id === id);
   if (!employee) {
@@ -30,7 +30,8 @@ registerDetailView("employees", (container, segments) => {
   }
   if (action === "edit") return renderEmployeeForm(container, employee);
   if (action === "form16") return renderForm16(container, employee);
-  renderEmployeeDetail(container, employee, action);
+  const backTo = fromKey === "from-run" && fromRunId ? { href: `#/payroll-runs/${fromRunId}`, label: "Back to Payroll Run" } : null;
+  renderEmployeeDetail(container, employee, action, backTo);
 });
 
 function renderEmployeesList(container) {
@@ -366,7 +367,8 @@ function renderEmployeeForm(container, employee) {
   });
 }
 
-function renderEmployeeDetail(container, employee, initialTab) {
+function renderEmployeeDetail(container, employee, initialTab, backTo) {
+  const back = backTo || { href: "#/employees", label: "Back to Employees" };
   const TAB_KEYS = ["profile", "salary", "salary-paid", "investment", "previous-employer", "perquisites", "regime", "fnf"];
   let activeTab = TAB_KEYS.includes(initialTab) ? initialTab : "profile";
   const TABS = [
@@ -384,7 +386,7 @@ function renderEmployeeDetail(container, employee, initialTab) {
     const fy = currentFy();
     const company = db.companies.find((c) => c.id === employee.companyId);
     container.innerHTML = `
-      <a href="#/employees"><button class="no-print">&larr; Back to Employees</button></a>
+      <a href="${back.href}"><button class="no-print">&larr; ${back.label}</button></a>
       <div class="row between mt-16">
         <div>
           <h2 style="margin-bottom:2px;">${escapeHtml(employee.fullName)} <span class="text-muted" style="font-size:14px;">(${escapeHtml(employee.employeeCode)})</span></h2>

@@ -322,10 +322,14 @@ function renderPayrollRunDetail(container, runId) {
                     <td>${rupees(l.tdsMonthly)}</td>
                     <td>${adjTotal ? rupees(adjTotal) : "-"}</td>
                     <td><strong>${rupees(l.netSalary)}</strong></td>
-                    <td>${sentenceCase(l.regimeUsed)}</td>
+                    <td>
+                      ${sentenceCase(l.regimeUsed)}${emp && emp.taxRegime !== l.regimeUsed ? ` <span class="text-muted" style="font-size:11px;" title="This line was already computed under ${sentenceCase(l.regimeUsed)} - the employee has since switched regime. Recalculate this run to apply ${sentenceCase(emp.taxRegime)} here.">(now ${sentenceCase(emp.taxRegime)})</span>` : ""}
+                      ${emp ? `<button data-emp="${emp.id}" data-switch-to="${emp.taxRegime === "OLD" ? "NEW" : "OLD"}" class="switch-regime-btn" style="display:block;margin-top:4px;font-size:11px;padding:2px 6px;" title="Switches the employee's regime for future payroll runs - already-calculated lines (including this one) are unaffected until recalculated.">Switch to ${sentenceCase(emp.taxRegime === "OLD" ? "NEW" : "OLD")}</button>` : ""}
+                    </td>
                     <td class="row gap-8">
                       <button data-line="${l.id}" class="toggle-line">${expandedLineId === l.id ? "Hide" : "Details"}</button>
                       <a href="#/payroll-runs/${run.id}/slip/${l.id}"><button>Slip</button></a>
+                      ${emp ? `<a href="#/employees/${emp.id}/regime/from-run/${run.id}"><button>Regime Comparison</button></a>` : ""}
                     </td>
                   </tr>
                   ${expandedLineId === l.id ? `<tr><td colspan="12">${renderLineDetail(l, emp, run)}</td></tr>` : ""}
@@ -386,6 +390,24 @@ function renderPayrollRunDetail(container, runId) {
         }
       });
     }
+
+    container.querySelectorAll(".switch-regime-btn").forEach((btn) => {
+      btn.addEventListener("click", async () => {
+        const employee = db.employees.find((e) => e.id === btn.dataset.emp);
+        const newRegime = btn.dataset.switchTo;
+        if (!employee) return;
+        if (!confirm(`Switch ${employee.fullName} from ${sentenceCase(employee.taxRegime).toLowerCase()} to ${sentenceCase(newRegime).toLowerCase()} regime? This takes effect from the next payroll run onward - this run's already-calculated line is unaffected until you recalculate.`)) return;
+        try {
+          const fromRegime = employee.taxRegime;
+          PayrollEngine.applyRegimeSwitch(db, employee.id, newRegime);
+          logAudit("Employee", employee.id, "REGIME_SWITCH", `${employee.fullName} (${employee.employeeCode}) switched from ${fromRegime} to ${newRegime} regime`);
+          await persist();
+          render();
+        } catch (err) {
+          alert(err.message);
+        }
+      });
+    });
 
     container.querySelectorAll(".toggle-line").forEach((btn) => {
       btn.addEventListener("click", () => {
