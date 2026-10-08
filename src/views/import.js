@@ -26,20 +26,21 @@ registerView("import", "Payroll", "Import Wizard", (container) => {
   }
 
   function render() {
-    if (db.companies.length === 0) {
-      container.innerHTML = `<div class="card"><p class="text-muted">No company set up yet. <a href="#/companies/new">Add your first company</a> to get started.</p></div>`;
-      return;
-    }
-    const defaultCompanyId = getActiveCompanyId();
+    const hasCompanies = db.companies.length > 0;
+    const defaultCompanyId = hasCompanies ? getActiveCompanyId() : null;
     container.innerHTML = `
       <div class="card">
-        <div class="form-grid">
+        ${
+          hasCompanies
+            ? `<div class="form-grid">
           <div>
             <label>Default Company (Legal Entity)</label>
             <select id="default-company-select">${db.companies.map((c) => `<option value="${c.id}" ${c.id === defaultCompanyId ? "selected" : ""}>${escapeHtml(c.name)}</option>`).join("")}</select>
           </div>
         </div>
-        <p class="text-muted" style="font-size:12px;">Used only when a row's own "Legal Entity" column is left blank (or for sheets that don't have that column) - every row with an explicit Legal Entity always goes to that company instead, regardless of this setting.</p>
+        <p class="text-muted" style="font-size:12px;">Used only when a row's own "Legal Entity" column is left blank (or for sheets that don't have that column) - every row with an explicit Legal Entity always goes to that company instead, regardless of this setting.</p>`
+            : `<p class="text-muted">No company set up yet - that's fine, you don't need one first. Just fill in every row's "Legal Entity" column with each company's name in your template; a company that doesn't exist yet is created automatically from that name during import. (You can also <a href="#/companies/new">add a company manually</a> first if you'd rather pick it from a dropdown here instead.)</p>`
+        }
         <h3>1. Download a Template</h3>
         <p class="text-muted">The Combined Setup Template covers everything you need for onboarding many employees at once (Employee Master, Salary Structure, Investment Declaration, Previous Employer), plus a step-by-step Instructions tab. Use Monthly Payroll Input separately, each pay period, for LOP days or one-off bonus/incentive/overtime/arrears.</p>
         <div class="row gap-8">
@@ -99,9 +100,12 @@ registerView("import", "Payroll", "Import Wizard", (container) => {
       </div>
     `;
 
-    document.getElementById("default-company-select").addEventListener("change", (e) => {
-      setActiveCompanyId(e.target.value);
-    });
+    const defaultCompanySelect = document.getElementById("default-company-select");
+    if (defaultCompanySelect) {
+      defaultCompanySelect.addEventListener("change", (e) => {
+        setActiveCompanyId(e.target.value);
+      });
+    }
 
     document.getElementById("btn-download-combined").addEventListener("click", async () => {
       offerDownload("payroll-combined-setup-template.xlsx", await buildCombinedTemplateWorkbook(db));
@@ -114,7 +118,7 @@ registerView("import", "Payroll", "Import Wizard", (container) => {
     document.getElementById("combined-file-input").addEventListener("change", async (e) => {
       const file = e.target.files[0];
       if (!file) return;
-      const companyId = document.getElementById("default-company-select").value;
+      const companyId = defaultCompanySelect ? defaultCompanySelect.value : null;
       try {
         const buf = await file.arrayBuffer();
         const batch = runCombinedImport(db, buf, file.name, companyId);
@@ -131,7 +135,7 @@ registerView("import", "Payroll", "Import Wizard", (container) => {
       const file = e.target.files[0];
       if (!file) return;
       const type = document.getElementById("upload-template-select").value;
-      const companyId = document.getElementById("default-company-select").value;
+      const companyId = defaultCompanySelect ? defaultCompanySelect.value : null;
       try {
         const buf = await file.arrayBuffer();
         const batch = runSingleImport(db, type, buf, file.name, companyId);

@@ -388,7 +388,13 @@ function toDateOrNullI(v) {
  */
 function resolveRowCompanyId(db, row, defaultCompanyId, rowErrors) {
   const entityInput = String(row["Legal Entity"] ?? "").trim();
-  if (!entityInput) return defaultCompanyId;
+  if (!entityInput) {
+    if (!defaultCompanyId) {
+      rowErrors.push(`No "Legal Entity" given for this row, and there's no default company to fall back to (none exist yet) - fill in Legal Entity with the company name to create/use.`);
+      return null;
+    }
+    return defaultCompanyId;
+  }
   const match = db.companies.find((c) => c.name.trim().toLowerCase() === entityInput.toLowerCase());
   if (match) return match.id;
   const created = {
