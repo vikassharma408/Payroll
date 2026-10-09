@@ -50,6 +50,31 @@ function getSalaryRegisterRows(db, payrollRunId) {
     });
 }
 
+// Combines the Salary Register rows of several runs (any mix of companies
+// and/or months) into one export - used for "this month, every company" and
+// "the whole year" exports from the Salary Register browser. Tagging columns
+// are added in front so a reader can tell which row came from where once
+// rows from multiple runs are mixed together in one sheet.
+function buildCombinedRegisterExport(db, runs, { includeMonthColumn, includeCompanyColumn }) {
+  const columns = [];
+  if (includeMonthColumn) columns.push("Month");
+  if (includeCompanyColumn) columns.push("Company");
+  columns.push(...SALARY_REGISTER_COLUMNS.map((c) => c[0]));
+  const rows = [];
+  for (const run of runs) {
+    const company = db.companies.find((c) => c.id === run.companyId);
+    const monthTag = `${FY_MONTH_NAMES[run.payrollMonthIndex - 1].slice(0, 3)}-${String(run.calendarYear).slice(-2)}`;
+    for (const r of getSalaryRegisterRows(db, run.id)) {
+      const row = [];
+      if (includeMonthColumn) row.push(monthTag);
+      if (includeCompanyColumn) row.push(company ? company.name : "");
+      row.push(...SALARY_REGISTER_COLUMNS.map((c) => r[c[1]]));
+      rows.push(row);
+    }
+  }
+  return { columns, rows };
+}
+
 function buildBankFileData(db, payrollRunId) {
   const run = db.payrollRuns.find((r) => r.id === payrollRunId);
   const fy = db.financialYears.find((f) => f.id === run.financialYearId);
@@ -290,5 +315,5 @@ function downloadCsv(filename, headers, rows) {
 }
 
 if (typeof module !== "undefined" && module.exports) {
-  module.exports = { getSalaryRegisterRows, SALARY_REGISTER_COLUMNS, buildBankFileData, REPORT_TYPES, getReportData, compareRuns, toCsv };
+  module.exports = { getSalaryRegisterRows, SALARY_REGISTER_COLUMNS, buildCombinedRegisterExport, buildBankFileData, REPORT_TYPES, getReportData, compareRuns, toCsv };
 }

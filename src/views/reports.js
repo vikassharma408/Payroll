@@ -7,8 +7,152 @@ function redirectNote(label) {
     container.innerHTML = `<div class="card"><p class="text-muted">${label} is generated from a specific payroll run. Open a run from <a href="#/payroll-runs">Payroll Runs</a> and use the button there.</p></div>`;
   };
 }
-registerView("salary-register", "Payroll", "Salary Register", redirectNote("The Salary Register"));
+registerView("salary-register", "Payroll", "Salary Register", renderSalaryRegisterBrowser);
 registerView("salary-slips", "Payroll", "Salary Slips", renderSalarySlipsBrowser);
+
+// --- Salary Register browser: Company > Month, with a combined "All
+// Companies" view per month and whole-year exports. -----------------------
+function renderSalaryRegisterBrowser(container) {
+  if (db.companies.length === 0) {
+    container.innerHTML = `<div class="card"><p class="text-muted">No company set up yet. <a href="#/companies/new">Add your first company</a> to get started.</p></div>`;
+    return;
+  }
+  const viewCompanyIds = filteredCompanyIds();
+  const companies = db.companies.filter((c) => viewCompanyIds.includes(c.id));
+  let selectedCompanyId = "ALL";
+  let mode = "browse"; // "browse" | "combined"
+  let combinedKey = null; // "YYYY-M" when mode === "combined"
+
+  function fy() {
+    return currentFy();
+  }
+
+  function runsInScope() {
+    return db.payrollRuns
+      .filter((r) => r.lines.length > 0 && viewCompanyIds.includes(r.companyId))
+      .filter((r) => selectedCompanyId === "ALL" || r.companyId === selectedCompanyId);
+  }
+
+  function monthGroups() {
+    const byMonth = new Map();
+    for (const r of runsInScope()) {
+      const key = `${r.calendarYear}-${r.calendarMonth}`;
+      if (!byMonth.has(key)) byMonth.set(key, { key, year: r.calendarYear, month: r.calendarMonth, label: monthLabel(r), runs: [] });
+      byMonth.get(key).runs.push(r);
+    }
+    return [...byMonth.values()].sort((a, b) => new Date(b.year, b.month - 1, 1) - new Date(a.year, a.month - 1, 1));
+  }
+
+  function exportMonth(group) {
+    if (group.runs.length === 1) {
+      const rows = getSalaryRegisterRows(db, group.runs[0].id);
+      downloadCsv(`salary-register-${group.label.replace(/\s+/g, "-")}.csv`, SALARY_REGISTER_COLUMNS.map((c) => c[0]), rows.map((r) => SALARY_REGISTER_COLUMNS.map((c) => r[c[1]])));
+      return;
+    }
+    const { columns, rows } = buildCombinedRegisterExport(db, group.runs, { includeMonthColumn: false, includeCompanyColumn: true });
+    downloadCsv(`salary-register-all-companies-${group.label.replace(/\s+/g, "-")}.csv`, columns, rows);
+  }
+
+  function exportYear() {
+    const currentFyObj = fy();
+    const runs = runsInScope().filter((r) => !currentFyObj || r.financialYearId === currentFyObj.id);
+    const { columns, rows } = buildCombinedRegisterExport(db, runs, { includeMonthColumn: true, includeCompanyColumn: selectedCompanyId === "ALL" });
+    const scopeLabel = selectedCompanyId === "ALL" ? "all-companies" : (companies.find((c) => c.id === selectedCompanyId) || {}).name || "company";
+    downloadCsv(`salary-register-fy${currentFyObj ? currentFyObj.code : ""}-${String(scopeLabel).replace(/\s+/g, "-")}.csv`, columns, rows);
+  }
+
+  function renderBrowse() {
+    const groups = monthGroups();
+    const rows = groups
+      .map((g) => {
+        const companyNames = [...new Set(g.runs.map((r) => (db.companies.find((c) => c.id === r.companyId) || {}).name || "-"))].join(", ");
+        const employeeCount = g.runs.reduce((s, r) => s + r.lines.length, 0);
+        const viewCell = g.runs.length === 1 ? `<a href="#/payroll-runs/${g.runs[0].id}/register"><button>View</button></a>` : `<button class="btn-view-combined" data-key="${g.key}">View Combined</button>`;
+        return `<tr>
+          <td>${g.label}</td>
+          ${selectedCompanyId === "ALL" ? `<td>${escapeHtml(companyNames)}</td>` : ""}
+          <td>${employeeCount}</td>
+          <td>${viewCell}</td>
+          <td><button class="btn-export-month" data-key="${g.key}">Export CSV</button></td>
+        </tr>`;
+      })
+      .join("");
+
+    container.innerHTML = `
+      <div class="row between mt-16" style="margin-bottom:16px; flex-wrap:wrap; gap:12px;">
+        <div>
+          <label>Company</label>
+          <select id="register-company-select">
+            <option value="ALL" ${selectedCompanyId === "ALL" ? "selected" : ""}>All Companies (Combined)</option>
+            ${companies.map((c) => `<option value="${c.id}" ${c.id === selectedCompanyId ? "selected" : ""}>${escapeHtml(c.name)}</option>`).join("")}
+          </select>
+        </div>
+        <button id="btn-export-year" class="primary">Export Full Year (FY ${fy() ? fy().code : "-"})</button>
+      </div>
+      <div class="card mt-16">
+        <table>
+          <thead><tr><th>Month</th>${selectedCompanyId === "ALL" ? "<th>Companies</th>" : ""}<th>Employees</th><th></th><th></th></tr></thead>
+          <tbody>${rows || `<tr><td colspan="${selectedCompanyId === "ALL" ? 5 : 4}" class="text-muted">No processed payroll runs yet. Open <a href="#/payroll-runs">Payroll Runs</a> to run one.</td></tr>`}</tbody>
+        </table>
+      </div>
+    `;
+
+    document.getElementById("register-company-select").addEventListener("change", (e) => {
+      selectedCompanyId = e.target.value;
+      renderBrowse();
+    });
+    document.getElementById("btn-export-year").addEventListener("click", exportYear);
+    container.querySelectorAll(".btn-export-month").forEach((btn) =>
+      btn.addEventListener("click", () => {
+        const group = groups.find((g) => g.key === btn.dataset.key);
+        if (group) exportMonth(group);
+      }),
+    );
+    container.querySelectorAll(".btn-view-combined").forEach((btn) =>
+      btn.addEventListener("click", () => {
+        combinedKey = btn.dataset.key;
+        mode = "combined";
+        renderCombined();
+      }),
+    );
+  }
+
+  function renderCombined() {
+    const group = monthGroups().find((g) => g.key === combinedKey);
+    if (!group) {
+      mode = "browse";
+      renderBrowse();
+      return;
+    }
+    const { columns, rows } = buildCombinedRegisterExport(db, group.runs, { includeMonthColumn: false, includeCompanyColumn: true });
+    container.innerHTML = `
+      <div class="row between no-print">
+        <button id="btn-back-to-register-browse">&larr; Back to Salary Register</button>
+        <div class="row gap-8">
+          <button id="btn-export-combined">Export CSV</button>
+          <button id="btn-print-combined">Print</button>
+        </div>
+      </div>
+      <div class="card mt-16">
+        <h2>Salary Register - All Companies - ${group.label}</h2>
+        <div style="overflow-x:auto;">
+          <table>
+            <thead><tr>${columns.map((h) => `<th>${h}</th>`).join("")}</tr></thead>
+            <tbody>${rows.map((r) => `<tr>${r.map((v, i) => `<td>${typeof v === "number" ? rupees(v) : escapeHtml(v || "")}</td>`).join("")}</tr>`).join("")}</tbody>
+          </table>
+        </div>
+      </div>
+    `;
+    document.getElementById("btn-back-to-register-browse").addEventListener("click", () => {
+      mode = "browse";
+      renderBrowse();
+    });
+    document.getElementById("btn-export-combined").addEventListener("click", () => exportMonth(group));
+    document.getElementById("btn-print-combined").addEventListener("click", () => window.print());
+  }
+
+  mode === "combined" ? renderCombined() : renderBrowse();
+}
 registerView("bank-files", "Payroll", "Bank Payment Files", redirectNote("The Bank Payment File"));
 
 // --- Salary Slips browser: Company > Month > Employee, with search and bulk
