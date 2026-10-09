@@ -536,12 +536,27 @@ registerView("dashboard", "Overview", "Dashboard", (container) => {
 
   // Monthly payroll cost (gross + employer contributions - the actual
   // business expense, not just employee take-home) across every processed
-  // run this FY, in calendar order - the trend chart below.
-  const costTrendPoints = runsThisFy
-    .filter((r) => r.lines.length > 0)
-    .slice()
-    .sort((a, b) => a.payrollMonthIndex - b.payrollMonthIndex)
-    .map((r) => ({ label: FY_MONTH_NAMES[r.payrollMonthIndex - 1].slice(0, 3), value: r.lines.reduce((s, l) => s + l.totalEmployerCost, 0) }));
+  // run this FY, in calendar order - the trend chart below. Grouped by
+  // calendar month (not one point per run record): more than one run can
+  // share a month - multiple payroll groups processed separately, or
+  // several companies in view at once - and those must be SUMMED into one
+  // point per month, not plotted as repeated same-month points (which
+  // produced a nonsensical "6x Apr" x-axis when 6 runs existed for April).
+  const costByMonthIndex = new Map();
+  for (const r of runsThisFy) {
+    if (r.lines.length === 0) continue;
+    const cost = r.lines.reduce((s, l) => s + l.totalEmployerCost, 0);
+    costByMonthIndex.set(r.payrollMonthIndex, (costByMonthIndex.get(r.payrollMonthIndex) || 0) + cost);
+  }
+  const costTrendPoints = [...costByMonthIndex.entries()]
+    .sort((a, b) => a[0] - b[0])
+    .map(([monthIndex, value]) => ({ label: FY_MONTH_NAMES[monthIndex - 1].slice(0, 3), value }));
+  // A single month has nothing to trend against - the "Monthly Payroll
+  // Cost" hero card above already shows that one figure; a one-point
+  // chart (or the dataviz skill's own advice: never a one-bar bar chart)
+  // would just repeat it less clearly. The chart earns its place only
+  // once there's a second month to compare against.
+  const showCostTrendChart = costTrendPoints.length >= 2;
 
   const activeEmployeeList = companyEmployees.filter((e) => e.status !== "INACTIVE");
   const oldRegimeCount = activeEmployeeList.filter((e) => e.taxRegime === "OLD").length;
@@ -586,7 +601,7 @@ registerView("dashboard", "Overview", "Dashboard", (container) => {
     <p class="text-muted">FY ${currentFy ? currentFy.code : "-"} · ${activeEmployees} active employee${activeEmployees === 1 ? "" : "s"}${viewCompanyIds.length > 1 ? ` (${escapeHtml(companyFilterLabel())})` : ""}</p>
     <div class="hero-card-grid">${heroCards}</div>
     ${
-      costTrendPoints.length > 0
+      showCostTrendChart
         ? `<div class="card">
       <h3>Payroll Cost Trend</h3>
       <p class="text-muted" style="font-size:12px;">Monthly payroll cost (gross salary + employer contributions)${viewCompanyIds.length > 1 ? ` - ${escapeHtml(companyFilterLabel())}` : ""}, FY ${currentFy.code}.</p>
@@ -611,7 +626,7 @@ registerView("dashboard", "Overview", "Dashboard", (container) => {
       <p class="text-muted">Add employees, define their salary structure, and process a monthly payroll run from the sidebar - each "New"/"Create" form has its own Legal Entity field for a multi-company setup. The eye icon at the top controls which compan${db.companies.length > 1 ? "ies you're viewing here" : "y you're viewing"}. <a href="#/backup">Backup &amp; Restore</a> keeps your data safe - this app stores everything locally in your browser.</p>
     </div>
   `;
-  if (costTrendPoints.length > 0) wireTrendChartHover(container, "payroll-cost-trend", costTrendPoints, (v) => rupees(v));
+  if (showCostTrendChart) wireTrendChartHover(container, "payroll-cost-trend", costTrendPoints, (v) => rupees(v));
 });
 
 // --- Tax Rules (read-only viewer) --------------------------------------
