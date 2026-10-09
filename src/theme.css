@@ -190,7 +190,7 @@ button:disabled { opacity: 0.5; cursor: not-allowed; }
 .row.between { justify-content: space-between; }
 .gap-8 { gap: 8px; }
 .mt-16 { margin-top: 16px; }
-.form-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 12px; }
+.form-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); gap: 12px; }
 
 .theme-toggle {
   border-radius: 999px;
