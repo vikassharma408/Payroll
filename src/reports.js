@@ -12,24 +12,35 @@ function sumCodesR(map, codes) {
 }
 
 // A manual adjustment (PayrollEngine.addAdjustment - loan recovery, F&F
-// notice-pay recovery, etc.) is deliberately kept out of line.totalDeductions
-// (it's not a statutory/taxed component) and only baked into line.netSalary.
-// Every report below reads totalDeductions for display/export, so without
-// this correction Gross - Total Deductions != Net Salary the moment any
-// adjustment exists - the same reconciliation already applied to the
-// Payslip (views/payroll-runs.js buildSlipCardHtml) needs to hold here too.
-function lineAdjustmentsTotal(line) {
-  return line.adjustments.reduce((s, a) => s + a.amount, 0);
+// notice-pay recovery, exempt Gratuity/Leave Encashment, etc.) is
+// deliberately kept out of line.totalDeductions (it's not a statutory/taxed
+// component) and only baked into line.netSalary. Every report below reads
+// totalDeductions for display/export, so without a correction Gross -
+// Total Deductions != Net Salary the moment any adjustment exists - the
+// same reconciliation applied to the Payslip (views/payroll-runs.js
+// buildSlipCardHtml) needs to hold here too. An adjustment can reduce net
+// pay (routed through Total Deductions, like any other deduction) or
+// increase it (an F&F exempt payout, routinely bigger than the month's
+// actual statutory deductions) - folding both into one signed figure
+// could drive Total Deductions negative, which reads as a confusing
+// double-negative on a report; splitting by sign keeps Total Deductions a
+// plain, always-sensible number, with net-pay-increasing adjustments
+// broken out as their own "Other Additions" column instead.
+function linePositiveAdjustmentsTotal(line) {
+  return line.adjustments.filter((a) => a.amount > 0).reduce((s, a) => s + a.amount, 0);
+}
+function lineNegativeAdjustmentsMagnitude(line) {
+  return -line.adjustments.filter((a) => a.amount < 0).reduce((s, a) => s + a.amount, 0);
 }
 function reconciledTotalDeductions(line) {
-  return line.totalDeductions - lineAdjustmentsTotal(line);
+  return line.totalDeductions + lineNegativeAdjustmentsMagnitude(line);
 }
 
 const SALARY_REGISTER_COLUMNS = [
   ["Employee Code", "employeeCode"], ["Employee Name", "employeeName"], ["PAN", "pan"], ["Department", "department"], ["Designation", "designation"],
   ["Basic", "basic"], ["HRA", "hra"], ["Special Allowance", "specialAllowance"], ["Other Allowances", "otherAllowances"], ["Bonus", "bonus"], ["Incentive", "incentive"],
   ["Gross Salary", "grossSalary"], ["Employee PF", "employeePf"], ["Employee ESI", "employeeEsi"], ["Professional Tax", "professionalTax"], ["LWF", "lwf"],
-  ["Other Deductions", "otherDeductions"], ["TDS", "tds"], ["Adjustments", "adjustments"], ["Total Deductions", "totalDeductions"], ["Net Salary", "netSalary"],
+  ["Other Deductions", "otherDeductions"], ["TDS", "tds"], ["Total Deductions", "totalDeductions"], ["Other Additions", "otherAdditions"], ["Net Salary", "netSalary"],
   ["Employer PF", "employerPf"], ["Employer ESI", "employerEsi"], ["Gratuity", "gratuity"], ["Total CTC / Employer Cost", "totalCtc"],
 ];
 
@@ -57,7 +68,7 @@ function getSalaryRegisterRows(db, payrollRunId) {
         basic: earn["BASIC"] ?? 0, hra: earn["HRA"] ?? 0, specialAllowance: earn["SPECIAL_ALLOWANCE"] ?? 0, otherAllowances: sumCodesR(earn, OTHER_ALLOWANCE_CODES) + arrearsTopUps,
         bonus: earn["BONUS"] ?? 0, incentive: earn["INCENTIVE"] ?? 0, grossSalary: line.grossSalary,
         employeePf: d["EMPLOYEE_PF"] ?? 0, employeeEsi: d["EMPLOYEE_ESI"] ?? 0, professionalTax: d["PROFESSIONAL_TAX"] ?? 0, lwf: d["LWF"] ?? 0,
-        otherDeductions: sumCodesR(d, OTHER_DEDUCTION_CODES), tds: line.tdsMonthly, adjustments: lineAdjustmentsTotal(line), totalDeductions: reconciledTotalDeductions(line), netSalary: line.netSalary,
+        otherDeductions: sumCodesR(d, OTHER_DEDUCTION_CODES), tds: line.tdsMonthly, totalDeductions: reconciledTotalDeductions(line), otherAdditions: linePositiveAdjustmentsTotal(line), netSalary: line.netSalary,
         employerPf: ec["EMPLOYER_PF"] ?? 0, employerEsi: ec["EMPLOYER_ESI"] ?? 0, gratuity: ec["GRATUITY"] ?? 0, employerNps: ec["EMPLOYER_NPS"] ?? 0,
         otherEmployerCost: sumCodesR(ec, OTHER_EMPLOYER_CODES), totalCtc: line.totalEmployerCost,
       };
@@ -273,11 +284,11 @@ function getReportData(db, key, params) {
       const byEmployee = new Map();
       for (const line of lines) {
         const e = db.employees.find((x) => x.id === line.employeeId) || {};
-        const g = byEmployee.get(e.employeeCode) || { name: e.fullName, gross: 0, ded: 0, tds: 0, net: 0, months: 0 };
-        g.gross += line.grossSalary; g.ded += reconciledTotalDeductions(line); g.tds += line.tdsMonthly; g.net += line.netSalary; g.months++;
+        const g = byEmployee.get(e.employeeCode) || { name: e.fullName, gross: 0, ded: 0, add: 0, tds: 0, net: 0, months: 0 };
+        g.gross += line.grossSalary; g.ded += reconciledTotalDeductions(line); g.add += linePositiveAdjustmentsTotal(line); g.tds += line.tdsMonthly; g.net += line.netSalary; g.months++;
         byEmployee.set(e.employeeCode, g);
       }
-      return { columns: ["Employee Code", "Employee Name", "Months Processed", "Gross Salary (YTD)", "Total Deductions (YTD)", "TDS (YTD)", "Net Salary (YTD)"], rows: [...byEmployee.entries()].map(([code, g]) => [code, g.name, g.months, g.gross, g.ded, g.tds, g.net]) };
+      return { columns: ["Employee Code", "Employee Name", "Months Processed", "Gross Salary (YTD)", "Total Deductions (YTD)", "TDS (YTD)", "Other Additions (YTD)", "Net Salary (YTD)"], rows: [...byEmployee.entries()].map(([code, g]) => [code, g.name, g.months, g.gross, g.ded, g.tds, g.add, g.net]) };
     }
     case "investment-declaration": {
       const decls = db.investmentDeclarations.filter((d) => d.financialYearId === params.financialYearId && params.companyIds.includes((db.employees.find((e) => e.id === d.employeeId) || {}).companyId));

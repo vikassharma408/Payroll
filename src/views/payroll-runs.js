@@ -851,25 +851,31 @@ function buildSlipCardHtml(run, line) {
   const ytdDeductionsByCode = ytdDeductionCodes
     .map((code) => [code, priorLines.reduce((s, l) => s + (l.deductions[code] || 0), 0)])
     .filter(([, amt]) => amt !== 0);
-  // A manual adjustment (addAdjustment) is deliberately kept out of
-  // totalDeductions/grossSalary - it's not a statutory or taxed component,
-  // it just moves net pay up or down by a flat amount (see the quick
-  // adjustment form's own copy). So the Deductions table's own displayed
-  // total has to be built back up to match: grossSalary minus this equals
-  // Net Salary Payable, same identity as netSalary = grossSalary -
-  // totalDeductions + adjustmentsTotal. Subtracting adjustmentsTotal here
-  // turns a negative (net-pay-reducing) adjustment into a positive
-  // contribution to the deductions total, matching the display convention
-  // below of showing every deduction row as a plain positive amount.
-  const ytdAdjustmentsTotal = priorLines.reduce((s, l) => s + l.adjustments.reduce((s2, a) => s2 + a.amount, 0), 0);
-  const ytdDeductionsTotal = ytdDeductionsByCode.reduce((s, [, amt]) => s + amt, 0) + ytdTds - ytdAdjustmentsTotal;
-  const adjustmentsTotal = line.adjustments.reduce((s, a) => s + a.amount, 0);
+  // A manual adjustment can go either way - a loan recovery reduces net pay
+  // like any deduction, but an F&F settlement's exempt Gratuity/Leave
+  // Encashment portion INCREASES it (and is often large - routinely bigger
+  // than the month's actual statutory deductions). Folding both signs into
+  // one "Total Deductions" figure forced it negative whenever the positive
+  // ones won, which read as a double negative on the payslip. Splitting by
+  // sign keeps Total Deductions a plain, always-sensible positive number
+  // (statutory deductions + net-pay-reducing adjustments), with net-pay-
+  // increasing adjustments shown as their own "Other Additions" block
+  // instead - Gross + Other Additions - Total Deductions still identically
+  // equals Net Salary Payable (line.netSalary), just split differently.
+  const ytdPositiveAdjustmentsTotal = priorLines.reduce((s, l) => s + l.adjustments.filter((a) => a.amount > 0).reduce((s2, a) => s2 + a.amount, 0), 0);
+  const ytdNegativeAdjustmentsMagnitude = priorLines.reduce((s, l) => s - l.adjustments.filter((a) => a.amount < 0).reduce((s2, a) => s2 + a.amount, 0), 0);
+  const ytdDeductionsTotal = ytdDeductionsByCode.reduce((s, [, amt]) => s + amt, 0) + ytdTds + ytdNegativeAdjustmentsMagnitude;
+  const positiveAdjustments = line.adjustments.filter((a) => a.amount > 0);
+  const negativeAdjustments = line.adjustments.filter((a) => a.amount < 0);
+  const additionsTotal = positiveAdjustments.reduce((s, a) => s + a.amount, 0);
+  const negativeAdjustmentsMagnitude = -negativeAdjustments.reduce((s, a) => s + a.amount, 0);
   const annualTaxLiability = line.taxCalcSnapshot[line.regimeUsed.toLowerCase()].totalTaxLiability;
 
   const earningRows = Object.entries(line.earnings).filter(([, v]) => v !== 0).map(([code, amt]) => `<tr><td>${componentLabel(code)}</td><td>${rupees(amt)}</td></tr>`).join("");
   const employerRows = Object.entries(line.employerContributions).filter(([, v]) => v !== 0).map(([code, amt]) => `<tr><td>${componentLabel(code)}</td><td>${rupees(amt)}</td></tr>`).join("");
   const deductionRows = Object.entries(line.deductions).filter(([, v]) => v !== 0).map(([code, amt]) => `<tr><td>${componentLabel(code)}</td><td>${rupees(amt)}</td></tr>`).join("");
-  const adjustmentRows = line.adjustments.filter((a) => a.amount !== 0).map((a) => `<tr><td>${escapeHtml(a.reason)}</td><td>${rupees(-a.amount)}</td></tr>`).join("");
+  const additionRows = positiveAdjustments.map((a) => `<tr><td>${escapeHtml(a.reason)}</td><td>${rupees(a.amount)}</td></tr>`).join("");
+  const deductionAdjustmentRows = negativeAdjustments.map((a) => `<tr><td>${escapeHtml(a.reason)}</td><td>${rupees(-a.amount)}</td></tr>`).join("");
 
   return `
     <div class="card mt-16">
@@ -916,11 +922,21 @@ function buildSlipCardHtml(run, line) {
           <table>
             ${deductionRows}
             <tr><td>TDS</td><td>${rupees(line.tdsMonthly)}</td></tr>
-            ${adjustmentRows}
-            <tr><td><strong>Total Deductions</strong></td><td><strong>${rupees(line.totalDeductions - adjustmentsTotal)}</strong></td></tr>
+            ${deductionAdjustmentRows}
+            <tr><td><strong>Total Deductions</strong></td><td><strong>${rupees(line.totalDeductions + negativeAdjustmentsMagnitude)}</strong></td></tr>
           </table>
         </div>
       </div>
+      ${
+        additionRows
+          ? `<div class="card-grid mt-16">
+              <div>
+                <h3>Other Additions (non-taxable)</h3>
+                <table>${additionRows}<tr><td><strong>Total Additions</strong></td><td><strong>${rupees(additionsTotal)}</strong></td></tr></table>
+              </div>
+            </div>`
+          : ""
+      }
       <div class="row between" style="background:var(--ink); padding:10px 16px; border-radius:8px; margin-top:16px;">
         <strong>Net Salary Payable</strong><strong>${rupees(line.netSalary)}</strong>
       </div>
@@ -940,8 +956,8 @@ function buildSlipCardHtml(run, line) {
       </div>
       <h3 class="mt-16">Year-to-Date Totals (FY ${fy.code}, through ${monthLabel(run)})</h3>
       <table>
-        <thead><tr><th>Gross (YTD)</th>${ytdDeductionsByCode.map(([code]) => `<th>${componentLabel(code)} (YTD)</th>`).join("")}<th>TDS (YTD)</th><th>Total Deductions (YTD)</th><th>Net (YTD)</th></tr></thead>
-        <tbody><tr><td>${rupees(ytdGross)}</td>${ytdDeductionsByCode.map(([, amt]) => `<td>${rupees(amt)}</td>`).join("")}<td>${rupees(ytdTds)}</td><td><strong>${rupees(ytdDeductionsTotal)}</strong></td><td>${rupees(ytdNet)}</td></tr></tbody>
+        <thead><tr><th>Gross (YTD)</th>${ytdDeductionsByCode.map(([code]) => `<th>${componentLabel(code)} (YTD)</th>`).join("")}<th>TDS (YTD)</th><th>Total Deductions (YTD)</th>${ytdPositiveAdjustmentsTotal ? "<th>Other Additions (YTD)</th>" : ""}<th>Net (YTD)</th></tr></thead>
+        <tbody><tr><td>${rupees(ytdGross)}</td>${ytdDeductionsByCode.map(([, amt]) => `<td>${rupees(amt)}</td>`).join("")}<td>${rupees(ytdTds)}</td><td><strong>${rupees(ytdDeductionsTotal)}</strong></td>${ytdPositiveAdjustmentsTotal ? `<td>${rupees(ytdPositiveAdjustmentsTotal)}</td>` : ""}<td>${rupees(ytdNet)}</td></tr></tbody>
       </table>
       <p class="text-muted mt-16" style="text-align:center; font-size:12px;">This is a system-generated payslip and does not require a signature.</p>
     </div>

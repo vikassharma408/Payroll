@@ -23,6 +23,20 @@
 
   const PERQ_CHECK_CODES = ["EMPLOYER_PF", "EMPLOYER_NPS", "EMPLOYER_SUPERANNUATION"];
   const BASIC_DA_CODES = ["BASIC", "DA"];
+  // Sec 19 (old Sec 10(10AA)) / Rule 2BA's own salary definition for leave
+  // encashment exemption is narrower-in-one-way, broader-in-another than
+  // the plain "Basic+DA" used elsewhere in this file (HRA exemption,
+  // Gratuity Act wages, the PF/NPS perquisite check): it adds turnover-based
+  // commission, but only counts DA "to the extent it forms part of
+  // retirement benefits." This app has no per-component flag distinguishing
+  // turnover-based commission from a discretionary/performance one, or DA
+  // that counts for retirement benefits from DA that doesn't - so it
+  // assumes any COMMISSION component is turnover-based (the common case
+  // where a Commission component exists at all) and that all of DA counts,
+  // consistent with how Gratuity already treats DA. Flagged to the admin in
+  // the Leave Encashment panel's own note so they can adjust manually if
+  // either assumption doesn't hold for a given employee.
+  const LEAVE_ENCASHMENT_SALARY_CODES = ["BASIC", "DA", "COMMISSION"];
   const NOT_PRORATED_DEDUCTION_CODES = ["PROFESSIONAL_TAX", "LWF", "LOAN_RECOVERY", "SALARY_ADVANCE"];
   const PAYROLL_STATUS_ORDER = ["DRAFT", "CALCULATED", "REVIEWED", "APPROVED", "LOCKED", "PAID"];
 
@@ -889,7 +903,17 @@
     totalMonths = Math.max(0, totalMonths);
     const completedYears = Math.floor(totalMonths / 12);
     const extraMonths = totalMonths % 12;
-    const roundedYears = extraMonths >= 6 ? completedYears + 1 : completedYears;
+    // Payment of Gratuity Act, 1972, Sec 4(2) proviso: a year's gratuity is
+    // payable for "the completed year of service or part thereof in excess
+    // of six months" - IN EXCESS OF six months, not six months exactly, so
+    // an employee at precisely 6 years 6 months 0 days gets 6, not 7.
+    // extraMonths alone can't tell "exactly 6 months" from "6 months and a
+    // few days" (totalMonths above is whole-month-truncated), so the actual
+    // comparison is done at day precision against the exact 6-month mark
+    // measured from the last full-year service anniversary.
+    const lastAnniversary = new Date(start.getFullYear() + completedYears, start.getMonth(), start.getDate());
+    const sixMonthMark = new Date(lastAnniversary.getFullYear(), lastAnniversary.getMonth() + 6, lastAnniversary.getDate());
+    const roundedYears = end > sixMonthMark ? completedYears + 1 : completedYears;
     return { completedYears, extraMonths, roundedYears, totalMonths };
   }
 
@@ -916,7 +940,7 @@
       if (!line) continue;
       const runDate = new Date(run.calendarYear, run.calendarMonth - 1, 1);
       if (runDate >= cutoff) continue;
-      monthly.push({ runDate, amount: sumCodes(line.earnings, BASIC_DA_CODES) });
+      monthly.push({ runDate, amount: sumCodes(line.earnings, LEAVE_ENCASHMENT_SALARY_CODES) });
     }
     monthly.sort((a, b) => b.runDate - a.runDate);
     const last10 = monthly.slice(0, 10);
