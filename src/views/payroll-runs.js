@@ -558,6 +558,17 @@ function renderPayrollLineDetailPage(container, runId, lineId) {
   render();
 }
 
+function esiContinuityBadge(code, line, emp) {
+  if (code !== "EMPLOYEE_ESI" || !line.metrics) return "";
+  if (line.metrics.esiCoverageActiveThisMonth && !emp.esiApplicable) {
+    return ` <span class="badge neutral" title="ESI Applicable is off for this employee, but contribution-period continuity keeps ESI active through this period's end (1-Apr to 30-Sep, or 1-Oct to 31-Mar) since it was already active earlier in it.">Continuing</span>`;
+  }
+  if (line.metrics.esiCeilingExceededThisMonth) {
+    return ` <span class="badge neutral" title="Gross salary this month is above the ESI wage ceiling, but coverage continues through this contribution period's end regardless.">Above ceiling</span>`;
+  }
+  return "";
+}
+
 function renderLineDetail(line, emp, run) {
     const snap = line.taxCalcSnapshot[line.regimeUsed.toLowerCase()];
     const override = (run.overrides && run.overrides[line.employeeId]) || {};
@@ -635,7 +646,7 @@ function renderLineDetail(line, emp, run) {
           </div>
           <div>
             <h3>Deductions</h3>
-            <table>${Object.entries(line.deductions).map(([k, v]) => `<tr><td>${componentLabel(k)}</td><td>${rupees(v)}</td></tr>`).join("")}<tr><td>TDS${line.tdsOverridden ? ` <span class="badge bad" title="Manually overridden${line.tdsOverrideReason ? `: ${escapeHtml(line.tdsOverrideReason)}` : ""}. Computed figure was ${rupees(line.computedTdsMonthly)}.">Overridden</span>` : line.tdsMethodUsed === "PROPORTIONAL" ? ` <span class="badge neutral" title="Computed by the Proportional method (Setup > Tax Rules) - triggered by a Bonus, Arrears or this employee's joining month - instead of the Standard even monthly spread.">Proportional</span>` : ""}</td><td>${rupees(line.tdsMonthly)}</td></tr></table>
+            <table>${Object.entries(line.deductions).map(([k, v]) => `<tr><td>${componentLabel(k)}${esiContinuityBadge(k, line, emp)}</td><td>${rupees(v)}</td></tr>`).join("")}<tr><td>TDS${line.tdsOverridden ? ` <span class="badge bad" title="Manually overridden${line.tdsOverrideReason ? `: ${escapeHtml(line.tdsOverrideReason)}` : ""}. Computed figure was ${rupees(line.computedTdsMonthly)}.">Overridden</span>` : line.tdsMethodUsed === "PROPORTIONAL" ? ` <span class="badge neutral" title="Computed by the Proportional method (Setup > Tax Rules) - triggered by a Bonus, Arrears or this employee's joining month - instead of the Standard even monthly spread.">Proportional</span>` : ""}</td><td>${rupees(line.tdsMonthly)}</td></tr></table>
           </div>
           <div>
             <h3>Employer Contributions</h3>

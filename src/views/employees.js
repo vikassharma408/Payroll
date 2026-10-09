@@ -583,7 +583,7 @@ function renderSalaryStructureTab(container, employee, fy, onSaved) {
         noteEl.textContent = "";
         const ctc = num(targetCtcInput);
         try {
-          const result = PayrollEngine.generateStructureFromTemplate(db, selectedTemplateId, ctc);
+          const result = PayrollEngine.generateStructureFromTemplate(db, selectedTemplateId, ctc, effectiveFromInput);
           const generatedRows = result.components.filter((c) => c.componentId).map((c) => ({ componentId: c.componentId, componentCode: c.componentCode, monthlyAmount: c.monthlyAmount, formulaUsed: c.formulaTrace }));
           if (generatedRows.length < result.components.length) {
             errorEl.textContent = "Some template rows reference a salary component that no longer exists and were skipped.";

@@ -240,6 +240,7 @@ const SIDEBAR = [
       ["salary-templates", "Salary Structure Templates"],
       ["tax-rules", "Tax Rules"],
       ["pt-slabs", "PT Slabs"],
+      ["wage-ceilings", "Wage Ceilings"],
       ["backup", "Backup & Restore"],
     ],
   },
@@ -1038,6 +1039,118 @@ registerView("pt-slabs", "Setup", "PT Slabs", (container) => {
     });
     await persist();
     editingKey = null;
+    render();
+  });
+
+  render();
+});
+
+// --- Wage Ceilings (statutory PF/ESI thresholds, dated) -------------------
+registerView("wage-ceilings", "Setup", "Wage Ceilings", (container) => {
+  let editingId = null;
+  let addingNew = false;
+
+  function sorted() {
+    return db.wageCeilings.slice().sort((a, b) => new Date(b.effectiveFrom) - new Date(a.effectiveFrom));
+  }
+
+  function render() {
+    const rows = sorted()
+      .map(
+        (w) => `
+        <tr>
+          <td>${formatDateDisplay(w.effectiveFrom)}</td>
+          <td>${rupees(w.esiWageCeiling)}/month</td>
+          <td>${rupees(w.esiWageCeilingDisability)}/month</td>
+          <td>${rupees(w.pfWageCeiling)}/month</td>
+          <td>${escapeHtml(w.notes || "")}</td>
+          <td><button data-id="${w.id}" class="toggle-wc-edit">${editingId === w.id ? "Cancel" : "Edit"}</button> <button data-id="${w.id}" class="danger delete-wc">Delete</button></td>
+        </tr>
+        ${editingId === w.id ? `<tr><td colspan="6">${renderWcForm(w)}</td></tr>` : ""}`,
+      )
+      .join("");
+    container.innerHTML = `
+      <div class="card">
+        <p class="text-muted">The wage ceilings that decide PF Capped (Salary Structure Templates) and ESI contribution-period continuity. Each row is the complete config in force from its "Effective From" date until the next row's date - add a new row whenever a rate changes instead of editing an old one, so past payroll runs keep using the rate that was actually in force at the time.</p>
+        <table>
+          <thead><tr><th>Effective From</th><th>ESI Wage Ceiling</th><th>ESI Ceiling (Disability)</th><th>PF Wage Ceiling</th><th>Notes</th><th></th></tr></thead>
+          <tbody>${rows}</tbody>
+        </table>
+        <div class="row gap-8 mt-16">
+          <button id="btn-add-wc" class="primary">${addingNew ? "Cancel" : "+ Add Dated Config"}</button>
+        </div>
+        ${addingNew ? renderWcForm(null) : ""}
+      </div>
+    `;
+    wireDateFields(container);
+    container.querySelectorAll(".toggle-wc-edit").forEach((btn) =>
+      btn.addEventListener("click", () => {
+        editingId = editingId === btn.dataset.id ? null : btn.dataset.id;
+        addingNew = false;
+        render();
+      }),
+    );
+    container.querySelectorAll(".delete-wc").forEach((btn) =>
+      btn.addEventListener("click", async () => {
+        if (db.wageCeilings.length <= 1) {
+          alert("At least one wage ceiling config must remain.");
+          return;
+        }
+        if (!confirm("Delete this dated config? Payroll runs effective on or after its date will fall back to the next most recent one.")) return;
+        db.wageCeilings = db.wageCeilings.filter((w) => w.id !== btn.dataset.id);
+        await persist();
+        render();
+      }),
+    );
+    const addBtn = document.getElementById("btn-add-wc");
+    if (addBtn) addBtn.addEventListener("click", () => { addingNew = !addingNew; editingId = null; render(); });
+  }
+
+  function renderWcForm(w) {
+    const v = w || { effectiveFrom: "", esiWageCeiling: 21000, esiWageCeilingDisability: 25000, pfWageCeiling: 15000, notes: "" };
+    return `
+      <div class="card" style="margin:8px 0;">
+        <form id="wc-form" data-id="${w ? w.id : ""}">
+          <div class="form-grid">
+            <div><label>Effective From</label>${dateField("wc-effectiveFrom", v.effectiveFrom)}</div>
+            <div><label>ESI Wage Ceiling (monthly)</label><input type="number" min="0" name="esiWageCeiling" value="${v.esiWageCeiling}" /></div>
+            <div><label>ESI Wage Ceiling - Disability (monthly)</label><input type="number" min="0" name="esiWageCeilingDisability" value="${v.esiWageCeilingDisability}" /></div>
+            <div><label>PF Wage Ceiling (monthly)</label><input type="number" min="0" name="pfWageCeiling" value="${v.pfWageCeiling}" /></div>
+          </div>
+          <div><label class="mt-16">Notes</label><textarea name="notes" rows="2" style="width:100%;">${escapeHtml(v.notes || "")}</textarea></div>
+          <div id="wc-error" class="text-bad mt-16"></div>
+          <div class="row gap-8 mt-16"><button type="submit" class="primary">Save</button></div>
+        </form>
+      </div>
+    `;
+  }
+
+  container.addEventListener("submit", async (evt) => {
+    if (evt.target.id !== "wc-form") return;
+    evt.preventDefault();
+    const fd = new FormData(evt.target);
+    const effectiveFrom = String(fd.get("wc-effectiveFrom") || "");
+    const errorEl = document.getElementById("wc-error");
+    if (!effectiveFrom) {
+      errorEl.textContent = "Effective From is required.";
+      return;
+    }
+    const data = {
+      effectiveFrom,
+      esiWageCeiling: num(fd.get("esiWageCeiling")),
+      esiWageCeilingDisability: num(fd.get("esiWageCeilingDisability")),
+      pfWageCeiling: num(fd.get("pfWageCeiling")),
+      notes: String(fd.get("notes") || "") || null,
+    };
+    const targetId = evt.target.dataset.id;
+    if (targetId) {
+      Object.assign(db.wageCeilings.find((w) => w.id === targetId), data);
+      editingId = null;
+    } else {
+      db.wageCeilings.push({ id: newId("wc"), ...data });
+      addingNew = false;
+    }
+    await persist();
     render();
   });
 

@@ -36,9 +36,21 @@
   // has a PF/ESI line - e.g. an employee exempt under the PF wage ceiling,
   // or on a contract with no ESI cover, without needing a one-off structure
   // just for them.
-  function isComponentSuppressed(employee, code) {
+  // esiActiveOverride, when explicitly passed (true/false), decides
+  // EMPLOYEE_ESI suppression directly instead of employee.esiApplicable -
+  // used for ESI contribution-period continuity (see computeEmployeePayrollLine):
+  // once ESI starts for a contribution period (1-Apr to 30-Sep, or 1-Oct to
+  // 31-Mar), both sides must keep contributing through its end even if a
+  // mid-period raise pushes wages over the ceiling and someone unticks the
+  // flag early. Left undefined, every other caller (e.g.
+  // estimateRegimeComparison, which has no specific month/period to reason
+  // about) keeps the original flag-only behavior.
+  function isComponentSuppressed(employee, code, esiActiveOverride) {
     if (employee && !employee.pfApplicable && (code === "EMPLOYEE_PF" || code === "EMPLOYER_PF")) return true;
-    if (employee && !employee.esiApplicable && code === "EMPLOYEE_ESI") return true;
+    if (code === "EMPLOYEE_ESI") {
+      const esiActive = esiActiveOverride !== undefined ? esiActiveOverride : !!(employee && employee.esiApplicable);
+      return !esiActive;
+    }
     return false;
   }
 
@@ -93,7 +105,15 @@
     return candidates[0];
   }
 
-  function getActiveStructure(db, employeeId, financialYearId, asOfDateIso) {
+  /** Resolves the statutory PF/ESI wage ceiling config in force as of a date - same "latest row on or before the date" pattern as getTaxRuleSetConfig, but keyed only on effectiveFrom (there's no FY/regime split for these). Falls back to the oldest known config if asOfDateIso predates every seeded row, and throws only if db.wageCeilings is empty entirely (e.g. a very old backup restored before this existed and not yet re-seeded). */
+  function getWageCeilingConfig(db, asOfDateIso) {
+    const asOf = asOfDateIso ? new Date(asOfDateIso) : new Date();
+    const sorted = (db.wageCeilings || []).slice().sort((a, b) => new Date(b.effectiveFrom) - new Date(a.effectiveFrom));
+    if (sorted.length === 0) throw new Error("No PF/ESI wage ceiling configured. Restore defaults under Settings, or add one.");
+    return sorted.find((w) => new Date(w.effectiveFrom) <= asOf) || sorted[sorted.length - 1];
+  }
+
+  function getActiveStructure(db, employeeId, financialYearId, asOfDateIso, esiActiveOverride) {
     const asOf = new Date(asOfDateIso);
     const candidates = db.employeeSalaryStructures.filter(
       (s) =>
@@ -110,7 +130,7 @@
     return {
       annualCTC: structure.annualCTC,
       components: structure.components
-        .filter((c) => !isComponentSuppressed(employee, c.componentCode))
+        .filter((c) => !isComponentSuppressed(employee, c.componentCode, esiActiveOverride))
         .map((c) => ({ code: c.componentCode, category: c.category, monthlyAmount: c.monthlyAmount })),
     };
   }
@@ -127,14 +147,14 @@
    * allowance that subtracts it) or added on top as extra employer cost -
    * reflected in the returned `totalCostToCompany`.
    */
-  function generateStructureFromTemplate(db, templateId, annualCTC) {
+  function generateStructureFromTemplate(db, templateId, annualCTC, asOfDateIso) {
     const template = db.salaryStructureTemplates.find((t) => t.id === templateId);
     if (!template) throw new Error("Salary structure template not found");
-    return expandSalaryTemplate(db, template, annualCTC);
+    return expandSalaryTemplate(db, template, annualCTC, asOfDateIso);
   }
 
   /** Core of generateStructureFromTemplate, taking the template object directly rather than an id - lets the template editor preview an as-yet-unsaved draft the same way. */
-  function expandSalaryTemplate(db, template, annualCTC) {
+  function expandSalaryTemplate(db, template, annualCTC, asOfDateIso) {
     if (!(annualCTC > 0)) throw new Error("Enter a positive annual CTC to generate a structure");
     if (!template.components || template.components.length === 0) throw new Error("This template has no components defined yet");
 
@@ -144,6 +164,46 @@
       fixedAnnualAmount: r.fixedAnnualAmount ?? 0,
     }));
     const resolved = resolveSalaryStructure(annualCTC, feComponents);
+
+    // PF Capped: restricts Employer PF to the statutory wage ceiling (e.g.
+    // 12% of Rs 15,000 = Rs 1,800/month, or Rs 25,000 = Rs 3,000/month from
+    // 17-Sep-2026) instead of the template's own formula applied to full
+    // Basic+DA - common practice to keep PF cost predictable. Below the
+    // ceiling nothing changes (capped amount = uncapped amount). The
+    // difference, if any, is redirected into Special Allowance so the CTC
+    // this was generated for still ties out exactly - rather than silently
+    // shrinking the employer's committed cost just because PF was capped.
+    // The cap is applied to the WAGE BASE, not a hardcoded 12%, so it still
+    // respects whatever rate the template's own Employer PF formula implies.
+    let pfCapNote = null;
+    if (template.pfCapped && resolved["EMPLOYER_PF"]) {
+      const annualBasicPlusDa = (resolved["BASIC"]?.annualAmount ?? 0) + (resolved["DA"]?.annualAmount ?? 0);
+      const uncappedAnnualPf = resolved["EMPLOYER_PF"].annualAmount;
+      if (annualBasicPlusDa > 0) {
+        const wageCeilingConfig = getWageCeilingConfig(db, asOfDateIso);
+        const annualCeiling = wageCeilingConfig.pfWageCeiling * 12;
+        const effectiveRate = uncappedAnnualPf / annualBasicPlusDa;
+        const cappedAnnualPf = Math.round(effectiveRate * Math.min(annualBasicPlusDa, annualCeiling));
+        const diffAnnual = uncappedAnnualPf - cappedAnnualPf;
+        if (diffAnnual > 0) {
+          resolved["EMPLOYER_PF"] = {
+            ...resolved["EMPLOYER_PF"],
+            annualAmount: cappedAnnualPf,
+            monthlyAmount: Math.round((cappedAnnualPf / 12) * 100) / 100,
+            formulaTrace: `${resolved["EMPLOYER_PF"].formulaTrace} - capped at PF wage ceiling Rs ${wageCeilingConfig.pfWageCeiling.toLocaleString("en-IN")}/month = Rs ${Math.round(cappedAnnualPf).toLocaleString("en-IN")}`,
+          };
+          pfCapNote = { diffAnnual, ceilingMonthly: wageCeilingConfig.pfWageCeiling };
+          if (resolved["SPECIAL_ALLOWANCE"]) {
+            resolved["SPECIAL_ALLOWANCE"] = {
+              ...resolved["SPECIAL_ALLOWANCE"],
+              annualAmount: resolved["SPECIAL_ALLOWANCE"].annualAmount + diffAnnual,
+              monthlyAmount: Math.round(((resolved["SPECIAL_ALLOWANCE"].annualAmount + diffAnnual) / 12) * 100) / 100,
+              formulaTrace: `${resolved["SPECIAL_ALLOWANCE"].formulaTrace} + Rs ${Math.round(diffAnnual).toLocaleString("en-IN")} redirected from PF Capped`,
+            };
+          }
+        }
+      }
+    }
 
     const gratuityAnnual = resolved["GRATUITY"] ? resolved["GRATUITY"].annualAmount : 0;
     const totalCostToCompany = annualCTC + (template.includeGratuityInCTC ? 0 : gratuityAnnual);
@@ -161,6 +221,23 @@
         formulaTrace: res.formulaTrace,
       };
     });
+
+    // No Special Allowance row existed in the template to redirect the PF
+    // Capped difference into - synthesize one rather than silently letting
+    // that money vanish from the generated structure (and from the CTC it
+    // was supposed to add up to).
+    if (pfCapNote && !template.components.some((r) => r.componentCode === "SPECIAL_ALLOWANCE")) {
+      const comp = db.salaryComponents.find((c) => c.code === "SPECIAL_ALLOWANCE");
+      const monthlyAmount = Math.round(pfCapNote.diffAnnual / 12);
+      components.push({
+        componentId: comp ? comp.id : null,
+        componentCode: "SPECIAL_ALLOWANCE",
+        category: comp ? comp.category : "EARNING",
+        monthlyAmount,
+        annualAmount: monthlyAmount * 12,
+        formulaTrace: `Rs ${Math.round(pfCapNote.diffAnnual).toLocaleString("en-IN")} redirected from PF Capped (no Special Allowance row existed in this template)`,
+      });
+    }
 
     return {
       templateId: template.id,
@@ -195,7 +272,24 @@
     const currentMonthDate = new Date(Date.UTC(run.calendarYear, run.calendarMonth - 1, 1));
     const currentMonthDateIso = currentMonthDate.toISOString();
 
-    const structure = getActiveStructure(db, employeeId, fy.id, currentMonthDateIso);
+    // ESI contribution-period continuity (1-Apr to 30-Sep, 1-Oct to 31-Mar):
+    // once ESI coverage actually applied in an earlier month of the SAME
+    // period, it must keep applying through that period's end even if the
+    // Employee Master's ESI Applicable flag gets unticked mid-period (the
+    // real mistake this guards against - a raise crossing the wage ceiling
+    // doesn't end coverage until the next period starts). Checked against
+    // prior PROCESSED lines only, so it's a plain historical fact, not a
+    // wage-ceiling re-derivation - the flag alone still decides whether
+    // coverage starts in the first place.
+    const esiPeriodStartIndex = currentIndex <= 6 ? 1 : 7;
+    const esiContinuityActive = db.payrollRuns.some((r) => {
+      if (r.financialYearId !== fy.id || r.payrollMonthIndex < esiPeriodStartIndex || r.payrollMonthIndex >= currentIndex) return false;
+      const priorLine = r.lines.find((l) => l.employeeId === employeeId);
+      return !!(priorLine && priorLine.metrics && priorLine.metrics.esiCoverageActiveThisMonth);
+    });
+    const esiActiveThisMonth = !!employee.esiApplicable || esiContinuityActive;
+
+    const structure = getActiveStructure(db, employeeId, fy.id, currentMonthDateIso, esiActiveThisMonth);
     if (!structure) {
       throw new Error(`No active salary structure for employee ${employee.employeeCode} in FY ${fy.code}`);
     }
@@ -316,6 +410,12 @@
 
     const oldConfig = getTaxRuleSetConfig(db, fy.code, "OLD", currentMonthDateIso);
     const newConfig = getTaxRuleSetConfig(db, fy.code, "NEW", currentMonthDateIso);
+    const wageCeilingConfig = getWageCeilingConfig(db, currentMonthDateIso);
+    // Informational only (never auto-suppresses ESI) - lets the UI warn an
+    // admin who's about to untick ESI Applicable mid-period that coverage
+    // must continue anyway (see esiContinuityActive above) until the
+    // contribution period actually ends.
+    const esiCeilingExceededThisMonth = esiActiveThisMonth && grossSalary > wageCeilingConfig.esiWageCeiling;
 
     const rentActiveThisMonth = isRentActiveInMonth(run.calendarYear, run.calendarMonth, declaration?.rentStartDate, declaration?.rentEndDate);
     // Rent paid to a landlord is a fixed monthly obligation, not something
@@ -499,7 +599,7 @@
       netSalary,
       regimeUsed,
       taxCalcSnapshot: { old: oldResult, new: newResult },
-      metrics: { hraExemptionThisMonth, rentPaidThisMonth, prorationFactor },
+      metrics: { hraExemptionThisMonth, rentPaidThisMonth, prorationFactor, esiCoverageActiveThisMonth: esiActiveThisMonth, esiCeilingExceededThisMonth },
     };
   }
 
@@ -1197,6 +1297,7 @@
   const PayrollEngine = {
     PAYROLL_STATUS_ORDER,
     getTaxRuleSetConfig,
+    getWageCeilingConfig,
     getActiveStructure,
     generateStructureFromTemplate,
     expandSalaryTemplate,

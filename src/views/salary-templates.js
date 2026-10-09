@@ -59,6 +59,7 @@ function renderTemplateForm(container, template) {
   let companyId = isEdit ? template.companyId : getActiveCompanyId();
   let name = template ? template.name : "";
   let includeGratuityInCTC = template ? !!template.includeGratuityInCTC : true;
+  let pfCapped = template ? !!template.pfCapped : false;
   let rows = template ? template.components.map((c) => ({ ...c })) : [];
   let previewCtc = "";
 
@@ -87,6 +88,10 @@ function renderTemplateForm(container, template) {
           <input type="checkbox" id="tpl-gratuity-toggle" ${includeGratuityInCTC ? "checked" : ""} style="width:auto;" /> Include Gratuity in CTC
         </label>
         <p class="text-muted" style="font-size:12px;">If a Gratuity row is included below, this decides whether it's treated as already part of the CTC figure you'll enter per employee (so your other formulas should carve out room for it, e.g. a balancing allowance that subtracts GRATUITY too), or added on top as extra employer cost - shown separately as "Total cost to company" wherever this template is used.</p>
+        <label class="row gap-8 mt-16" style="display:flex;align-items:center;">
+          <input type="checkbox" id="tpl-pf-capped-toggle" ${pfCapped ? "checked" : ""} style="width:auto;" /> PF Capped
+        </label>
+        <p class="text-muted" style="font-size:12px;">If an Employer PF row is included below: cap it at the statutory wage ceiling (currently Rs 15,000/month, rising to Rs 25,000/month from 17-Sep-2026 - editable under Setup &gt; Wage Ceilings) instead of your formula's full Basic+DA - e.g. a 12% formula becomes at most Rs 1,800/month today, Rs 3,000/month from 17-Sep-2026, or less if actual Basic+DA is below the ceiling. The difference is redirected into Special Allowance (added automatically if the template doesn't already have one) so the CTC this was generated for still adds up exactly - leave unticked to use your formula's full, uncapped result.</p>
 
         <h4 class="mt-16">Components</h4>
         <p class="text-muted" style="font-size:12px;">
@@ -125,6 +130,7 @@ function renderTemplateForm(container, template) {
     const companySelectEl = document.getElementById("tpl-company-select");
     if (companySelectEl) companySelectEl.addEventListener("change", (e) => { companyId = e.target.value; setActiveCompanyId(companyId); });
     document.getElementById("tpl-gratuity-toggle").addEventListener("change", (e) => { includeGratuityInCTC = e.target.checked; });
+    document.getElementById("tpl-pf-capped-toggle").addEventListener("change", (e) => { pfCapped = e.target.checked; });
     document.getElementById("tpl-btn-add-row").addEventListener("click", () => {
       const code = document.getElementById("tpl-add-component").value;
       if (!code || rows.some((r) => r.componentCode === code)) return;
@@ -138,7 +144,7 @@ function renderTemplateForm(container, template) {
       errorEl.textContent = "";
       resultEl.innerHTML = "";
       try {
-        const draft = { id: "preview", name: name || "Untitled", includeGratuityInCTC, components: rows };
+        const draft = { id: "preview", name: name || "Untitled", includeGratuityInCTC, pfCapped, components: rows };
         const result = PayrollEngine.expandSalaryTemplate(db, draft, num(previewCtc));
         resultEl.innerHTML = `
           <table>
@@ -168,7 +174,7 @@ function renderTemplateForm(container, template) {
         errorEl.textContent = "Select a Legal Entity.";
         return;
       }
-      const data = { name: name.trim(), includeGratuityInCTC, components: rows.map((r) => ({ componentCode: r.componentCode, formula: r.formula || "", fixedAnnualAmount: num(r.fixedAnnualAmount) })) };
+      const data = { name: name.trim(), includeGratuityInCTC, pfCapped, components: rows.map((r) => ({ componentCode: r.componentCode, formula: r.formula || "", fixedAnnualAmount: num(r.fixedAnnualAmount) })) };
       let targetId;
       if (isEdit) {
         Object.assign(template, data);

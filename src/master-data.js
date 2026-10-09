@@ -99,6 +99,27 @@ const BANK_FILE_TEMPLATES = [
   },
 ];
 
+// Dated statutory wage ceilings - each entry is a complete snapshot in force
+// from its effectiveFrom date (same "latest row on or before the date"
+// lookup pattern as TAX_RULE_CONFIGS/db.taxRuleSets), editable under
+// Settings so a future rate change never needs a code change.
+const WAGE_CEILING_CONFIGS = [
+  {
+    effectiveFrom: "2017-01-01",
+    esiWageCeiling: 21000,
+    esiWageCeilingDisability: 25000,
+    pfWageCeiling: 15000,
+    notes: "ESI wage ceiling Rs 21,000 (Rs 25,000 for persons with disability) effective 1-Jan-2017; EPF wage ceiling Rs 15,000 effective 1-Sep-2014.",
+  },
+  {
+    effectiveFrom: "2026-09-17",
+    esiWageCeiling: 21000,
+    esiWageCeilingDisability: 25000,
+    pfWageCeiling: 25000,
+    notes: "EPF wage ceiling raised to Rs 25,000 effective 17-Sep-2026.",
+  },
+];
+
 if (typeof module !== "undefined" && module.exports) {
-  module.exports = { SALARY_COMPONENTS, BANK_FILE_TEMPLATES };
+  module.exports = { SALARY_COMPONENTS, BANK_FILE_TEMPLATES, WAGE_CEILING_CONFIGS };
 }

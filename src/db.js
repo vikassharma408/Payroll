@@ -21,6 +21,7 @@ function createEmptyDb() {
     companies: [],
     financialYears: [],
     taxRuleSets: [],
+    wageCeilings: [],
     salaryComponents: [],
     bankFileTemplates: [],
     ptSlabs: [],
@@ -79,6 +80,7 @@ function migrateDb(db) {
   if (!db.companies) db.companies = [];
   if (!db.employeePerquisites) db.employeePerquisites = [];
   if (!db.salaryStructureTemplates) db.salaryStructureTemplates = [];
+  if (!db.wageCeilings) db.wageCeilings = [];
   if (!db.payrollSettings) db.payrollSettings = { useProportionalTdsForVariablePay: false };
   if (!db.ptSlabs || db.ptSlabs.length === 0) {
     const ptSlabsMod = typeof module !== "undefined" && module.exports ? require("./pt-slabs.js") : { PT_STATES };
@@ -132,10 +134,10 @@ function seedMasterData(db) {
   // temporal dead zone at the point the literal is evaluated - hence the
   // rename-on-destructure below.
   const ruleConfigsMod = typeof module !== "undefined" && module.exports ? require("./rule-configs.js") : { TAX_RULE_CONFIGS, FINANCIAL_YEARS };
-  const masterDataMod = typeof module !== "undefined" && module.exports ? require("./master-data.js") : { SALARY_COMPONENTS, BANK_FILE_TEMPLATES };
+  const masterDataMod = typeof module !== "undefined" && module.exports ? require("./master-data.js") : { SALARY_COMPONENTS, BANK_FILE_TEMPLATES, WAGE_CEILING_CONFIGS };
   const ptSlabsMod = typeof module !== "undefined" && module.exports ? require("./pt-slabs.js") : { PT_STATES };
   const { TAX_RULE_CONFIGS: taxRuleConfigs, FINANCIAL_YEARS: financialYears } = ruleConfigsMod;
-  const { SALARY_COMPONENTS: salaryComponents, BANK_FILE_TEMPLATES: bankFileTemplates } = masterDataMod;
+  const { SALARY_COMPONENTS: salaryComponents, BANK_FILE_TEMPLATES: bankFileTemplates, WAGE_CEILING_CONFIGS: wageCeilingConfigs } = masterDataMod;
 
   for (const fy of financialYears) {
     if (db.financialYears.some((f) => f.code === fy.code)) continue;
@@ -152,6 +154,10 @@ function seedMasterData(db) {
   for (const t of bankFileTemplates) {
     if (db.bankFileTemplates.some((x) => x.code === t.code)) continue;
     db.bankFileTemplates.push({ id: newId("bft"), ...t, isActive: true });
+  }
+  for (const w of wageCeilingConfigs || []) {
+    if (db.wageCeilings.some((x) => x.effectiveFrom === w.effectiveFrom)) continue;
+    db.wageCeilings.push({ id: newId("wc"), ...w });
   }
   if (!db.ptSlabs || db.ptSlabs.length === 0) {
     db.ptSlabs = JSON.parse(JSON.stringify(ptSlabsMod.PT_STATES || []));
