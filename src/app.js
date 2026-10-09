@@ -949,23 +949,60 @@ registerView("pt-slabs", "Setup", "PT Slabs", (container) => {
           <td>${sentenceCase(s.type)}</td>
           <td>${s.type === "MONTHLY" || s.type === "HALF_YEARLY" ? `up to ${rupees(s.slabs[s.slabs.length - 1].amount)}/month` : s.type === "FLAT" ? `${rupees(s.amount)}/month` : "-"}</td>
           <td>${s.seniorExemptionAge != null ? `${s.seniorExemptionAge}+` : "-"}</td>
-          <td><button data-key="${s.key}" class="toggle-pt-edit">${editingKey === s.key ? "Cancel" : "Edit"}</button></td>
+          <td><button data-key="${s.key}" class="toggle-pt-edit">${editingKey === s.key ? "Cancel" : "Edit"}</button> <button data-key="${s.key}" class="danger delete-pt-state">Delete</button></td>
         </tr>
         ${editingKey === s.key ? `<tr><td colspan="5">${renderPtEditForm(s)}</td></tr>` : ""}`,
       )
       .join("");
+    const deletedKeys = new Set(db.ptSlabs.map((s) => s.key));
+    const removedStates = PT_STATES.filter((d) => !deletedKeys.has(d.key));
     container.innerHTML = `
       <div class="card">
-        <p class="text-muted">Professional Tax is levied under each state's own Act, so rates and thresholds vary by state - several states (Delhi, UP, Haryana, Rajasthan, Himachal Pradesh) levy none at all. Assign an employee's state (and date of birth) on their Profile tab to auto-compute their monthly PT from gross salary instead of a fixed amount; leave state unset to keep using the Salary Structure's fixed PT component. Several states also fully exempt employees once they cross a certain age regardless of salary (e.g. Maharashtra and Gujarat at 65, Karnataka at 60) - set "Senior Citizen Exemption Age" below if a state you use has one; it's left blank for states we couldn't confirm an exact age for. Edit a state's slabs below if a rate changes.</p>
+        <p class="text-muted">Professional Tax is levied under each state's own Act, so rates and thresholds vary by state - several states (Delhi, UP, Haryana, Rajasthan, Himachal Pradesh) levy none at all. Assign an employee's state (and date of birth) on their Profile tab to auto-compute their monthly PT from gross salary instead of a fixed amount; leave state unset to keep using the Salary Structure's fixed PT component. Several states also fully exempt employees once they cross a certain age regardless of salary (e.g. Maharashtra and Gujarat at 65, Karnataka at 60) - set "Senior Citizen Exemption Age" below if a state you use has one; it's left blank for states we couldn't confirm an exact age for. Edit a state's slabs below if a rate changes. Not using a state? Delete it to keep this list to just the states you operate in - it's blocked if any employee is still assigned to it, and you can always add it back below.</p>
         <table>
           <thead><tr><th>State</th><th>Type</th><th>Top Rate</th><th>Senior Exemption</th><th></th></tr></thead>
           <tbody>${rows}</tbody>
         </table>
+        <div id="pt-delete-error" class="text-bad mt-16"></div>
+        ${
+          removedStates.length
+            ? `<div class="row gap-8 mt-16" style="flex-wrap:wrap;">
+                 ${removedStates
+                   .map((d) => `<button type="button" class="add-pt-state" data-key="${d.key}">+ Add ${d.label}</button>`)
+                   .join("")}
+               </div>`
+            : ""
+        }
       </div>
     `;
     container.querySelectorAll(".toggle-pt-edit").forEach((btn) =>
       btn.addEventListener("click", () => {
         editingKey = editingKey === btn.dataset.key ? null : btn.dataset.key;
+        render();
+      }),
+    );
+    container.querySelectorAll(".delete-pt-state").forEach((btn) =>
+      btn.addEventListener("click", async () => {
+        const key = btn.dataset.key;
+        const s = db.ptSlabs.find((x) => x.key === key);
+        const count = db.employees.filter((e) => e.state === key).length;
+        const errorEl = container.querySelector("#pt-delete-error");
+        if (count > 0) {
+          errorEl.textContent = `Cannot delete ${s.label} - ${count} employee${count === 1 ? " is" : "s are"} based in ${s.label}. Reassign ${count === 1 ? "that employee" : "those employees"} to a different state first.`;
+          return;
+        }
+        errorEl.textContent = "";
+        db.ptSlabs = db.ptSlabs.filter((x) => x.key !== key);
+        if (editingKey === key) editingKey = null;
+        await persist();
+        render();
+      }),
+    );
+    container.querySelectorAll(".add-pt-state").forEach((btn) =>
+      btn.addEventListener("click", async () => {
+        const defaults = PT_STATES.find((d) => d.key === btn.dataset.key);
+        db.ptSlabs.push(JSON.parse(JSON.stringify(defaults)));
+        await persist();
         render();
       }),
     );
