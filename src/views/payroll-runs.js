@@ -711,6 +711,36 @@ function renderSalaryRegister(container, runId) {
 }
 
 // --- Bank Payment File ---------------------------------------------------
+// Builds the rows (as an array-of-arrays, headers first) for a bank
+// template's own .xlsx: every column is a plain text cell except the one
+// marked format:"amount", which stays a real number so Excel doesn't
+// mangle account numbers/IFSC/value-dates by reinterpreting them, while
+// Amount still sums correctly for whoever uploads the file to the bank. A
+// template marked includeControlTotalRow gets one trailing row, blank
+// except Amount = sum of every row above it - that's the bank's own
+// control-total convention (confirmed against a real HDFC sample), not
+// something this app invented.
+function buildBankFileWorkbookRows(template, rows) {
+  const headers = template.columns.map((c) => c.header);
+  const amountColIndex = template.columns.findIndex((c) => c.format === "amount");
+  const dataRows = rows.map((r) => template.columns.map((c) => (c.format === "amount" ? Number(r[c.field]) || 0 : String(r[c.field] ?? ""))));
+  if (template.includeControlTotalRow && amountColIndex >= 0) {
+    const total = rows.reduce((s, r) => s + (Number(r[template.columns[amountColIndex].field]) || 0), 0);
+    dataRows.push(template.columns.map((c, i) => (i === amountColIndex ? total : null)));
+  }
+  return [headers, ...dataRows];
+}
+
+function exportBankFileXlsx(template, rows, filename) {
+  const aoa = buildBankFileWorkbookRows(template, rows);
+  const ws = XLSX.utils.aoa_to_sheet(aoa);
+  ws["!cols"] = template.columns.map((c) => ({ wch: Math.max(14, c.header.length + 2) }));
+  const wb = XLSX.utils.book_new();
+  XLSX.utils.book_append_sheet(wb, ws, "Salary Payment");
+  const buf = XLSX.write(wb, { type: "array", bookType: "xlsx" });
+  downloadWorkbook(filename, buf);
+}
+
 function renderBankFile(container, runId) {
   const run = db.payrollRuns.find((r) => r.id === runId);
   if (!run) {
@@ -718,18 +748,25 @@ function renderBankFile(container, runId) {
     return;
   }
   const company = db.companies.find((c) => c.id === run.companyId);
-  const { rows, issues, monthLabel: ml } = buildBankFileData(db, runId);
   const templates = db.bankFileTemplates.filter((t) => t.isActive);
+  // Defaults to the last calendar day of the payroll month - a common
+  // salary-disbursal convention - but it's the actual date money should
+  // move, so it's always editable before export.
+  let valueDate = `${run.calendarYear}-${String(run.calendarMonth).padStart(2, "0")}-${String(daysInCalendarMonth(run.calendarYear, run.calendarMonth)).padStart(2, "0")}`;
 
   function render(templateCode) {
     const template = templates.find((t) => t.code === templateCode) || templates[0];
     const columns = template.columns;
+    const needsValueDate = columns.some((c) => c.field === "valueDate");
+    const { rows, issues: employeeIssues, monthLabel: ml } = buildBankFileData(db, runId, { valueDate });
+    const issues = company ? [...companyBankFileIssues(company, template), ...employeeIssues] : employeeIssues;
     container.innerHTML = `
       <div class="row between no-print">
         <a href="#/payroll-runs/${runId}"><button>&larr; Back to Payroll Run</button></a>
-        <div class="row gap-8">
+        <div class="row gap-8" style="align-items:center;">
           <select id="template-select">${templates.map((t) => `<option value="${t.code}" ${t.code === template.code ? "selected" : ""}>${t.bankName}</option>`).join("")}</select>
-          <button id="btn-export-csv">Export CSV</button>
+          ${needsValueDate ? `<label style="margin-bottom:0;">Value Date <input type="date" id="value-date-input" value="${valueDate}" /></label>` : ""}
+          <button id="btn-export">Export ${template.fileType === "xlsx" ? "Excel (.xlsx)" : "CSV"}</button>
         </div>
       </div>
       ${
@@ -748,8 +785,19 @@ function renderBankFile(container, runId) {
       </div>
     `;
     document.getElementById("template-select").addEventListener("change", (e) => render(e.target.value));
-    document.getElementById("btn-export-csv").addEventListener("click", () => {
-      downloadCsv(`bank-file-${runId}-${template.code}.csv`, columns.map((c) => c.header), rows.map((r) => columns.map((c) => r[c.field])));
+    const valueDateInput = document.getElementById("value-date-input");
+    if (valueDateInput) {
+      valueDateInput.addEventListener("change", (e) => {
+        valueDate = e.target.value;
+        render(template.code);
+      });
+    }
+    document.getElementById("btn-export").addEventListener("click", () => {
+      if (template.fileType === "xlsx") {
+        exportBankFileXlsx(template, rows, `bank-file-${runId}-${template.code}.xlsx`);
+      } else {
+        downloadCsv(`bank-file-${runId}-${template.code}.csv`, columns.map((c) => c.header), rows.map((r) => columns.map((c) => r[c.field])));
+      }
     });
   }
   render(templates[0] && templates[0].code);

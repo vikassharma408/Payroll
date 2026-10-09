@@ -71,7 +71,7 @@ function resizeLogoToDataUrl(file, maxW, maxH) {
 
 function renderCompanyForm(container, company) {
   const isEdit = !!company;
-  const c = company || { name: "", address: "", pan: "", tan: "", bankName: "", bankAccountNo: "", bankIfsc: "", logoDataUrl: null };
+  const c = company || { name: "", address: "", pan: "", tan: "", email: "", bankName: "", bankAccountNo: "", bankIfsc: "", branchCode: "", accountType: "CA", logoDataUrl: null };
   let logoDataUrl = c.logoDataUrl || null;
   container.innerHTML = `
     <div class="no-print" style="margin-bottom:12px;">
@@ -84,9 +84,19 @@ function renderCompanyForm(container, company) {
         <div><label>Address</label><input name="address" value="${escapeHtml(c.address || "")}" /></div>
         <div><label>PAN</label><input name="pan" value="${escapeHtml(c.pan || "")}" /></div>
         <div><label>TAN</label><input name="tan" value="${escapeHtml(c.tan || "")}" /></div>
+        <div><label>Email (used on bank payment files)</label><input type="email" name="email" value="${escapeHtml(c.email || "")}" /></div>
         <div><label>Bank Name</label><input name="bankName" value="${escapeHtml(c.bankName || "")}" /></div>
         <div><label>Bank Account No</label><input name="bankAccountNo" value="${escapeHtml(c.bankAccountNo || "")}" /></div>
         <div><label>Bank IFSC</label><input name="bankIfsc" value="${escapeHtml(c.bankIfsc || "")}" /></div>
+        <div><label>Bank Branch Code</label><input name="branchCode" value="${escapeHtml(c.branchCode || "")}" placeholder="e.g. 0001" /></div>
+        <div><label>Bank Account Type</label>
+          <select name="accountType">
+            <option value="CA" ${(c.accountType || "CA") === "CA" ? "selected" : ""}>Current Account (CA)</option>
+            <option value="SB" ${c.accountType === "SB" ? "selected" : ""}>Savings Account (SB)</option>
+            <option value="OD" ${c.accountType === "OD" ? "selected" : ""}>Overdraft (OD)</option>
+            <option value="CC" ${c.accountType === "CC" ? "selected" : ""}>Cash Credit (CC)</option>
+          </select>
+        </div>
         <div>
           <label>Logo (shown on payslips)</label>
           <input type="file" id="logo-input" accept="image/*" />
@@ -143,9 +153,12 @@ function renderCompanyForm(container, company) {
       address: String(fd.get("address") || "") || null,
       pan: String(fd.get("pan") || "") || null,
       tan: String(fd.get("tan") || "") || null,
+      email: String(fd.get("email") || "") || null,
       bankName: String(fd.get("bankName") || "") || null,
       bankAccountNo: String(fd.get("bankAccountNo") || "") || null,
       bankIfsc: String(fd.get("bankIfsc") || "") || null,
+      branchCode: String(fd.get("branchCode") || "") || null,
+      accountType: String(fd.get("accountType") || "CA"),
     };
     data.logoDataUrl = logoDataUrl;
     let targetId;

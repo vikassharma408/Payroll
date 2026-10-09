@@ -46,30 +46,55 @@ const BANK_FILE_TEMPLATES = [
     ],
   },
   {
+    // Exact column layout of the bank's own HDFC bulk salary upload sheet
+    // (a real sample was provided) - every column is a plain text cell
+    // except Amount, which must stay numeric; see buildBankFileWorkbookRows
+    // in payroll-runs.js, which is what actually enforces that per-column
+    // cell typing (fileType/includeControlTotalRow below drive it). A
+    // trailing control-total row (blank except Amount = sum of all rows) is
+    // part of the bank's own format, not something the app adds on top.
     bankName: "HDFC Bank",
     code: "HDFC_BULK_SALARY",
-    delimiter: ",",
+    fileType: "xlsx",
+    includeControlTotalRow: true,
     columns: [
-      { header: "Beneficiary Code", field: "employeeCode" },
-      { header: "Beneficiary Name", field: "employeeName" },
-      { header: "Beneficiary Account No", field: "accountNumber" },
+      { header: "Transaction Ref No", field: "transactionRefNo" },
+      { header: "Amount", field: "amount", format: "amount" },
+      { header: "Value Date", field: "valueDate" },
+      { header: "Branch Code", field: "branchCode" },
+      { header: "Senders Account Type", field: "sendersAccountType" },
+      { header: "Remitter Account No", field: "remitterAccountNo" },
+      { header: "Remitters Name", field: "remittersName" },
       { header: "IFSC Code", field: "ifsc" },
-      { header: "Amount", field: "netSalary", format: "amount" },
-      { header: "Payment Date", field: "paymentMonth" },
-      { header: "Narration", field: "paymentReference" },
+      { header: "Debit Account", field: "debitAccount" },
+      { header: "Beneficiary Account Type", field: "beneficiaryAccountType" },
+      { header: "Bank Account Number", field: "accountNumber" },
+      { header: "Beneficiary Name", field: "employeeName" },
+      { header: "Remittance Details", field: "remittanceDetailsHdfc" },
+      { header: "Debit Account System", field: "debitAccountSystem" },
+      { header: "Originator Of Remmittance", field: "originatorOfRemmittance" },
+      { header: "Emailmobileno", field: "companyEmail" },
     ],
   },
   {
+    // Exact column layout of the bank's own ICICI format (a real sample was
+    // provided). "Cheque / RTGS Slip No" is left blank - the user fills it
+    // in by hand per batch when they submit the file, it isn't derivable
+    // from payroll data. "BENEFICIARY LEI" is also left blank (only
+    // applicable above a large transaction-value threshold).
     bankName: "ICICI Bank",
     code: "ICICI_CMS",
-    delimiter: ",",
+    fileType: "xlsx",
     columns: [
-      { header: "Debit A/c No", field: "companyAccountNumber" },
-      { header: "Beneficiary Name", field: "employeeName" },
-      { header: "Beneficiary A/c No", field: "accountNumber" },
-      { header: "IFSC", field: "ifsc" },
-      { header: "Amount", field: "netSalary", format: "amount" },
-      { header: "Ref No", field: "paymentReference" },
+      { header: "Sr. No.", field: "transactionRefNo" },
+      { header: "Cheque / RTGS Slip No", field: "chequeOrRtgsSlipNo" },
+      { header: "SENDER ACCOUNT NO", field: "remitterAccountNo" },
+      { header: "AMOUNT", field: "amount", format: "amount" },
+      { header: "BENEFICIARY ACCOUNT NO", field: "accountNumber" },
+      { header: "BENEFICIARY ACCOUNT NAME", field: "employeeName" },
+      { header: "BENEFICIARY IFSC", field: "ifsc" },
+      { header: "BENEFICIARY LEI (If applicable)", field: "beneficiaryLei" },
+      { header: "Remarks", field: "remarksIcici" },
     ],
   },
 ];

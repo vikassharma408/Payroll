@@ -75,11 +75,21 @@ function buildCombinedRegisterExport(db, runs, { includeMonthColumn, includeComp
   return { columns, rows };
 }
 
-function buildBankFileData(db, payrollRunId) {
+// A bank's own value-date column (HDFC's sample: "Value Date") is text in
+// its own yyyyddmm layout - year, then day, then month, not the usual
+// yyyymmdd - built from a plain <input type=date> value (always yyyy-mm-dd).
+function formatValueDateYyyyDdMm(isoDate) {
+  if (!isoDate) return "";
+  const [y, m, d] = isoDate.split("-");
+  return `${y}${d}${m}`;
+}
+
+function buildBankFileData(db, payrollRunId, options = {}) {
   const run = db.payrollRuns.find((r) => r.id === payrollRunId);
   const fy = db.financialYears.find((f) => f.id === run.financialYearId);
   const company = db.companies.find((c) => c.id === run.companyId) || db.companies[0] || {};
-  const monthLabel = `${FY_MONTH_NAMES[run.payrollMonthIndex - 1]} ${run.calendarYear}`;
+  const monthName = FY_MONTH_NAMES[run.payrollMonthIndex - 1];
+  const monthLabel = `${monthName} ${run.calendarYear}`;
   const rows = [];
   const issues = [];
   const accountsSeen = new Map();
@@ -102,9 +112,56 @@ function buildBankFileData(db, payrollRunId) {
       employeeCode: e.employeeCode, employeeName: e.fullName, bankName: e.bankName || "", accountNumber: e.bankAccountNo || "", ifsc: e.bankIfsc || "",
       companyAccountNumber: company.bankAccountNo || "", netSalary: line.netSalary, paymentMonth: monthLabel,
       paymentReference: `SAL-${fy.code}-${String(run.payrollMonthIndex).padStart(2, "0")}-${e.employeeCode}`,
+      // HDFC/ICICI-specific fields (see master-data.js's HDFC_BULK_SALARY /
+      // ICICI_CMS templates) - the row carries them unconditionally since
+      // they're cheap to compute and harmless for templates that don't use
+      // them, same as companyAccountNumber already was for everything but
+      // ICICI_CMS.
+      transactionRefNo: String(rows.length + 1),
+      amount: line.netSalary,
+      valueDate: formatValueDateYyyyDdMm(options.valueDate),
+      branchCode: company.branchCode || "",
+      sendersAccountType: company.accountType || "",
+      remitterAccountNo: company.bankAccountNo || "",
+      remittersName: company.name || "",
+      debitAccount: company.bankAccountNo || "",
+      beneficiaryAccountType: e.bankAccountType || "SB",
+      remittanceDetailsHdfc: `Salary ${monthName}-${run.calendarYear}`,
+      debitAccountSystem: "1",
+      originatorOfRemmittance: company.name || "",
+      companyEmail: company.email || "",
+      chequeOrRtgsSlipNo: "",
+      beneficiaryLei: "",
+      remarksIcici: `Salary ${monthName} ${run.calendarYear}`,
     });
   }
   return { run, rows, issues, monthLabel };
+}
+
+// Checks the remitter-side (company) fields a given bank file template
+// actually references - e.g. HDFC_BULK_SALARY's "Branch Code" and
+// "Emailmobileno" columns need company.branchCode/company.email, which
+// Generic/older templates never touch - so a company missing them only
+// gets flagged when the template selected would actually leave that column
+// blank in the export.
+const BANK_FILE_COMPANY_FIELD_REQUIREMENTS = [
+  { field: "remitterAccountNo", companyField: "bankAccountNo", label: "Bank Account No (Remitter/Sender Account No)" },
+  { field: "debitAccount", companyField: "bankAccountNo", label: "Bank Account No (Debit Account)" },
+  { field: "branchCode", companyField: "branchCode", label: "Bank Branch Code" },
+  { field: "companyEmail", companyField: "email", label: "Email" },
+];
+function companyBankFileIssues(company, template) {
+  const usedFields = new Set(template.columns.map((c) => c.field));
+  const seen = new Set();
+  const issues = [];
+  for (const req of BANK_FILE_COMPANY_FIELD_REQUIREMENTS) {
+    if (!usedFields.has(req.field) || seen.has(req.companyField)) continue;
+    if (!company[req.companyField]) {
+      issues.push({ employeeCode: "-", employeeName: "(Company)", issue: `${company.name || "This company"} has no ${req.label} set in Company setup.` });
+      seen.add(req.companyField);
+    }
+  }
+  return issues;
 }
 
 function groupSum(rows, groupField) {
@@ -315,5 +372,5 @@ function downloadCsv(filename, headers, rows) {
 }
 
 if (typeof module !== "undefined" && module.exports) {
-  module.exports = { getSalaryRegisterRows, SALARY_REGISTER_COLUMNS, buildCombinedRegisterExport, buildBankFileData, REPORT_TYPES, getReportData, compareRuns, toCsv };
+  module.exports = { getSalaryRegisterRows, SALARY_REGISTER_COLUMNS, buildCombinedRegisterExport, buildBankFileData, formatValueDateYyyyDdMm, companyBankFileIssues, REPORT_TYPES, getReportData, compareRuns, toCsv };
 }

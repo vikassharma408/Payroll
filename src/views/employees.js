@@ -202,6 +202,7 @@ function renderEmployeeForm(container, employee) {
     bankName: "",
     bankAccountNo: "",
     bankIfsc: "",
+    bankAccountType: "SB",
   };
 
   container.innerHTML = `
@@ -260,6 +261,12 @@ function renderEmployeeForm(container, employee) {
         <div><label>Bank Name</label><input name="bankName" value="${escapeHtml(e.bankName || "")}" /></div>
         <div><label>Bank Account No</label><input name="bankAccountNo" value="${escapeHtml(e.bankAccountNo || "")}" /></div>
         <div><label>Bank IFSC</label><input name="bankIfsc" value="${escapeHtml(e.bankIfsc || "")}" placeholder="AAAA0999999" style="text-transform:uppercase;" /></div>
+        <div><label>Bank Account Type</label>
+          <select name="bankAccountType">
+            <option value="SB" ${(e.bankAccountType || "SB") === "SB" ? "selected" : ""}>Savings (SB)</option>
+            <option value="CA" ${e.bankAccountType === "CA" ? "selected" : ""}>Current (CA)</option>
+          </select>
+        </div>
       </div>
       <div class="row gap-8 mt-16">
         <label class="row gap-8" style="display:flex;align-items:center;"><input type="checkbox" name="pfApplicable" ${e.pfApplicable ? "checked" : ""} style="width:auto;" /> PF Applicable</label>
@@ -349,6 +356,7 @@ function renderEmployeeForm(container, employee) {
       bankName: String(fd.get("bankName") || "") || null,
       bankAccountNo: String(fd.get("bankAccountNo") || "") || null,
       bankIfsc: bankIfsc || null,
+      bankAccountType: String(fd.get("bankAccountType") || "SB"),
     };
 
     let targetId;
