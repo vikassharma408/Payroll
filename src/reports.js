@@ -11,11 +11,25 @@ function sumCodesR(map, codes) {
   return codes.reduce((s, c) => s + (map[c] ?? 0), 0);
 }
 
+// A manual adjustment (PayrollEngine.addAdjustment - loan recovery, F&F
+// notice-pay recovery, etc.) is deliberately kept out of line.totalDeductions
+// (it's not a statutory/taxed component) and only baked into line.netSalary.
+// Every report below reads totalDeductions for display/export, so without
+// this correction Gross - Total Deductions != Net Salary the moment any
+// adjustment exists - the same reconciliation already applied to the
+// Payslip (views/payroll-runs.js buildSlipCardHtml) needs to hold here too.
+function lineAdjustmentsTotal(line) {
+  return line.adjustments.reduce((s, a) => s + a.amount, 0);
+}
+function reconciledTotalDeductions(line) {
+  return line.totalDeductions - lineAdjustmentsTotal(line);
+}
+
 const SALARY_REGISTER_COLUMNS = [
   ["Employee Code", "employeeCode"], ["Employee Name", "employeeName"], ["PAN", "pan"], ["Department", "department"], ["Designation", "designation"],
   ["Basic", "basic"], ["HRA", "hra"], ["Special Allowance", "specialAllowance"], ["Other Allowances", "otherAllowances"], ["Bonus", "bonus"], ["Incentive", "incentive"],
   ["Gross Salary", "grossSalary"], ["Employee PF", "employeePf"], ["Employee ESI", "employeeEsi"], ["Professional Tax", "professionalTax"], ["LWF", "lwf"],
-  ["Other Deductions", "otherDeductions"], ["TDS", "tds"], ["Total Deductions", "totalDeductions"], ["Net Salary", "netSalary"],
+  ["Other Deductions", "otherDeductions"], ["TDS", "tds"], ["Adjustments", "adjustments"], ["Total Deductions", "totalDeductions"], ["Net Salary", "netSalary"],
   ["Employer PF", "employerPf"], ["Employer ESI", "employerEsi"], ["Gratuity", "gratuity"], ["Total CTC / Employer Cost", "totalCtc"],
 ];
 
@@ -43,7 +57,7 @@ function getSalaryRegisterRows(db, payrollRunId) {
         basic: earn["BASIC"] ?? 0, hra: earn["HRA"] ?? 0, specialAllowance: earn["SPECIAL_ALLOWANCE"] ?? 0, otherAllowances: sumCodesR(earn, OTHER_ALLOWANCE_CODES) + arrearsTopUps,
         bonus: earn["BONUS"] ?? 0, incentive: earn["INCENTIVE"] ?? 0, grossSalary: line.grossSalary,
         employeePf: d["EMPLOYEE_PF"] ?? 0, employeeEsi: d["EMPLOYEE_ESI"] ?? 0, professionalTax: d["PROFESSIONAL_TAX"] ?? 0, lwf: d["LWF"] ?? 0,
-        otherDeductions: sumCodesR(d, OTHER_DEDUCTION_CODES), tds: line.tdsMonthly, totalDeductions: line.totalDeductions, netSalary: line.netSalary,
+        otherDeductions: sumCodesR(d, OTHER_DEDUCTION_CODES), tds: line.tdsMonthly, adjustments: lineAdjustmentsTotal(line), totalDeductions: reconciledTotalDeductions(line), netSalary: line.netSalary,
         employerPf: ec["EMPLOYER_PF"] ?? 0, employerEsi: ec["EMPLOYER_ESI"] ?? 0, gratuity: ec["GRATUITY"] ?? 0, employerNps: ec["EMPLOYER_NPS"] ?? 0,
         otherEmployerCost: sumCodesR(ec, OTHER_EMPLOYER_CODES), totalCtc: line.totalEmployerCost,
       };
@@ -260,7 +274,7 @@ function getReportData(db, key, params) {
       for (const line of lines) {
         const e = db.employees.find((x) => x.id === line.employeeId) || {};
         const g = byEmployee.get(e.employeeCode) || { name: e.fullName, gross: 0, ded: 0, tds: 0, net: 0, months: 0 };
-        g.gross += line.grossSalary; g.ded += line.totalDeductions; g.tds += line.tdsMonthly; g.net += line.netSalary; g.months++;
+        g.gross += line.grossSalary; g.ded += reconciledTotalDeductions(line); g.tds += line.tdsMonthly; g.net += line.netSalary; g.months++;
         byEmployee.set(e.employeeCode, g);
       }
       return { columns: ["Employee Code", "Employee Name", "Months Processed", "Gross Salary (YTD)", "Total Deductions (YTD)", "TDS (YTD)", "Net Salary (YTD)"], rows: [...byEmployee.entries()].map(([code, g]) => [code, g.name, g.months, g.gross, g.ded, g.tds, g.net]) };
@@ -317,7 +331,7 @@ function compareRuns(db, currentRunId, previousRunId) {
   const rows = [];
   const metrics = [
     ["Gross Salary", (l) => l.grossSalary], ["Net Salary", (l) => l.netSalary], ["TDS", (l) => l.tdsMonthly],
-    ["Total Deductions", (l) => l.totalDeductions], ["Employer Cost", (l) => l.totalEmployerCost],
+    ["Total Deductions", (l) => reconciledTotalDeductions(l)], ["Employer Cost", (l) => l.totalEmployerCost],
   ];
   for (const cur of currentLines) {
     const e = db.employees.find((x) => x.id === cur.employeeId) || {};

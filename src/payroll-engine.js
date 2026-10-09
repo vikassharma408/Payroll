@@ -318,7 +318,12 @@
     const newConfig = getTaxRuleSetConfig(db, fy.code, "NEW", currentMonthDateIso);
 
     const rentActiveThisMonth = isRentActiveInMonth(run.calendarYear, run.calendarMonth, declaration?.rentStartDate, declaration?.rentEndDate);
-    const rentPaidThisMonth = rentActiveThisMonth ? (declaration?.monthlyRent ?? 0) * prorationFactor : 0;
+    // Rent paid to a landlord is a fixed monthly obligation, not something
+    // that shrinks because the employee had LOP days that month - unlike
+    // salary components, it must NOT be scaled by prorationFactor (the
+    // projected-future-months loop below already treats it this way; this
+    // keeps the current month consistent with that).
+    const rentPaidThisMonth = rentActiveThisMonth ? declaration?.monthlyRent ?? 0 : 0;
     const hraExemptionThisMonth = monthlyHraExemption(
       { basic: basicPlusDaThisMonth, hraReceived: earnings["HRA"] ?? 0, rentPaid: rentPaidThisMonth, isMetro: declaration?.isMetroCity },
       oldConfig.hraConfig,
@@ -797,8 +802,14 @@
    * `monthsUsed`) if fewer than 10 processed months exist.
    */
   function computeAverageBasicDaLast10Months(db, employeeId, asOfDateIso) {
+    // asOfDateIso is a plain "YYYY-MM-DD" string, parsed as UTC midnight -
+    // reading it back with local getters (getFullYear/getMonth) rolls back
+    // to the previous calendar day in any negative-UTC-offset timezone,
+    // which can make `cutoff` a full month early. Read the calendar
+    // year/month with the UTC getters instead, matching the same fix
+    // already applied to the joining-month check above.
     const asOf = new Date(asOfDateIso);
-    const cutoff = new Date(asOf.getFullYear(), asOf.getMonth(), 1);
+    const cutoff = new Date(asOf.getUTCFullYear(), asOf.getUTCMonth(), 1);
     const monthly = [];
     for (const run of db.payrollRuns) {
       const line = run.lines.find((l) => l.employeeId === employeeId);

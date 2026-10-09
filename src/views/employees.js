@@ -1357,7 +1357,7 @@ function renderComputationTable(estimate) {
         <thead><tr><th></th><th>Old Regime</th><th>New Regime</th></tr></thead>
         <tbody>
           <tr style="font-weight:600;"><td>Tax Liability</td><td>${rupees(estimate.old.totalTaxLiability)}</td><td>${rupees(estimate.new.totalTaxLiability)}</td></tr>
-          <tr style="font-weight:600;"><td>Tax Savings</td><td>-</td><td style="background:${savings > 0 ? "color-mix(in srgb, var(--good) 20%, transparent)" : savings < 0 ? "color-mix(in srgb, var(--bad) 20%, transparent)" : "transparent"};">${savings === 0 ? "-" : rupees(Math.abs(savings))}</td></tr>
+          <tr style="font-weight:600;"><td>Tax Savings</td><td>-</td><td style="background:${savings > 0 ? "color-mix(in srgb, var(--good) 20%, transparent)" : savings < 0 ? "color-mix(in srgb, var(--bad) 20%, transparent)" : "transparent"};">${savings === 0 ? "-" : savings > 0 ? `${rupees(savings)} less tax under New` : `${rupees(Math.abs(savings))} more tax under New`}</td></tr>
           <tr><td colspan="3">&nbsp;</td></tr>
           <tr><td colspan="3"><strong>Income from Salary</strong></td></tr>
           ${rows.map(rowHtml).join("")}
