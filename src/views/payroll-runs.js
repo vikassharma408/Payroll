@@ -773,21 +773,26 @@ function maskAccount(acc) {
   return "X".repeat(acc.length - 4) + acc.slice(-4);
 }
 
-function renderSalarySlip(container, runId, lineId) {
-  const run = db.payrollRuns.find((r) => r.id === runId);
-  const line = run && run.lines.find((l) => l.id === lineId);
-  if (!run || !line) {
-    container.innerHTML = `<div class="card">Salary slip not found.</div>`;
-    return;
-  }
+// Builds the printable payslip card itself (header through footer note) for
+// one run+line, with no page chrome (back/print buttons) around it - shared
+// by the single-slip route below and the Salary Slips browser's bulk
+// print/download view, which stacks several of these with page breaks.
+function buildSlipCardHtml(run, line) {
   const employee = db.employees.find((e) => e.id === line.employeeId);
-  const company = db.companies.find((c) => c.id === run.companyId) || db.companies[0] || { name: "", address: "", pan: "", tan: "" };
+  const company = db.companies.find((c) => c.id === run.companyId) || db.companies[0] || { name: "", address: "", pan: "", tan: "", logoDataUrl: null };
   const fy = db.financialYears.find((f) => f.id === run.financialYearId);
   const priorLines = db.payrollRuns
     .filter((r) => r.financialYearId === run.financialYearId && r.payrollMonthIndex <= run.payrollMonthIndex)
     .flatMap((r) => r.lines)
     .filter((l) => l.employeeId === line.employeeId);
-  const ytd = priorLines.reduce((acc, l) => ({ gross: acc.gross + l.grossSalary, deductions: acc.deductions + l.totalDeductions, tds: acc.tds + l.tdsMonthly, net: acc.net + l.netSalary }), { gross: 0, deductions: 0, tds: 0, net: 0 });
+  const ytdGross = priorLines.reduce((s, l) => s + l.grossSalary, 0);
+  const ytdTds = priorLines.reduce((s, l) => s + l.tdsMonthly, 0);
+  const ytdNet = priorLines.reduce((s, l) => s + l.netSalary, 0);
+  const ytdDeductionCodes = [...new Set(priorLines.flatMap((l) => Object.keys(l.deductions)))];
+  const ytdDeductionsByCode = ytdDeductionCodes
+    .map((code) => [code, priorLines.reduce((s, l) => s + (l.deductions[code] || 0), 0)])
+    .filter(([, amt]) => amt !== 0);
+  const ytdDeductionsTotal = ytdDeductionsByCode.reduce((s, [, amt]) => s + amt, 0) + ytdTds;
   const adjustmentsTotal = line.adjustments.reduce((s, a) => s + a.amount, 0);
   const annualTaxLiability = line.taxCalcSnapshot[line.regimeUsed.toLowerCase()].totalTaxLiability;
 
@@ -795,17 +800,16 @@ function renderSalarySlip(container, runId, lineId) {
   const employerRows = Object.entries(line.employerContributions).filter(([, v]) => v !== 0).map(([code, amt]) => `<tr><td>${componentLabel(code)}</td><td>${rupees(amt)}</td></tr>`).join("");
   const deductionRows = Object.entries(line.deductions).filter(([, v]) => v !== 0).map(([code, amt]) => `<tr><td>${componentLabel(code)}</td><td>${rupees(amt)}</td></tr>`).join("");
 
-  container.innerHTML = `
-    <div class="row between no-print">
-      <a href="#/payroll-runs/${runId}"><button>&larr; Back to Payroll Run</button></a>
-      <button id="btn-print">Print / Save as PDF</button>
-    </div>
+  return `
     <div class="card mt-16">
       <div class="row between" style="border-bottom:2px solid var(--line); padding-bottom:8px;">
-        <div>
-          <h2 style="margin-bottom:2px;">${escapeHtml(company.name)}</h2>
-          <div class="text-muted">${escapeHtml(company.address || "")}</div>
-          <div class="text-muted">PAN: ${company.pan || "-"}  TAN: ${company.tan || "-"}</div>
+        <div class="row gap-8" style="align-items:flex-start;">
+          ${company.logoDataUrl ? `<img src="${company.logoDataUrl}" alt="${escapeHtml(company.name)} logo" style="max-height:56px; max-width:160px; object-fit:contain;" />` : ""}
+          <div>
+            <h2 style="margin-bottom:2px;">${escapeHtml(company.name)}</h2>
+            <div class="text-muted">${escapeHtml(company.address || "")}</div>
+            <div class="text-muted">PAN: ${company.pan || "-"}  TAN: ${company.tan || "-"}</div>
+          </div>
         </div>
         <div class="text-muted" style="text-align:right;">
           <div>Payslip for ${monthLabel(run)}</div>
@@ -835,8 +839,6 @@ function renderSalarySlip(container, runId, lineId) {
         <div>
           <h3>Earnings</h3>
           <table>${earningRows}<tr><td><strong>Gross Salary</strong></td><td><strong>${rupees(line.grossSalary)}</strong></td></tr></table>
-          <h3 class="mt-16">Employer Contributions</h3>
-          <table>${employerRows || `<tr><td class="text-muted">None</td><td></td></tr>`}</table>
         </div>
         <div>
           <h3>Deductions</h3>
@@ -846,7 +848,18 @@ function renderSalarySlip(container, runId, lineId) {
             ${adjustmentsTotal !== 0 ? `<tr><td>Adjustments</td><td>${rupees(adjustmentsTotal)}</td></tr>` : ""}
             <tr><td><strong>Total Deductions</strong></td><td><strong>${rupees(line.totalDeductions)}</strong></td></tr>
           </table>
-          <h3 class="mt-16">Tax Summary</h3>
+        </div>
+      </div>
+      <div class="row between" style="background:var(--ink); padding:10px 16px; border-radius:8px; margin-top:16px;">
+        <strong>Net Salary Payable</strong><strong>${rupees(line.netSalary)}</strong>
+      </div>
+      <div class="card-grid mt-16">
+        <div>
+          <h3>Employer Contributions</h3>
+          <table>${employerRows || `<tr><td class="text-muted">None</td><td></td></tr>`}</table>
+        </div>
+        <div>
+          <h3>Tax Summary</h3>
           <table>
             <tr><td class="text-muted">Regime Used</td><td>${sentenceCase(line.regimeUsed)}</td></tr>
             <tr><td class="text-muted">Annual Tax Liability</td><td>${rupees(annualTaxLiability)}</td></tr>
@@ -854,16 +867,29 @@ function renderSalarySlip(container, runId, lineId) {
           </table>
         </div>
       </div>
-      <div class="row between" style="background:var(--ink); padding:10px 16px; border-radius:8px; margin-top:16px;">
-        <strong>Net Salary Payable</strong><strong>${rupees(line.netSalary)}</strong>
-      </div>
       <h3 class="mt-16">Year-to-Date Totals (FY ${fy.code}, through ${monthLabel(run)})</h3>
       <table>
-        <thead><tr><th>Gross (YTD)</th><th>Deductions (YTD)</th><th>TDS (YTD)</th><th>Net (YTD)</th></tr></thead>
-        <tbody><tr><td>${rupees(ytd.gross)}</td><td>${rupees(ytd.deductions)}</td><td>${rupees(ytd.tds)}</td><td>${rupees(ytd.net)}</td></tr></tbody>
+        <thead><tr><th>Gross (YTD)</th>${ytdDeductionsByCode.map(([code]) => `<th>${componentLabel(code)} (YTD)</th>`).join("")}<th>TDS (YTD)</th><th>Total Deductions (YTD)</th><th>Net (YTD)</th></tr></thead>
+        <tbody><tr><td>${rupees(ytdGross)}</td>${ytdDeductionsByCode.map(([, amt]) => `<td>${rupees(amt)}</td>`).join("")}<td>${rupees(ytdTds)}</td><td><strong>${rupees(ytdDeductionsTotal)}</strong></td><td>${rupees(ytdNet)}</td></tr></tbody>
       </table>
       <p class="text-muted mt-16" style="text-align:center; font-size:12px;">This is a system-generated payslip and does not require a signature.</p>
     </div>
+  `;
+}
+
+function renderSalarySlip(container, runId, lineId) {
+  const run = db.payrollRuns.find((r) => r.id === runId);
+  const line = run && run.lines.find((l) => l.id === lineId);
+  if (!run || !line) {
+    container.innerHTML = `<div class="card">Salary slip not found.</div>`;
+    return;
+  }
+  container.innerHTML = `
+    <div class="row between no-print">
+      <a href="#/payroll-runs/${runId}"><button>&larr; Back to Payroll Run</button></a>
+      <button id="btn-print">Print / Save as PDF</button>
+    </div>
+    ${buildSlipCardHtml(run, line)}
   `;
   document.getElementById("btn-print").addEventListener("click", () => window.print());
 }

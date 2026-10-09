@@ -8,8 +8,164 @@ function redirectNote(label) {
   };
 }
 registerView("salary-register", "Payroll", "Salary Register", redirectNote("The Salary Register"));
-registerView("salary-slips", "Payroll", "Salary Slips", redirectNote("Salary Slips"));
+registerView("salary-slips", "Payroll", "Salary Slips", renderSalarySlipsBrowser);
 registerView("bank-files", "Payroll", "Bank Payment Files", redirectNote("The Bank Payment File"));
+
+// --- Salary Slips browser: Company > Month > Employee, with search and bulk
+// print/download of several payslips at once (stacked with page breaks, so
+// one "Print / Save as PDF" produces a single multi-payslip PDF - this app
+// has no server and no PDF library, so the browser's print-to-PDF is the
+// established mechanism everywhere else a document can be saved). -----------
+function renderSalarySlipsBrowser(container) {
+  if (db.companies.length === 0) {
+    container.innerHTML = `<div class="card"><p class="text-muted">No company set up yet. <a href="#/companies/new">Add your first company</a> to get started.</p></div>`;
+    return;
+  }
+  const viewCompanyIds = filteredCompanyIds();
+  const companies = db.companies.filter((c) => viewCompanyIds.includes(c.id));
+  let selectedCompanyId = companies[0] ? companies[0].id : db.companies[0].id;
+  let search = "";
+  let selected = new Set(); // Set of payrollRunLine ids, across any month for the selected company
+  let mode = "browse"; // "browse" | "print"
+
+  function runsForCompany(companyId) {
+    return db.payrollRuns
+      .filter((r) => r.companyId === companyId && r.lines.length > 0)
+      .sort((a, b) => new Date(b.calendarYear, b.calendarMonth - 1, 1) - new Date(a.calendarYear, a.calendarMonth - 1, 1));
+  }
+
+  function renderBrowse() {
+    const runs = runsForCompany(selectedCompanyId);
+    const q = search.trim().toLowerCase();
+    const validLineIds = new Set(runs.flatMap((r) => r.lines.map((l) => l.id)));
+    selected = new Set([...selected].filter((id) => validLineIds.has(id)));
+
+    const monthSections = runs
+      .map((run) => {
+        const rowsForRun = run.lines
+          .map((line) => ({ line, employee: db.employees.find((e) => e.id === line.employeeId) }))
+          .filter(({ employee }) => employee)
+          .filter(({ employee }) => !q || [employee.employeeCode, employee.fullName].some((v) => (v || "").toLowerCase().includes(q)))
+          .sort((a, b) => a.employee.employeeCode.localeCompare(b.employee.employeeCode));
+        if (rowsForRun.length === 0) return "";
+        const bodyRows = rowsForRun
+          .map(
+            ({ line, employee }) => `
+          <tr>
+            <td><input type="checkbox" class="slip-select" data-line-id="${line.id}" ${selected.has(line.id) ? "checked" : ""} /></td>
+            <td><a href="#/payroll-runs/${run.id}/slip/${line.id}">${escapeHtml(employee.employeeCode)}</a></td>
+            <td><a href="#/payroll-runs/${run.id}/slip/${line.id}">${escapeHtml(employee.fullName)}</a></td>
+            <td>${rupees(line.netSalary)}</td>
+            <td><a href="#/payroll-runs/${run.id}/slip/${line.id}"><button>View</button></a></td>
+          </tr>`,
+          )
+          .join("");
+        return `
+        <div class="card mt-16">
+          <div class="row between"><h3>${monthLabel(run)}</h3><span class="badge neutral">${sentenceCase(run.status)}</span></div>
+          <table>
+            <thead><tr><th><input type="checkbox" class="month-select-all" data-run-id="${run.id}" ${rowsForRun.every(({ line }) => selected.has(line.id)) ? "checked" : ""} /></th><th>Code</th><th>Name</th><th>Net Pay</th><th></th></tr></thead>
+            <tbody>${bodyRows}</tbody>
+          </table>
+        </div>`;
+      })
+      .filter(Boolean)
+      .join("");
+
+    container.innerHTML = `
+      <div class="row between mt-16" style="margin-bottom:16px; flex-wrap:wrap; gap:12px;">
+        <div>
+          <label>Company</label>
+          <select id="slip-company-select">${companies.map((c) => `<option value="${c.id}" ${c.id === selectedCompanyId ? "selected" : ""}>${escapeHtml(c.name)}</option>`).join("")}</select>
+        </div>
+        <span class="text-muted">${runs.length} processed payroll run(s)</span>
+      </div>
+      ${
+        selected.size > 0
+          ? `<div class="card" style="background:var(--ink); position:sticky; top:0; z-index:2;">
+              <div class="row between">
+                <strong>${selected.size} payslip(s) selected</strong>
+                <div class="row gap-8">
+                  <button id="btn-clear-slip-selection">Clear</button>
+                  <button id="btn-download-selected" class="primary">Print / Save Selected as PDF</button>
+                </div>
+              </div>
+            </div>`
+          : ""
+      }
+      <div class="card mt-16">
+        <input type="search" id="slip-search" placeholder="Search by employee code or name..." value="${escapeHtml(search)}" style="width:100%;" />
+      </div>
+      ${monthSections || `<div class="card mt-16 text-muted">No processed payroll runs for this company yet. Open <a href="#/payroll-runs">Payroll Runs</a> to run one.</div>`}
+    `;
+
+    document.getElementById("slip-company-select").addEventListener("change", (e) => {
+      selectedCompanyId = e.target.value;
+      selected.clear();
+      renderBrowse();
+    });
+    const searchInput = document.getElementById("slip-search");
+    searchInput.addEventListener("input", (e) => {
+      search = e.target.value;
+      renderBrowse();
+      const el = document.getElementById("slip-search");
+      el.focus();
+      el.setSelectionRange(search.length, search.length);
+    });
+    container.querySelectorAll(".slip-select").forEach((cb) =>
+      cb.addEventListener("change", (e) => {
+        if (e.target.checked) selected.add(cb.dataset.lineId);
+        else selected.delete(cb.dataset.lineId);
+        renderBrowse();
+      }),
+    );
+    container.querySelectorAll(".month-select-all").forEach((cb) =>
+      cb.addEventListener("change", (e) => {
+        const run = runs.find((r) => r.id === cb.dataset.runId);
+        const lineIds = run.lines
+          .map((line) => ({ line, employee: db.employees.find((emp) => emp.id === line.employeeId) }))
+          .filter(({ employee }) => employee && (!q || [employee.employeeCode, employee.fullName].some((v) => (v || "").toLowerCase().includes(q))))
+          .map(({ line }) => line.id);
+        if (e.target.checked) lineIds.forEach((id) => selected.add(id));
+        else lineIds.forEach((id) => selected.delete(id));
+        renderBrowse();
+      }),
+    );
+    const clearBtn = document.getElementById("btn-clear-slip-selection");
+    if (clearBtn) clearBtn.addEventListener("click", () => { selected.clear(); renderBrowse(); });
+    const downloadBtn = document.getElementById("btn-download-selected");
+    if (downloadBtn)
+      downloadBtn.addEventListener("click", () => {
+        mode = "print";
+        renderPrint();
+      });
+  }
+
+  function renderPrint() {
+    const selections = [];
+    for (const run of db.payrollRuns) {
+      for (const line of run.lines) {
+        if (selected.has(line.id)) selections.push({ run, line });
+      }
+    }
+    const slipsHtml = selections.map(({ run, line }, idx) => `<div style="${idx > 0 ? "page-break-before:always;" : ""}">${buildSlipCardHtml(run, line)}</div>`).join("");
+    container.innerHTML = `
+      <div class="row between no-print" style="margin-bottom:16px;">
+        <button id="btn-back-to-browse">&larr; Back to Salary Slips</button>
+        <button id="btn-print-selected" class="primary">Print / Save as PDF</button>
+      </div>
+      ${slipsHtml || `<div class="card text-muted">No payslips selected.</div>`}
+    `;
+    document.getElementById("btn-back-to-browse").addEventListener("click", () => {
+      mode = "browse";
+      renderBrowse();
+    });
+    const printBtn = document.getElementById("btn-print-selected");
+    if (printBtn) printBtn.addEventListener("click", () => window.print());
+  }
+
+  mode === "print" ? renderPrint() : renderBrowse();
+}
 
 // --- Reports ---------------------------------------------------------------
 registerView("reports", "Insights", "Reports", (container) => {
