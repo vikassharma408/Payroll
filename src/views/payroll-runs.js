@@ -792,13 +792,25 @@ function buildSlipCardHtml(run, line) {
   const ytdDeductionsByCode = ytdDeductionCodes
     .map((code) => [code, priorLines.reduce((s, l) => s + (l.deductions[code] || 0), 0)])
     .filter(([, amt]) => amt !== 0);
-  const ytdDeductionsTotal = ytdDeductionsByCode.reduce((s, [, amt]) => s + amt, 0) + ytdTds;
+  // A manual adjustment (addAdjustment) is deliberately kept out of
+  // totalDeductions/grossSalary - it's not a statutory or taxed component,
+  // it just moves net pay up or down by a flat amount (see the quick
+  // adjustment form's own copy). So the Deductions table's own displayed
+  // total has to be built back up to match: grossSalary minus this equals
+  // Net Salary Payable, same identity as netSalary = grossSalary -
+  // totalDeductions + adjustmentsTotal. Subtracting adjustmentsTotal here
+  // turns a negative (net-pay-reducing) adjustment into a positive
+  // contribution to the deductions total, matching the display convention
+  // below of showing every deduction row as a plain positive amount.
+  const ytdAdjustmentsTotal = priorLines.reduce((s, l) => s + l.adjustments.reduce((s2, a) => s2 + a.amount, 0), 0);
+  const ytdDeductionsTotal = ytdDeductionsByCode.reduce((s, [, amt]) => s + amt, 0) + ytdTds - ytdAdjustmentsTotal;
   const adjustmentsTotal = line.adjustments.reduce((s, a) => s + a.amount, 0);
   const annualTaxLiability = line.taxCalcSnapshot[line.regimeUsed.toLowerCase()].totalTaxLiability;
 
   const earningRows = Object.entries(line.earnings).filter(([, v]) => v !== 0).map(([code, amt]) => `<tr><td>${componentLabel(code)}</td><td>${rupees(amt)}</td></tr>`).join("");
   const employerRows = Object.entries(line.employerContributions).filter(([, v]) => v !== 0).map(([code, amt]) => `<tr><td>${componentLabel(code)}</td><td>${rupees(amt)}</td></tr>`).join("");
   const deductionRows = Object.entries(line.deductions).filter(([, v]) => v !== 0).map(([code, amt]) => `<tr><td>${componentLabel(code)}</td><td>${rupees(amt)}</td></tr>`).join("");
+  const adjustmentRows = line.adjustments.filter((a) => a.amount !== 0).map((a) => `<tr><td>${escapeHtml(a.reason)}</td><td>${rupees(-a.amount)}</td></tr>`).join("");
 
   return `
     <div class="card mt-16">
@@ -845,8 +857,8 @@ function buildSlipCardHtml(run, line) {
           <table>
             ${deductionRows}
             <tr><td>TDS</td><td>${rupees(line.tdsMonthly)}</td></tr>
-            ${adjustmentsTotal !== 0 ? `<tr><td>Adjustments</td><td>${rupees(adjustmentsTotal)}</td></tr>` : ""}
-            <tr><td><strong>Total Deductions</strong></td><td><strong>${rupees(line.totalDeductions)}</strong></td></tr>
+            ${adjustmentRows}
+            <tr><td><strong>Total Deductions</strong></td><td><strong>${rupees(line.totalDeductions - adjustmentsTotal)}</strong></td></tr>
           </table>
         </div>
       </div>
