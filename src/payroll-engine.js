@@ -520,6 +520,15 @@
       tdsOverride: override.tdsOverride,
     });
     const existingIdx = run.lines.findIndex((l) => l.employeeId === employee.id);
+    const adjustments = existingIdx >= 0 ? run.lines[existingIdx].adjustments : [];
+    // Manual Adjustments (addAdjustment) are applied on top of net pay as
+    // their own separate mechanism, outside this function's own
+    // computeEmployeePayrollLine call - so a fresh netSalary computed here
+    // (e.g. from clicking Recalculate, or saving a different manual
+    // override) must re-add them, or they'd silently vanish from net pay
+    // while still showing in the Adjustments total and list (the bug
+    // reported: Adjustments shown but not reflected in Net Pay).
+    const adjustmentsTotal = adjustments.reduce((s, a) => s + a.amount, 0);
     const line = {
       id: existingIdx >= 0 ? run.lines[existingIdx].id : newId("prl"),
       employeeId: employee.id,
@@ -537,11 +546,11 @@
       tdsOverridden: result.tdsOverridden,
       tdsOverrideReason: result.tdsOverridden ? override.tdsOverrideReason || "" : null,
       totalDeductions: result.totalDeductions,
-      netSalary: result.netSalary,
+      netSalary: result.netSalary + adjustmentsTotal,
       regimeUsed: result.regimeUsed,
       taxCalcSnapshot: result.taxCalcSnapshot,
       metrics: result.metrics,
-      adjustments: existingIdx >= 0 ? run.lines[existingIdx].adjustments : [],
+      adjustments,
     };
     if (existingIdx >= 0) run.lines[existingIdx] = line;
     else run.lines.push(line);
