@@ -251,8 +251,8 @@ function renderSidebar(activePath) {
   for (const group of SIDEBAR) {
     parts.push(`<div class="section-label">${group.section}</div>`);
     for (const [path, label] of group.items) {
-      const cls = path === activePath ? "active" : "";
-      parts.push(`<a href="#/${path}" class="${cls}">${label}</a>`);
+      const active = path === activePath;
+      parts.push(`<a href="#/${path}" class="${active ? "active" : ""}"${active ? ' aria-current="page"' : ""}>${label}</a>`);
     }
   }
   return parts.join("\n");
@@ -280,18 +280,85 @@ function renderContent() {
   container.innerHTML = "";
 
   if (segments.length > 1 && DYNAMIC_ROUTES[segments[0]]) {
-    document.getElementById("page-title").textContent = Views[segments[0]] ? Views[segments[0]].label : segments[0];
+    const label = Views[segments[0]] ? Views[segments[0]].label : segments[0];
+    document.getElementById("page-title").textContent = label;
+    document.title = `${label} · Payroll Register`;
     DYNAMIC_ROUTES[segments[0]](container, segments.slice(1));
     return;
   }
   const view = Views[segments[0]] || Views["dashboard"];
   document.getElementById("page-title").textContent = view.label;
+  document.title = `${view.label} · Payroll Register`;
   view.render(container);
+}
+
+// Most forms here use a <label> followed by its control rather than
+// label-for/id pairs, and table-cell inputs often have no label at all, so
+// screen readers announced them unnamed. This pass (re-run on every DOM
+// change in the content area) links each such label to its control and
+// gives any still-unnamed control a name from its placeholder, its column
+// header, or its field name. Scrollable table wrappers also get keyboard
+// focus so they can be scrolled without a mouse.
+let a11yFieldSeq = 0;
+function hasAccessibleName(el) {
+  if (el.getAttribute("aria-label") || el.getAttribute("aria-labelledby") || el.title) return true;
+  if (el.closest("label")) return true;
+  return !!(el.id && document.querySelector(`label[for="${CSS.escape(el.id)}"]`));
+}
+function enhanceAccessibility(root) {
+  for (const label of root.querySelectorAll("label:not([for])")) {
+    if (label.querySelector("input, select, textarea")) continue;
+    let control = label.nextElementSibling;
+    if (control && !control.matches("input, select, textarea")) control = control.querySelector("input:not([type=hidden]), select, textarea");
+    if (!control || hasAccessibleName(control)) continue;
+    if (!control.id) control.id = `fld-${++a11yFieldSeq}`;
+    label.htmlFor = control.id;
+  }
+  for (const el of root.querySelectorAll("input:not([type=hidden]), select, textarea")) {
+    if (hasAccessibleName(el)) continue;
+    let name = el.getAttribute("placeholder");
+    const cell = el.closest("td, th");
+    if (!name && cell) {
+      const table = cell.closest("table");
+      const header = table && table.querySelector("thead tr");
+      const th = header && header.children[cell.cellIndex];
+      name = th && th.textContent.trim();
+    }
+    if (!name && el.type === "checkbox") name = el.id === "select-all" ? "Select all" : "Select row";
+    if (!name) name = (el.name || el.id || "Field").replace(/[-_]/g, " ");
+    el.setAttribute("aria-label", name);
+  }
+  for (const el of root.querySelectorAll("div[style*='overflow-x']")) {
+    if (!el.hasAttribute("tabindex")) {
+      el.tabIndex = 0;
+      el.setAttribute("role", "region");
+      el.setAttribute("aria-label", "Scrollable table");
+    }
+  }
+}
+let a11yPassQueued = false;
+new MutationObserver(() => {
+  if (a11yPassQueued) return;
+  a11yPassQueued = true;
+  queueMicrotask(() => {
+    a11yPassQueued = false;
+    enhanceAccessibility(document.getElementById("content"));
+  });
+}).observe(document.getElementById("content"), { childList: true, subtree: true });
+
+function setMobileMenuOpen(open) {
+  document.getElementById("sidebar").classList.toggle("open", open);
+  const btn = document.getElementById("menu-toggle-btn");
+  if (btn) {
+    btn.setAttribute("aria-expanded", String(open));
+    btn.setAttribute("aria-label", open ? "Close menu" : "Open menu");
+  }
 }
 
 function route() {
   const hash = location.hash.replace(/^#\/?/, "") || "dashboard";
   const segments = hash.split("/");
+  setMobileMenuOpen(false);
   document.getElementById("sidebar").innerHTML = renderSidebar(segments[0]);
   renderCompanyFilterControl();
   renderContent();
@@ -1100,17 +1167,18 @@ registerView("wage-ceilings", "Setup", "Wage Ceilings", (container) => {
           <td>${rupees(w.esiWageCeiling)}/month</td>
           <td>${rupees(w.esiWageCeilingDisability)}/month</td>
           <td>${rupees(w.pfWageCeiling)}/month</td>
+          <td>${((w.esiEmployeeRate ?? 0.0075) * 100).toFixed(2)}% / ${((w.esiEmployerRate ?? 0.0325) * 100).toFixed(2)}%</td>
           <td>${escapeHtml(w.notes || "")}</td>
           <td><button data-id="${w.id}" class="toggle-wc-edit">${editingId === w.id ? "Cancel" : "Edit"}</button> <button data-id="${w.id}" class="danger delete-wc">Delete</button></td>
         </tr>
-        ${editingId === w.id ? `<tr><td colspan="6">${renderWcForm(w)}</td></tr>` : ""}`,
+        ${editingId === w.id ? `<tr><td colspan="7">${renderWcForm(w)}</td></tr>` : ""}`,
       )
       .join("");
     container.innerHTML = `
       <div class="card">
-        <p class="text-muted">The wage ceilings that decide PF Capped (Salary Structure Templates) and ESI contribution-period continuity. Each row is the complete config in force from its "Effective From" date until the next row's date - add a new row whenever a rate changes instead of editing an old one, so past payroll runs keep using the rate that was actually in force at the time.</p>
+        <p class="text-muted">The wage ceilings and ESI rates used by payroll: PF Capped structures contribute 12% of earned Basic+DA up to the PF ceiling in force that month, and ESI is computed on each month's actual ESI wages at the rates below. Each row is the complete config in force from its "Effective From" date until the next row's date - add a new row whenever a rate changes instead of editing an old one, so past payroll runs keep using the rate that was actually in force at the time.</p>
         <table>
-          <thead><tr><th>Effective From</th><th>ESI Wage Ceiling</th><th>ESI Ceiling (Disability)</th><th>PF Wage Ceiling</th><th>Notes</th><th></th></tr></thead>
+          <thead><tr><th>Effective From</th><th>ESI Wage Ceiling</th><th>ESI Ceiling (Disability)</th><th>PF Wage Ceiling</th><th>ESI Rate (Employee / Employer)</th><th>Notes</th><th></th></tr></thead>
           <tbody>${rows}</tbody>
         </table>
         <div class="row gap-8 mt-16">
@@ -1144,7 +1212,7 @@ registerView("wage-ceilings", "Setup", "Wage Ceilings", (container) => {
   }
 
   function renderWcForm(w) {
-    const v = w || { effectiveFrom: "", esiWageCeiling: 21000, esiWageCeilingDisability: 25000, pfWageCeiling: 15000, notes: "" };
+    const v = w || { effectiveFrom: "", esiWageCeiling: 21000, esiWageCeilingDisability: 25000, pfWageCeiling: 25000, esiEmployeeRate: 0.0075, esiEmployerRate: 0.0325, notes: "" };
     return `
       <div class="card" style="margin:8px 0;">
         <form id="wc-form" data-id="${w ? w.id : ""}">
@@ -1153,6 +1221,8 @@ registerView("wage-ceilings", "Setup", "Wage Ceilings", (container) => {
             <div><label>ESI Wage Ceiling (monthly)</label><input type="number" min="0" name="esiWageCeiling" value="${v.esiWageCeiling}" /></div>
             <div><label>ESI Wage Ceiling - Disability (monthly)</label><input type="number" min="0" name="esiWageCeilingDisability" value="${v.esiWageCeilingDisability}" /></div>
             <div><label>PF Wage Ceiling (monthly)</label><input type="number" min="0" name="pfWageCeiling" value="${v.pfWageCeiling}" /></div>
+            <div><label>ESI Employee Rate (%)</label><input type="number" min="0" step="0.01" name="esiEmployeeRate" value="${((v.esiEmployeeRate ?? 0.0075) * 100).toFixed(2)}" /></div>
+            <div><label>ESI Employer Rate (%)</label><input type="number" min="0" step="0.01" name="esiEmployerRate" value="${((v.esiEmployerRate ?? 0.0325) * 100).toFixed(2)}" /></div>
           </div>
           <div><label class="mt-16">Notes</label><textarea name="notes" rows="2" style="width:100%;">${escapeHtml(v.notes || "")}</textarea></div>
           <div id="wc-error" class="text-bad mt-16"></div>
@@ -1177,6 +1247,8 @@ registerView("wage-ceilings", "Setup", "Wage Ceilings", (container) => {
       esiWageCeiling: num(fd.get("esiWageCeiling")),
       esiWageCeilingDisability: num(fd.get("esiWageCeilingDisability")),
       pfWageCeiling: num(fd.get("pfWageCeiling")),
+      esiEmployeeRate: num(fd.get("esiEmployeeRate")) / 100,
+      esiEmployerRate: num(fd.get("esiEmployerRate")) / 100,
       notes: String(fd.get("notes") || "") || null,
     };
     const targetId = evt.target.dataset.id;

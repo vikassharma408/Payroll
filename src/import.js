@@ -55,7 +55,7 @@ const IMPORT_TEMPLATES = {
     columns: [
       { header: "Employee Code", field: "employeeCode", required: true, type: "string", example: "EMP101" },
       { header: "Tax Regime", field: "taxRegime", type: "enum", enumValues: ["OLD", "NEW"], example: "OLD" },
-      { header: "Metro City (Y/N)", field: "isMetroCity", type: "boolean", example: "Y", note: "Y if the employee is based in Delhi, Mumbai, Kolkata or Chennai - raises the HRA exemption limit to 50% of Basic (40% for non-metro). Declared per financial year like the rent details below, since it only matters for the HRA exemption calculation." },
+      { header: "Metro City (Y/N)", field: "isMetroCity", type: "boolean", example: "Y", note: "Y if the employee is based in Delhi, Mumbai, Kolkata, Chennai, Bengaluru, Hyderabad, Pune or Ahmedabad (the 8 cities given 50% under the Income-tax Rules, 2026 from FY 2026-27) - raises the HRA exemption limit to 50% of Basic+DA (40% elsewhere). Declared per financial year like the rent details below, since it only matters for the HRA exemption calculation." },
       { header: "Monthly Rent", field: "monthlyRent", type: "number", example: 20000 },
       { header: "Rent Start Date", field: "rentStartDate", type: "date", example: "01/Apr/2026" },
       { header: "Rent End Date", field: "rentEndDate", type: "date", example: "" },

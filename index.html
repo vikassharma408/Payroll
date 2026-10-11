@@ -11,14 +11,15 @@
 </head>
 <body>
   <div class="app-shell">
-    <nav class="sidebar" id="sidebar"></nav>
+    <nav class="sidebar" id="sidebar" aria-label="Main menu"></nav>
     <div class="main">
       <div class="topbar no-print">
+        <button class="menu-toggle" id="menu-toggle-btn" aria-label="Open menu" aria-controls="sidebar" aria-expanded="false">&#9776;</button>
         <h2 id="page-title" style="margin:0;">Dashboard</h2>
         <div class="row gap-8">
           <span id="company-filter"></span>
-          <span id="backup-status" class="text-muted" style="font-size:12px;"></span>
-          <button class="theme-toggle" id="theme-toggle-btn" title="Toggle dark/light theme">&#127761;</button>
+          <span id="backup-status" class="text-muted" style="font-size:12px;" role="status"></span>
+          <button class="theme-toggle" id="theme-toggle-btn" title="Toggle dark/light theme" aria-label="Toggle dark/light theme">&#127761;</button>
         </div>
       </div>
       <div class="content" id="content"></div>

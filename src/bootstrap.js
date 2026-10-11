@@ -17,6 +17,9 @@ for (const group of SIDEBAR) {
 async function boot() {
   applyTheme(currentTheme());
   document.getElementById("theme-toggle-btn").addEventListener("click", toggleTheme);
+  document.getElementById("menu-toggle-btn").addEventListener("click", () => {
+    setMobileMenuOpen(!document.getElementById("sidebar").classList.contains("open"));
+  });
 
   const loaded = await Persistence.loadDb();
   if (loaded) {

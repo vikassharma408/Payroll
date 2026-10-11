@@ -2,9 +2,7 @@
 // lib/reports/index.ts, lib/reports/reconciliation.ts and lib/bank-file.ts.
 // Pure functions operating on the in-memory `db`; no rendering here.
 
-const OTHER_ALLOWANCE_CODES = ["DA", "TRANSPORT_ALLOWANCE", "MEDICAL_ALLOWANCE", "LTA", "COMMISSION", "OVERTIME", "ARREARS", "PERFORMANCE_PAY", "OTHER_ALLOWANCE", "GRATUITY_TAXABLE", "LEAVE_ENCASHMENT_TAXABLE"];
 const OTHER_DEDUCTION_CODES = ["SALARY_ADVANCE", "LOAN_RECOVERY", "OTHER_DEDUCTION"];
-const OTHER_EMPLOYER_CODES = ["EMPLOYER_SUPERANNUATION", "OTHER_EMPLOYER_BENEFIT"];
 const IFSC_REGEX_R = /^[A-Z]{4}0[A-Z0-9]{6}$/;
 
 function sumCodesR(map, codes) {
@@ -41,8 +39,18 @@ const SALARY_REGISTER_COLUMNS = [
   ["Basic", "basic"], ["HRA", "hra"], ["Special Allowance", "specialAllowance"], ["Other Allowances", "otherAllowances"], ["Bonus", "bonus"], ["Incentive", "incentive"],
   ["Gross Salary", "grossSalary"], ["Employee PF", "employeePf"], ["Employee ESI", "employeeEsi"], ["Professional Tax", "professionalTax"], ["LWF", "lwf"],
   ["Other Deductions", "otherDeductions"], ["TDS", "tds"], ["Total Deductions", "totalDeductions"], ["Other Additions", "otherAdditions"], ["Net Salary", "netSalary"],
-  ["Employer PF", "employerPf"], ["Employer ESI", "employerEsi"], ["Gratuity", "gratuity"], ["Total CTC / Employer Cost", "totalCtc"],
+  ["Employer PF", "employerPf"], ["Employer ESI", "employerEsi"], ["Gratuity", "gratuity"], ["Other Employer Contributions", "otherEmployerCost"], ["Total CTC / Employer Cost", "totalCtc"],
 ];
+
+const SEPARATE_EARNING_COLUMNS = ["BASIC", "HRA", "SPECIAL_ALLOWANCE", "BONUS", "INCENTIVE"];
+const SEPARATE_DEDUCTION_COLUMNS = ["EMPLOYEE_PF", "EMPLOYEE_ESI", "PROFESSIONAL_TAX", "LWF"];
+const SEPARATE_EMPLOYER_COLUMNS = ["EMPLOYER_PF", "EMPLOYER_ESI", "GRATUITY"];
+
+function stateLabel(db, stateKey) {
+  if (!stateKey) return "";
+  const s = (db.ptSlabs || []).find((x) => x.key === stateKey);
+  return s ? s.label : stateKey;
+}
 
 function getSalaryRegisterRows(db, payrollRunId) {
   const run = db.payrollRuns.find((r) => r.id === payrollRunId);
@@ -57,20 +65,21 @@ function getSalaryRegisterRows(db, payrollRunId) {
     .map((line) => {
       const e = db.employees.find((x) => x.id === line.employeeId) || {};
       const earn = line.earnings, ec = line.employerContributions, d = line.deductions;
-      // A component-wise arrears top-up (e.g. "BASIC__ARREARS", posted by
-      // PayrollEngine.applyArrears - must match its ARREARS_CODE_SUFFIX) is
-      // its own distinct earning code, not literally "BASIC" or "ARREARS",
-      // so it needs its own catch into the Other Allowances bucket to keep
-      // this register's columns summing to Gross Salary.
-      const arrearsTopUps = Object.entries(earn).reduce((s, [code, v]) => (code.endsWith("__ARREARS") ? s + v : s), 0);
+      // "Other" buckets are residuals of every code without its own column
+      // (Conveyance, DA, arrears top-ups like "BASIC__ARREARS", any custom
+      // component, net-pay-reducing manual adjustments...) so each block of
+      // columns always adds up to its total - Gross, Total Deductions, CTC.
+      const sumAllExcept = (map, excluded) => Object.entries(map).reduce((s, [code, v]) => (excluded.includes(code) ? s : s + v), 0);
       return {
         employeeCode: e.employeeCode || "", employeeName: e.fullName || "", pan: e.pan || "", department: e.department || "", designation: e.designation || "",
-        basic: earn["BASIC"] ?? 0, hra: earn["HRA"] ?? 0, specialAllowance: earn["SPECIAL_ALLOWANCE"] ?? 0, otherAllowances: sumCodesR(earn, OTHER_ALLOWANCE_CODES) + arrearsTopUps,
+        location: e.location || "", state: stateLabel(db, e.state), uan: e.uan || "",
+        basic: earn["BASIC"] ?? 0, hra: earn["HRA"] ?? 0, specialAllowance: earn["SPECIAL_ALLOWANCE"] ?? 0, otherAllowances: sumAllExcept(earn, SEPARATE_EARNING_COLUMNS),
         bonus: earn["BONUS"] ?? 0, incentive: earn["INCENTIVE"] ?? 0, grossSalary: line.grossSalary,
         employeePf: d["EMPLOYEE_PF"] ?? 0, employeeEsi: d["EMPLOYEE_ESI"] ?? 0, professionalTax: d["PROFESSIONAL_TAX"] ?? 0, lwf: d["LWF"] ?? 0,
-        otherDeductions: sumCodesR(d, OTHER_DEDUCTION_CODES), tds: line.tdsMonthly, totalDeductions: reconciledTotalDeductions(line), otherAdditions: linePositiveAdjustmentsTotal(line), netSalary: line.netSalary,
+        otherDeductions: sumAllExcept(d, SEPARATE_DEDUCTION_COLUMNS) + lineNegativeAdjustmentsMagnitude(line), tds: line.tdsMonthly, totalDeductions: reconciledTotalDeductions(line), otherAdditions: linePositiveAdjustmentsTotal(line), netSalary: line.netSalary,
         employerPf: ec["EMPLOYER_PF"] ?? 0, employerEsi: ec["EMPLOYER_ESI"] ?? 0, gratuity: ec["GRATUITY"] ?? 0, employerNps: ec["EMPLOYER_NPS"] ?? 0,
-        otherEmployerCost: sumCodesR(ec, OTHER_EMPLOYER_CODES), totalCtc: line.totalEmployerCost,
+        otherEmployerCost: sumAllExcept(ec, SEPARATE_EMPLOYER_COLUMNS), totalCtc: line.totalEmployerCost,
+        pfWages: (line.metrics && line.metrics.pfWages) ?? sumCodesR(earn, ["BASIC", "DA"]), esiWages: (line.metrics && line.metrics.esiWages) ?? 0,
       };
     });
 }
@@ -252,20 +261,20 @@ function getReportData(db, key, params) {
     case "pf-register": {
       const rows = getSalaryRegisterRows(db, params.runId);
       return {
-        columns: ["Employee Code", "Employee Name", "UAN", "Employee PF", "Employer PF", "Total PF"],
-        rows: rows.map((r) => {
-          const emp = db.employees.find((e) => e.employeeCode === r.employeeCode);
-          return [r.employeeCode, r.employeeName, (emp && emp.uan) || "", r.employeePf, r.employerPf, r.employeePf + r.employerPf];
-        }),
+        columns: ["Employee Code", "Employee Name", "UAN", "PF Wages (Basic+DA earned)", "Employee PF", "Employer PF", "Total PF"],
+        rows: rows.filter((r) => r.employeePf || r.employerPf).map((r) => [r.employeeCode, r.employeeName, r.uan, r.pfWages, r.employeePf, r.employerPf, r.employeePf + r.employerPf]),
       };
     }
     case "esi-register": {
       const rows = getSalaryRegisterRows(db, params.runId);
-      return { columns: ["Employee Code", "Employee Name", "Employee ESI", "Employer ESI", "Total ESI"], rows: rows.map((r) => [r.employeeCode, r.employeeName, r.employeeEsi, r.employerEsi, r.employeeEsi + r.employerEsi]) };
+      return {
+        columns: ["Employee Code", "Employee Name", "ESI Wages", "Employee ESI", "Employer ESI", "Total ESI"],
+        rows: rows.filter((r) => r.employeeEsi || r.employerEsi).map((r) => [r.employeeCode, r.employeeName, r.esiWages, r.employeeEsi, r.employerEsi, r.employeeEsi + r.employerEsi]),
+      };
     }
     case "pt-register": {
       const rows = getSalaryRegisterRows(db, params.runId);
-      return { columns: ["Employee Code", "Employee Name", "Location", "Professional Tax"], rows: rows.map((r) => [r.employeeCode, r.employeeName, r.department, r.professionalTax]) };
+      return { columns: ["Employee Code", "Employee Name", "State", "Location", "Gross Salary", "Professional Tax"], rows: rows.map((r) => [r.employeeCode, r.employeeName, r.state, r.location, r.grossSalary, r.professionalTax]) };
     }
     case "regime-comparison": {
       const run = db.payrollRuns.find((r) => r.id === params.runId);

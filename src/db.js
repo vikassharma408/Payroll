@@ -120,6 +120,18 @@ function migrateDb(db) {
     if (r.deductionLimits.GRATUITY_EXEMPTION == null) r.deductionLimits.GRATUITY_EXEMPTION = 2000000;
     if (r.deductionLimits.LEAVE_ENCASHMENT_EXEMPTION == null) r.deductionLimits.LEAVE_ENCASHMENT_EXEMPTION = 2500000;
   }
+  // Master salary components added after an install was first seeded (e.g.
+  // EMPLOYER_ESI) - seedMasterData only runs on a brand-new db.
+  const masterDataMod = typeof module !== "undefined" && module.exports ? require("./master-data.js") : { SALARY_COMPONENTS };
+  if (!db.salaryComponents) db.salaryComponents = [];
+  for (const c of masterDataMod.SALARY_COMPONENTS || []) {
+    if (db.salaryComponents.some((x) => x.code === c.code)) continue;
+    db.salaryComponents.push({ id: newId("sc"), ...c, formula: null, isFixed: true });
+  }
+  for (const w of db.wageCeilings) {
+    if (w.esiEmployeeRate == null) w.esiEmployeeRate = 0.0075;
+    if (w.esiEmployerRate == null) w.esiEmployerRate = 0.0325;
+  }
   return db;
 }
 

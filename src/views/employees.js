@@ -503,6 +503,10 @@ function renderSalaryStructureTab(container, employee, fy, onSaved) {
   let targetRunId = "";
   let selectedTemplateId = "";
   let targetCtcInput = "";
+  // Carried onto the saved structure so payroll caps PF at the wage ceiling
+  // in force each month (null = not generated from a template this session;
+  // keep whatever the current structure already had).
+  let generatedPfCapped = active && active.pfCapped != null ? active.pfCapped : null;
 
   function computedCtc() {
     return rows.reduce((s, r) => {
@@ -545,7 +549,7 @@ function renderSalaryStructureTab(container, employee, fy, onSaved) {
           <div style="margin-left:auto;"><label>Effective From</label>${dateField("effectiveFrom", effectiveFromInput, { id: "structure-effective-from" })}</div>
         </div>
         <p class="text-muted" style="font-size:12px;">Sum of all Earning + Employer Contribution components below, x12. Enter each component's MONTHLY amount; this total updates automatically. Backdate "Effective From" for a mid-year revision (e.g. revising in June, effective from April) - any already-paid months in between will show up below as Arrears due.</p>
-        <p class="text-muted" style="font-size:12px;">If you add an Employer PF Contribution, a matching Employee PF Contribution deduction (same amount) is applied automatically at payroll time, and counted towards the employee's Sec 80C deduction (Old Regime) - you don't need to add an Employee PF Contribution row yourself.</p>
+        <p class="text-muted" style="font-size:12px;">If you add an Employer PF Contribution, a matching Employee PF Contribution deduction (same amount) is applied automatically at payroll time, and counted towards the employee's Sec 80C deduction (Old Regime) - you don't need to add an Employee PF Contribution row yourself. ESI is likewise calculated automatically each month (0.75% employee / 3.25% employer of that month's actual ESI wages, rates under Setup &gt; Wage Ceilings) whenever ESI Applicable is ticked on the Profile - no ESI rows are needed here.</p>
         <table class="mt-16">
           <thead><tr><th>Component</th><th>Category</th><th>Monthly Amount</th><th>Annual</th><th></th></tr></thead>
           <tbody id="rows-body"></tbody>
@@ -584,6 +588,7 @@ function renderSalaryStructureTab(container, employee, fy, onSaved) {
         const ctc = num(targetCtcInput);
         try {
           const result = PayrollEngine.generateStructureFromTemplate(db, selectedTemplateId, ctc, effectiveFromInput);
+          generatedPfCapped = !!(db.salaryStructureTemplates.find((t) => t.id === selectedTemplateId) || {}).pfCapped;
           const generatedRows = result.components.filter((c) => c.componentId).map((c) => ({ componentId: c.componentId, componentCode: c.componentCode, monthlyAmount: c.monthlyAmount, formulaUsed: c.formulaTrace }));
           if (generatedRows.length < result.components.length) {
             errorEl.textContent = "Some template rows reference a salary component that no longer exists and were skipped.";
@@ -655,6 +660,7 @@ function renderSalaryStructureTab(container, employee, fy, onSaved) {
         effectiveTo: null,
         isActive: true,
         createdAt: now,
+        ...(generatedPfCapped != null ? { pfCapped: generatedPfCapped } : {}),
         components: rows.map((r) => {
           const comp = db.salaryComponents.find((c) => c.id === r.componentId);
           return {
@@ -985,9 +991,9 @@ function renderInvestmentDeclarationTab(container, employee, fy, onSaved) {
           <div><label>Landlord PAN</label><input name="landlordPan" value="${escapeHtml(d.landlordPan || "")}" /></div>
         </div>
         <label class="row gap-8 mt-16" style="display:flex;align-items:center;">
-          <input type="checkbox" name="isMetroCity" ${d.isMetroCity ? "checked" : ""} style="width:auto;" /> Metro City (Delhi / Mumbai / Kolkata / Chennai)
+          <input type="checkbox" name="isMetroCity" ${d.isMetroCity ? "checked" : ""} style="width:auto;" /> 50% HRA city (Delhi, Mumbai, Kolkata, Chennai, Bengaluru, Hyderabad, Pune, Ahmedabad)
         </label>
-        <p class="text-muted mt-16" style="font-size:12px;">Leave Start/End Date blank if rent was paid for the entire financial year. If set, HRA exemption is only calculated for the months within this period (e.g. if rent started in July, April-June get no HRA exemption). Metro City raises the HRA exemption limit to 50% of Basic (40% for non-metro) - re-declare it here each financial year if the employee's base location changes.</p>
+        <p class="text-muted mt-16" style="font-size:12px;">Leave Start/End Date blank if rent was paid for the entire financial year. If set, HRA exemption is only calculated for the months within this period (e.g. if rent started in July, April-June get no HRA exemption). From FY 2026-27 the Income-tax Rules, 2026 allow 50% of Basic+DA in these 8 cities (40% elsewhere) - re-declare it here each financial year if the employee's base location changes.</p>
       </div>
       ${numFieldGroups}
       <div class="card">
@@ -1384,7 +1390,7 @@ function renderRegimeComparisonTab(container, employee, fy, onSaved) {
         <p style="margin:0;">Estimated annual gross salary: <strong>${rupees(estimate.annualGross)}</strong>. Based on the current active Salary Structure and Investment Declaration for FY ${fy.code}, projected for the full year.</p>
         ${!estimate.hasDeclaration ? `<p class="text-bad">No Investment Declaration is on file yet - Old Regime figures assume zero Chapter VI-A deductions/HRA rent.</p>` : ""}
       </div>
-      <a href="#/employees/${employee.id}/form16"><button>View Form 16 Part B Summary</button></a>
+      <a href="#/employees/${employee.id}/form16"><button>View Form 130 (Form 16) Part B Summary</button></a>
     </div>
     ${renderComputationTable(estimate)}
     ${
@@ -1438,12 +1444,18 @@ function renderForm16(container, employee) {
     container.innerHTML = `<div class="card">No Financial Year configured.</div>`;
     return;
   }
-  const estimate = PayrollEngine.estimateRegimeComparison(db, employee.id, fy.id);
+  // Actual salary paid and TDS actually deducted across processed runs; a
+  // structure-based projection only when nothing has been processed yet.
+  const actuals = PayrollEngine.computeAnnualTaxFromActuals(db, employee.id, fy.id);
+  const estimate = actuals || PayrollEngine.estimateRegimeComparison(db, employee.id, fy.id);
   if (!estimate) {
     container.innerHTML = `<div class="card">No active salary structure for FY ${fy.code} - add one under Salary Structure first. <a href="#/employees/${employee.id}">Back</a></div>`;
     return;
   }
   const r = employee.taxRegime === "OLD" ? estimate.old : estimate.new;
+  const basisNote = actuals
+    ? `Based on salary actually paid and TDS actually deducted in ${actuals.monthsProcessed} processed payroll month(s) of FY ${fy.code}${actuals.monthsProcessed < 12 ? " - the year isn't complete yet, so this is a year-to-date statement" : ""}.`
+    : `No payroll has been processed for FY ${fy.code} yet - figures below are PROJECTED from the salary structure, not actuals.`;
   const company = db.companies.find((c) => c.id === employee.companyId) || {};
 
   container.innerHTML = `
@@ -1462,7 +1474,8 @@ function renderForm16(container, employee) {
           <div>FY ${fy.code} (${sentenceCase(r.regime)} regime)</div>
         </div>
       </div>
-      <h2 style="text-align:center;">Form 16 Part B - Computation of Income &amp; Tax</h2>
+      <h2 style="text-align:center;">Form 130 (formerly Form 16) Part B - Computation of Income &amp; Tax</h2>
+      <p class="${actuals ? "text-muted" : "text-bad"}" style="text-align:center; font-size:12px;">${basisNote}</p>
       <div class="card-grid">
         <table>
           <tr><td class="text-muted">Employee Code</td><td>${escapeHtml(employee.employeeCode)}</td></tr>
@@ -1512,8 +1525,9 @@ function renderForm16(container, employee) {
         <span>Balance Tax Payable</span><span>${rupees(r.balanceTaxPayable)}</span>
       </div>
 
+      ${actuals && actuals.exemptTerminalBenefits ? `<p class="text-muted mt-16" style="font-size:12px;">Exempt gratuity / leave encashment paid at Full &amp; Final Settlement (not included in taxable salary above): ${rupees(actuals.exemptTerminalBenefits)}.</p>` : ""}
       ${r.warnings.length ? `<div class="text-muted mt-16" style="font-size:12px;">${r.warnings.map((w) => `<div>&#9888; ${escapeHtml(w)}</div>`).join("")}</div>` : ""}
-      <p class="text-muted mt-16" style="text-align:center; font-size:12px;">This is a system-generated tax computation summary (Form 16 Part B style), not an official Form 16 certificate requiring a TRACES-issued certificate number and digital signature.</p>
+      <p class="text-muted mt-16" style="text-align:center; font-size:12px;">This is a system-generated tax computation summary (Part B style), not the official Form 130 certificate, which requires a TRACES-issued certificate number and digital signature.</p>
     </div>
   `;
   document.getElementById("btn-print-form16").addEventListener("click", () => window.print());
@@ -1528,7 +1542,14 @@ function renderFnfTab(container, employee, fy, onSaved) {
   const basicPlusDaMonthly = activeStructure ? activeStructure.components.filter((c) => c.componentCode === "BASIC" || c.componentCode === "DA").reduce((s, c) => s + c.monthlyAmount, 0) : 0;
 
   const service = PayrollEngine.computeServiceYears(employee.dateOfJoining, employee.dateOfLeaving);
-  const gratuityEligible = service.roundedYears >= 5;
+  // Eligibility needs 5 years of CONTINUOUS service (Payment of Gratuity
+  // Act Sec 4(1)) - the "more than 6 months rounds up" rule only applies to
+  // the payout formula once eligible, never to the 5-year test itself.
+  const gratuityEligible = service.completedYears >= 5;
+  const fourthAnniversary = new Date(employee.dateOfJoining);
+  fourthAnniversary.setFullYear(fourthAnniversary.getFullYear() + 4);
+  const daysIntoFifthYear = Math.floor((new Date(employee.dateOfLeaving) - fourthAnniversary) / 86400000);
+  const nearMissUnder240DayRule = !gratuityEligible && service.completedYears === 4 && daysIntoFifthYear >= 240;
   const statutoryGratuity = Math.round(((basicPlusDaMonthly * 15) / 26) * service.roundedYears);
   const asOfDateIso = employee.dateOfLeaving;
   const avg10mo = PayrollEngine.computeAverageBasicDaLast10Months(db, employee.id, asOfDateIso);
@@ -1562,7 +1583,11 @@ function renderFnfTab(container, employee, fy, onSaved) {
       <h3>Gratuity (Payment of Gratuity Act, 1972)</h3>
       ${
         !gratuityEligible
-          ? `<p class="text-bad">Not eligible: fewer than 5 years of completed service (waived only for death or disablement - if that applies here, you can still enter an amount below).</p>`
+          ? `<p class="text-bad">Not eligible: fewer than 5 years of completed service (waived only for death or disablement - if that applies here, you can still enter an amount below).</p>${
+              nearMissUnder240DayRule
+                ? `<p class="text-muted" style="font-size:12px;">Note: ${daysIntoFifthYear} days were worked in the 5th year. Several High Courts treat 4 years + 240 days (Sec 2A "continuous service") as 5 years for eligibility - if your policy follows that view, enter the gratuity amount below. Fixed-term employees under the Code on Social Security, 2020 qualify after 1 year.</p>`
+                : ""
+            }`
           : `<p class="text-muted">Statutory formula: Last drawn Basic+DA x 15/26 x completed years of service (6+ months rounds up) = ${rupees(basicPlusDaMonthly)} x 15/26 x ${service.roundedYears} = <strong>${rupees(statutoryGratuity)}</strong></p>`
       }
       <div class="form-grid">

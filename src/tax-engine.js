@@ -6,21 +6,23 @@
 
 /**
  * Surcharge with marginal relief: per the statutory rule, the total of tax +
- * surcharge at the actual income must not exceed (tax at the threshold
- * income, with NO surcharge, since surcharge only applies strictly above
- * the threshold) + (the income in excess of the threshold) - i.e. crossing
- * a surcharge threshold can never cost more in extra tax than the extra
- * income itself. That requires knowing tax at the threshold income under
- * the SAME slab table, not just a ratio of rates - `taxAtIncome(income)`
- * computes that (see calculateTax's _slabTax call). `slabsDescending` must
- * be sorted by threshold, highest first.
+ * surcharge at the actual income must not exceed (tax + surcharge payable
+ * at the threshold income itself) + (the income in excess of the
+ * threshold) - i.e. crossing a surcharge threshold can never cost more in
+ * extra tax than the extra income itself. At the threshold income the NEXT
+ * LOWER band's surcharge still applies (e.g. 10% at exactly Rs 1 crore),
+ * so that has to be included - only the lowest (Rs 50 lakh) threshold has
+ * no surcharge at all at the threshold. `taxAtIncome(income)` gives slab
+ * tax under the SAME slab table (see calculateTax's _slabTax call).
+ * `slabsDescending` must be sorted by threshold, highest first.
  */
 function computeSurcharge(taxableIncome, taxBeforeSurcharge, slabsDescending, taxAtIncome) {
   for (let i = 0; i < slabsDescending.length; i++) {
     const { threshold, rate } = slabsDescending[i];
     if (taxableIncome > threshold) {
       const fullSurcharge = taxBeforeSurcharge * rate;
-      const taxAtThreshold = Math.round(taxAtIncome(threshold));
+      const lowerBandRate = slabsDescending[i + 1] ? slabsDescending[i + 1].rate : 0;
+      const taxAtThreshold = Math.round(taxAtIncome(threshold) * (1 + lowerBandRate));
       const reliefCap = Math.max(0, taxableIncome - threshold - (taxBeforeSurcharge - taxAtThreshold));
       const surcharge = Math.round(Math.min(fullSurcharge, reliefCap));
       const marginalReliefApplied = reliefCap < fullSurcharge;
@@ -146,8 +148,12 @@ function calculateTax(input, config) {
       steps.push({ label: "Less: Profession Tax u/s 19 (old Sec 16(iii))", amount: -input.professionalTaxPaid });
     }
   }
-  totalSalaryIncome -= config.standardDeduction;
-  steps.push({ label: "Less: Standard Deduction u/s 19 (old Sec 16(ia))", amount: -config.standardDeduction });
+  // The standard deduction is "Rs X or the amount of salary, whichever is
+  // less" - it can reduce salary income to nil but never below it (which
+  // would otherwise wrongly offset house property / other income).
+  const standardDeduction = Math.min(config.standardDeduction, Math.max(0, totalSalaryIncome));
+  totalSalaryIncome -= standardDeduction;
+  steps.push({ label: "Less: Standard Deduction u/s 19 (old Sec 16(ia))", amount: -standardDeduction });
   steps.push({ label: "Income from Salary", amount: totalSalaryIncome });
 
   // --- Income from House Property -----------------------------------------

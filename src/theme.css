@@ -15,6 +15,7 @@
   --clay: #e0a339;
   --good: #2ee696;
   --bad: #f0554a;
+  --bad-solid: #c4302b; /* filled danger buttons: white text needs >= 4.5:1 */
   --bad-text: #ff9a90;
   --alt: #6f8ecf;
   --multi: #a875e8;
@@ -50,6 +51,7 @@
   --clay: #b45309;
   --good: #157a3d;
   --bad: #b91c1c;
+  --bad-solid: #b91c1c;
   --bad-text: #9c1414;
   --alt: #4f46e5;
   --multi: #7c3aed;
@@ -116,7 +118,8 @@ button {
 button:hover { border-color: var(--gold-dim); }
 button.primary { background: var(--gold); color: var(--on-accent); border-color: var(--gold); font-weight: 600; }
 button.primary:hover { background: var(--gold-hover); border-color: var(--gold-hover); }
-button.danger { background: var(--bad); color: #fff; border-color: var(--bad); }
+button.danger { background: var(--bad-solid); color: #fff; border-color: var(--bad-solid); }
+button:focus-visible, a:focus-visible, [tabindex]:focus-visible { outline: 2px solid var(--gold); outline-offset: 2px; }
 button:disabled { opacity: 0.5; cursor: not-allowed; }
 
 .app-shell { display: flex; min-height: 100vh; }
@@ -181,7 +184,7 @@ button:disabled { opacity: 0.5; cursor: not-allowed; }
 .badge { display: inline-block; padding: 2px 8px; border-radius: 999px; font-size: 11px; font-weight: 600; }
 .badge.good { background: color-mix(in srgb, var(--good) 18%, transparent); color: var(--good); }
 .badge.bad { background: color-mix(in srgb, var(--bad) 18%, transparent); color: var(--bad-text); }
-.badge.neutral { background: color-mix(in srgb, var(--ivory-dim) 18%, transparent); color: var(--ivory-dim); }
+.badge.neutral { background: color-mix(in srgb, var(--ivory-dim) 18%, transparent); color: var(--ivory); }
 
 .text-muted { color: var(--ivory-dim); }
 .text-good { color: var(--good); }
@@ -208,6 +211,13 @@ button:disabled { opacity: 0.5; cursor: not-allowed; }
   .content { padding: 0; }
 }
 
+.menu-toggle { display: none; }
+
 @media (max-width: 720px) {
-  .sidebar { display: none; }
+  .menu-toggle { display: flex; align-items: center; justify-content: center; width: 36px; height: 36px; padding: 0; font-size: 18px; }
+  .sidebar { display: none; position: fixed; top: 0; bottom: 0; left: 0; width: 260px; z-index: 50; overflow-y: auto; box-shadow: 4px 0 24px rgba(0, 0, 0, 0.4); }
+  .sidebar.open { display: flex; }
+  .topbar { padding: 10px 16px; gap: 8px; }
+  .topbar #page-title { font-size: 18px; flex: 1; }
+  .content { padding: 16px; }
 }

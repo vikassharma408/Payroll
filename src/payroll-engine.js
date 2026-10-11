@@ -61,11 +61,36 @@
   // about) keeps the original flag-only behavior.
   function isComponentSuppressed(employee, code, esiActiveOverride) {
     if (employee && !employee.pfApplicable && (code === "EMPLOYEE_PF" || code === "EMPLOYER_PF")) return true;
-    if (code === "EMPLOYEE_ESI") {
+    if (code === "EMPLOYEE_ESI" || code === "EMPLOYER_ESI") {
       const esiActive = esiActiveOverride !== undefined ? esiActiveOverride : !!(employee && employee.esiApplicable);
       return !esiActive;
     }
     return false;
+  }
+
+  // Not "wages" for ESI (ESI Act Sec 2(22)): annual/periodic bonus,
+  // travelling concession (LTA), and terminal payments (gratuity, leave
+  // encashment) are excluded; everything else paid in cash this month -
+  // including overtime, incentives and arrears - counts.
+  const ESI_EXCLUDED_EARNING_CODES = ["BONUS", "LTA", "GRATUITY_TAXABLE", "LEAVE_ENCASHMENT_TAXABLE"];
+  const STATUTORY_PF_RATE = 0.12;
+
+  /** ESI contributions are rounded UP to the next whole rupee (ESI (Central) Rules, Rule 51). Rounded to paise first so float noise (e.g. 150.00000000000003) doesn't push an exact figure up a rupee. */
+  function esiContribution(wages, rate) {
+    return Math.ceil(Math.round(wages * rate * 100) / 100);
+  }
+
+  /**
+   * Whether this structure's Employer PF is restricted to the PF wage
+   * ceiling ("PF Capped"). Structures generated from a PF Capped template
+   * carry an explicit `pfCapped` flag; for older/manual structures it's
+   * inferred only when the PF figure is exactly 12% of a known ceiling AND
+   * Basic+DA is above that ceiling - an unambiguous signature of capping.
+   */
+  function isStructurePfCapped(db, rawStructure, structureBasicDa, structurePf) {
+    if (rawStructure.pfCapped != null) return !!rawStructure.pfCapped;
+    if (!(structurePf > 0)) return false;
+    return (db.wageCeilings || []).some((w) => Math.abs(structurePf - STATUTORY_PF_RATE * w.pfWageCeiling) < 1 && structureBasicDa > w.pfWageCeiling);
   }
 
   /** Whether a declared rent period (start/end dates, either optional) covers any part of the given calendar month - so HRA exemption only applies for months rent was actually being paid. */
@@ -142,6 +167,7 @@
     const structure = candidates[0];
     const employee = db.employees.find((e) => e.id === employeeId);
     return {
+      raw: structure,
       annualCTC: structure.annualCTC,
       components: structure.components
         .filter((c) => !isComponentSuppressed(employee, c.componentCode, esiActiveOverride))
@@ -354,6 +380,42 @@
       employerContributions[c.code] = amt;
       totalEmployerContrib += amt;
     }
+
+    const wageCeilingConfig = getWageCeilingConfig(db, currentMonthDateIso);
+    const pfWages = sumCodes(earnings, BASIC_DA_CODES);
+
+    // PF Capped: contribution is 12% of EARNED Basic+DA limited to the wage
+    // ceiling in force this month - so LOP or a part month only reduces PF
+    // once earned wages actually drop below the ceiling (scaling the fixed
+    // structure figure by days worked would under-deduct statutory PF), and
+    // a ceiling revision (e.g. Rs 15,000 -> Rs 25,000 from 17-Sep-2026)
+    // takes effect without re-entering every structure. Uncapped PF keeps
+    // the structure's own rate, which proration already applies to earned
+    // Basic+DA.
+    let pfCappedThisMonth = false;
+    if (Object.prototype.hasOwnProperty.call(employerContributions, "EMPLOYER_PF")) {
+      const structurePf = structure.components.filter((c) => c.code === "EMPLOYER_PF").reduce((s, c) => s + c.monthlyAmount, 0);
+      const structureBasicDa = structure.components.filter((c) => BASIC_DA_CODES.includes(c.code)).reduce((s, c) => s + c.monthlyAmount, 0);
+      if (isStructurePfCapped(db, structure.raw, structureBasicDa, structurePf)) {
+        pfCappedThisMonth = true;
+        const rate = structure.raw.pfRate || STATUTORY_PF_RATE;
+        const cappedPf = Math.round(rate * Math.min(pfWages, wageCeilingConfig.pfWageCeiling));
+        totalEmployerContrib += cappedPf - employerContributions["EMPLOYER_PF"];
+        employerContributions["EMPLOYER_PF"] = cappedPf;
+      }
+    }
+
+    // ESI: a percentage of this month's actual ESI wages (gross incl.
+    // overtime/incentives, excl. bonus etc. - see ESI_EXCLUDED_EARNING_CODES),
+    // computed whenever coverage applies (flag, or contribution-period
+    // continuity), replacing any fixed figure typed into the structure.
+    const esiWages = esiActiveThisMonth ? Object.entries(earnings).filter(([code]) => !ESI_EXCLUDED_EARNING_CODES.includes(code)).reduce((s, [, v]) => s + v, 0) : 0;
+    const employeeEsiThisMonth = esiActiveThisMonth ? esiContribution(esiWages, wageCeilingConfig.esiEmployeeRate ?? 0.0075) : 0;
+    if (esiActiveThisMonth) {
+      const employerEsi = esiContribution(esiWages, wageCeilingConfig.esiEmployerRate ?? 0.0325);
+      totalEmployerContrib += employerEsi - (employerContributions["EMPLOYER_ESI"] || 0);
+      employerContributions["EMPLOYER_ESI"] = employerEsi;
+    }
     // Manual per-run tweak to an employer-contribution line (e.g. a one-off
     // top-up to Employer PF this month) - additive on top of the structure's
     // figure, same shape/intent as variablePay above, and equally never
@@ -370,6 +432,11 @@
       const amt = NOT_PRORATED_DEDUCTION_CODES.includes(c.code) ? Math.round(c.monthlyAmount) : Math.round(c.monthlyAmount * prorationFactor);
       deductions[c.code] = amt;
       totalDeductionsExclTds += amt;
+    }
+
+    if (esiActiveThisMonth) {
+      totalDeductionsExclTds += employeeEsiThisMonth - (deductions["EMPLOYEE_ESI"] || 0);
+      deductions["EMPLOYEE_ESI"] = employeeEsiThisMonth;
     }
 
     // Employee PF contribution always matches Employer PF contribution
@@ -424,7 +491,6 @@
 
     const oldConfig = getTaxRuleSetConfig(db, fy.code, "OLD", currentMonthDateIso);
     const newConfig = getTaxRuleSetConfig(db, fy.code, "NEW", currentMonthDateIso);
-    const wageCeilingConfig = getWageCeilingConfig(db, currentMonthDateIso);
     // Informational only (never auto-suppresses ESI) - lets the UI warn an
     // admin who's about to untick ESI Applicable mid-period that coverage
     // must continue anyway (see esiContinuityActive above) until the
@@ -613,7 +679,7 @@
       netSalary,
       regimeUsed,
       taxCalcSnapshot: { old: oldResult, new: newResult },
-      metrics: { hraExemptionThisMonth, rentPaidThisMonth, prorationFactor, esiCoverageActiveThisMonth: esiActiveThisMonth, esiCeilingExceededThisMonth },
+      metrics: { hraExemptionThisMonth, rentPaidThisMonth, prorationFactor, esiCoverageActiveThisMonth: esiActiveThisMonth, esiCeilingExceededThisMonth, esiWages, pfWages, pfCapped: pfCappedThisMonth, pfWageCeiling: wageCeilingConfig.pfWageCeiling },
     };
   }
 
@@ -1080,7 +1146,7 @@
     }
 
     if (taxableAdded > 0) {
-      targetRun.overrides[employeeId] = { lopDays: existing.lopDays, variablePay };
+      targetRun.overrides[employeeId] = { ...existing, variablePay };
       recalculateLine(db, targetRunId, employeeId);
     }
 
@@ -1318,8 +1384,103 @@
     };
   }
 
+  /**
+   * Year's tax computation from what was ACTUALLY paid in processed payroll
+   * runs (salary incl. bonus/arrears/LOP/F&F, HRA exemption per month, PT
+   * and employee PF actually deducted) and the TDS actually withheld - the
+   * figures a salary TDS certificate (Form 130, formerly Form 16) Part B
+   * must report. Returns null when no month has been processed yet.
+   */
+  function computeAnnualTaxFromActuals(db, employeeId, financialYearId) {
+    const employee = db.employees.find((e) => e.id === employeeId);
+    const fy = db.financialYears.find((f) => f.id === financialYearId);
+    if (!employee || !fy) return null;
+    const lines = db.payrollRuns
+      .filter((r) => r.financialYearId === fy.id)
+      .flatMap((r) => r.lines.filter((l) => l.employeeId === employeeId));
+    if (lines.length === 0) return null;
+
+    let annualGross = 0, basicPlusDaAnnual = 0, employerPfNpsSuperAnnual = 0, employerNpsAnnual = 0, ptAnnual = 0, hraExemptionAnnual = 0, tdsDeducted = 0, employeePfAnnual = 0, exemptTerminalBenefits = 0;
+    const earningsAnnual = {};
+    for (const l of lines) {
+      annualGross += l.grossSalary;
+      for (const [code, amt] of Object.entries(l.earnings)) earningsAnnual[code] = (earningsAnnual[code] || 0) + amt;
+      basicPlusDaAnnual += sumCodes(l.earnings, BASIC_DA_CODES);
+      employerPfNpsSuperAnnual += sumCodes(l.employerContributions, PERQ_CHECK_CODES);
+      employerNpsAnnual += l.employerContributions["EMPLOYER_NPS"] ?? 0;
+      ptAnnual += l.deductions["PROFESSIONAL_TAX"] ?? 0;
+      employeePfAnnual += l.deductions["EMPLOYEE_PF"] ?? 0;
+      hraExemptionAnnual += (l.metrics && l.metrics.hraExemptionThisMonth) || 0;
+      tdsDeducted += l.tdsMonthly;
+      exemptTerminalBenefits += (l.adjustments || []).filter((a) => a.enteredBy === "F&F Settlement" && a.amount > 0).reduce((s, a) => s + a.amount, 0);
+    }
+
+    const declaration = db.investmentDeclarations.find((d) => d.employeeId === employeeId && d.financialYearId === fy.id) || null;
+    const prevEmployerRows = db.previousEmployerIncomes.filter((p) => p.employeeId === employeeId && p.financialYearId === fy.id);
+    const perquisites = computePerquisitesTotal(db.employeePerquisites.filter((p) => p.employeeId === employeeId && p.financialYearId === fy.id), fy.startDate);
+    const oldConfig = getTaxRuleSetConfig(db, fy.code, "OLD", fy.endDate);
+    const newConfig = getTaxRuleSetConfig(db, fy.code, "NEW", fy.endDate);
+    const section80C =
+      (declaration?.lic ?? 0) + (declaration?.epf ?? 0) + (declaration?.ppf ?? 0) + (declaration?.elss ?? 0) +
+      (declaration?.lifeInsurance ?? 0) + (declaration?.tuitionFees ?? 0) + (declaration?.housingLoanPrincipal ?? 0) +
+      (declaration?.otherSection80C ?? 0) + (declaration?.section80CCC ?? 0) + (declaration?.section80CCD1 ?? 0) +
+      employeePfAnnual;
+
+    const buildInput = (regime) => ({
+      regime,
+      ageCategory: deriveAgeCategory(employee.dob, fy.endDate),
+      grossSalaryCurrentEmployer: annualGross,
+      perquisitesOther: perquisites.total,
+      employerNpsContribution: employerNpsAnnual,
+      employerPfNpsSuperContribution: employerPfNpsSuperAnnual,
+      previousEmployerTaxableSalary: prevEmployerRows.reduce((s, r) => s + r.taxableSalary, 0),
+      hraExemption: hraExemptionAnnual,
+      ltaExemption: declaration?.ltaClaimed ?? 0,
+      professionalTaxPaid: ptAnnual,
+      selfOccupiedHomeLoanInterest: declaration?.homeLoanInterestSelfOccupied ?? 0,
+      letOutAnnualValue: declaration?.letOutAnnualValue ?? 0,
+      letOutMunicipalTax: declaration?.letOutMunicipalTax ?? 0,
+      letOutHomeLoanInterest: declaration?.letOutHomeLoanInterest ?? 0,
+      otherIncomeDeclared: 0,
+      deductions: {
+        section80C,
+        section80CCD1B: declaration?.section80CCD1B ?? 0,
+        section80CCD2Employer: employerNpsAnnual,
+        basicPlusDaAnnual,
+        section80DSelfBelow60: declaration?.section80DSelfBelow60 ?? 0,
+        section80DParentsBelow60: declaration?.section80DParentsBelow60 ?? 0,
+        section80DSelfAbove60: declaration?.section80DSelfAbove60 ?? 0,
+        section80DParentsAbove60: declaration?.section80DParentsAbove60 ?? 0,
+        section80E: declaration?.section80E ?? 0,
+        section80EE: declaration?.section80EE ?? 0,
+        section80EEA: declaration?.section80EEA ?? 0,
+        section80UBelow80: declaration?.section80UBelow80 ?? 0,
+        section80U80AndAbove: declaration?.section80U80AndAbove ?? 0,
+        section80DDBelow80: declaration?.section80DDBelow80 ?? 0,
+        section80DD80AndAbove: declaration?.section80DD80AndAbove ?? 0,
+        donations80G: declaration?.donations80G ?? 0,
+        otherDeductions: declaration?.otherDeductions ?? 0,
+      },
+      tdsAlreadyDeductedCurrentEmployer: tdsDeducted,
+      tdsDeductedPreviousEmployer: prevEmployerRows.reduce((s, r) => s + r.tdsDeducted, 0),
+      remainingMonthsInFY: 0,
+    });
+
+    return {
+      old: calculateTax(buildInput("OLD"), oldConfig),
+      new: calculateTax(buildInput("NEW"), newConfig),
+      annualGross,
+      earningsAnnual,
+      monthsProcessed: lines.length,
+      tdsDeducted,
+      exemptTerminalBenefits,
+      hasDeclaration: !!declaration,
+    };
+  }
+
   const PayrollEngine = {
     PAYROLL_STATUS_ORDER,
+    computeAnnualTaxFromActuals,
     getTaxRuleSetConfig,
     getWageCeilingConfig,
     getActiveStructure,
