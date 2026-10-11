@@ -400,6 +400,10 @@ function resolveRowCompanyId(db, row, defaultCompanyId, rowErrors) {
   const created = {
     id: newId("co"), name: entityInput, address: null, pan: null, tan: null,
     bankName: null, bankAccountNo: null, bankIfsc: null, isActive: true, createdAt: new Date().toISOString(),
+    // Created on the fly from an import file whose employee rows carry their
+    // own PF/ESI Applicable flags - honour those rather than silently zeroing
+    // PF/ESI; untick under Companies if the entity isn't registered.
+    pfApplicable: true, esiApplicable: true,
   };
   db.companies.push(created);
   return created.id;

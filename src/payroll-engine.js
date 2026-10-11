@@ -16,8 +16,13 @@
   const { calculateTax, monthlyHraExemption } = isNode ? require("./tax-engine.js") : { calculateTax: root.calculateTax, monthlyHraExemption: root.monthlyHraExemption };
   const { deriveAgeCategory } = isNode ? require("./rule-configs.js") : { deriveAgeCategory: root.deriveAgeCategory };
   const { calendarToFyMonthIndex, daysInCalendarMonth, fyMonthIndexToCalendar, computeAge } = isNode ? require("./dates.js") : { calendarToFyMonthIndex: root.calendarToFyMonthIndex, daysInCalendarMonth: root.daysInCalendarMonth, fyMonthIndexToCalendar: root.fyMonthIndexToCalendar, computeAge: root.computeAge };
-  const { newId } = isNode ? require("./db.js") : { newId: root.newId };
+  const { newId, isCompanyPfApplicable, isCompanyEsiApplicable } = isNode
+    ? require("./db.js")
+    : { newId: root.newId, isCompanyPfApplicable: root.isCompanyPfApplicable, isCompanyEsiApplicable: root.isCompanyEsiApplicable };
   const { computePerquisitesTotal } = isNode ? require("./perquisites.js") : { computePerquisitesTotal: root.computePerquisitesTotal };
+  const { computeLoanEmisDue, allocateLoanRecoveries, computeLoanPerquisite } = isNode
+    ? require("./loans.js")
+    : { computeLoanEmisDue: root.computeLoanEmisDue, allocateLoanRecoveries: root.allocateLoanRecoveries, computeLoanPerquisite: root.computeLoanPerquisite };
   const { computeMonthlyPT } = isNode ? require("./pt-slabs.js") : { computeMonthlyPT: root.computeMonthlyPT };
   const { resolveSalaryStructure } = isNode ? require("./formula-engine.js") : { resolveSalaryStructure: root.resolveSalaryStructure };
 
@@ -59,13 +64,62 @@
   // flag early. Left undefined, every other caller (e.g.
   // estimateRegimeComparison, which has no specific month/period to reason
   // about) keeps the original flag-only behavior.
-  function isComponentSuppressed(employee, code, esiActiveOverride) {
-    if (employee && !employee.pfApplicable && (code === "EMPLOYEE_PF" || code === "EMPLOYER_PF")) return true;
+  // `company` (the employee's own) overrides both: a company not registered
+  // under PF / ESI never calculates them, whatever the employee says.
+  function isComponentSuppressed(employee, code, esiActiveOverride, company) {
+    if (code === "EMPLOYEE_PF" || code === "EMPLOYER_PF") {
+      return !isCompanyPfApplicable(company) || !!(employee && !employee.pfApplicable);
+    }
     if (code === "EMPLOYEE_ESI" || code === "EMPLOYER_ESI") {
+      if (!isCompanyEsiApplicable(company)) return true;
       const esiActive = esiActiveOverride !== undefined ? esiActiveOverride : !!(employee && employee.esiApplicable);
       return !esiActive;
     }
     return false;
+  }
+
+  function companyOf(db, employee) {
+    return employee ? db.companies.find((c) => c.id === employee.companyId) : null;
+  }
+
+  /** FY months the employee is in service for (joining to leaving), as { calendarYear, calendarMonth }. */
+  function serviceMonthsInFy(employee, fy) {
+    const fyStartYear = Number(fy.startDate.slice(0, 4));
+    const joinKey = employee.dateOfJoining ? employee.dateOfJoining.slice(0, 7) : "0000-00";
+    const leaveKey = employee.dateOfLeaving ? employee.dateOfLeaving.slice(0, 7) : "9999-99";
+    const months = [];
+    for (let m = 1; m <= 12; m++) {
+      const cal = fyMonthIndexToCalendar(m, fyStartYear);
+      const key = `${cal.calendarYear}-${String(cal.calendarMonth).padStart(2, "0")}`;
+      if (key >= joinKey && key <= leaveKey) months.push(cal);
+    }
+    return months;
+  }
+
+  /** Every taxable perquisite for the FY: declared entries (gifts, car, meal vouchers, other) plus concessional employer loans valued from the loan register. */
+  function annualPerquisites(db, employee, fy) {
+    const entries = db.employeePerquisites.filter((p) => p.employeeId === employee.id && p.financialYearId === fy.id);
+    const base = computePerquisitesTotal(entries, fy.startDate);
+    const loanPerq = computeLoanPerquisite(db, employee.id, serviceMonthsInFy(employee, fy), base.rates);
+    return { total: base.total + loanPerq.total, breakdown: [...base.breakdown, ...loanPerq.breakdown], rates: base.rates };
+  }
+
+  // Children's education / hostel allowance exemption (old regime only):
+  // up to the per-child monthly limit, for at most 2 children, never more
+  // than the allowance actually paid that month.
+  function monthlyChildrenAllowanceExemption(earningsMap, declaration, limits) {
+    if (!declaration) return 0;
+    const maxChildren = limits.MAX_CHILDREN_ALLOWANCE ?? 2;
+    const eduChildren = Math.min(declaration.childrenEducationCount || 0, maxChildren);
+    const hostelChildren = Math.min(declaration.childrenHostelCount || 0, maxChildren);
+    return (
+      Math.min(earningsMap["CHILDREN_EDUCATION_ALLOWANCE"] || 0, eduChildren * (limits.CHILDREN_EDUCATION_PER_CHILD_MONTHLY ?? 3000)) +
+      Math.min(earningsMap["HOSTEL_ALLOWANCE"] || 0, hostelChildren * (limits.HOSTEL_PER_CHILD_MONTHLY ?? 9000))
+    );
+  }
+
+  function hasRecoverableLoans(db, employeeId) {
+    return (db.employeeLoans || []).some((l) => l.employeeId === employeeId && l.status === "ACTIVE");
   }
 
   // Not "wages" for ESI (ESI Act Sec 2(22)): annual/periodic bonus,
@@ -166,11 +220,12 @@
     candidates.sort((a, b) => new Date(b.effectiveFrom) - new Date(a.effectiveFrom));
     const structure = candidates[0];
     const employee = db.employees.find((e) => e.id === employeeId);
+    const company = companyOf(db, employee);
     return {
       raw: structure,
       annualCTC: structure.annualCTC,
       components: structure.components
-        .filter((c) => !isComponentSuppressed(employee, c.componentCode, esiActiveOverride))
+        .filter((c) => !isComponentSuppressed(employee, c.componentCode, esiActiveOverride, company))
         .map((c) => ({ code: c.componentCode, category: c.category, monthlyAmount: c.monthlyAmount })),
     };
   }
@@ -327,12 +382,28 @@
       const priorLine = r.lines.find((l) => l.employeeId === employeeId);
       return !!(priorLine && priorLine.metrics && priorLine.metrics.esiCoverageActiveThisMonth);
     });
-    const esiActiveThisMonth = !!employee.esiApplicable || esiContinuityActive;
+    const company = companyOf(db, employee);
+    const companyEsiApplicable = isCompanyEsiApplicable(company);
+    const wageCeilingConfig = getWageCeilingConfig(db, currentMonthDateIso);
 
-    const structure = getActiveStructure(db, employeeId, fy.id, currentMonthDateIso, esiActiveThisMonth);
-    if (!structure) {
+    // Structure without ESI lines first, to read the employee's rate of
+    // wages - ESI coverage only STARTS (period start or joining) when the
+    // monthly rate of wages, excluding overtime, is within the ceiling
+    // (Rs 21,000; Rs 25,000 for a person with disability). Once started,
+    // continuity above keeps it going to the period's end regardless.
+    const structureWithoutEsi = getActiveStructure(db, employeeId, fy.id, currentMonthDateIso, false);
+    if (!structureWithoutEsi) {
       throw new Error(`No active salary structure for employee ${employee.employeeCode} in FY ${fy.code}`);
     }
+    const esiCeilingForEmployee = employee.isPersonWithDisability ? wageCeilingConfig.esiWageCeilingDisability : wageCeilingConfig.esiWageCeiling;
+    const esiRateOfWages = structureWithoutEsi.components
+      .filter((c) => c.category === "EARNING" && !ESI_EXCLUDED_EARNING_CODES.includes(c.code) && c.code !== "OVERTIME")
+      .reduce((s, c) => s + c.monthlyAmount, 0);
+    const esiEligibleByWages = esiRateOfWages <= esiCeilingForEmployee;
+    const esiActiveThisMonth = companyEsiApplicable && (esiContinuityActive || (!!employee.esiApplicable && esiEligibleByWages));
+    const esiIneligibleAboveCeiling = companyEsiApplicable && !!employee.esiApplicable && !esiActiveThisMonth && !esiEligibleByWages;
+
+    const structure = esiActiveThisMonth ? getActiveStructure(db, employeeId, fy.id, currentMonthDateIso, true) : structureWithoutEsi;
 
     let lastActiveMonthIndex = 12;
     if (employee.dateOfLeaving && employee.dateOfLeaving >= fy.startDate && employee.dateOfLeaving <= fy.endDate) {
@@ -381,7 +452,6 @@
       totalEmployerContrib += amt;
     }
 
-    const wageCeilingConfig = getWageCeilingConfig(db, currentMonthDateIso);
     const pfWages = sumCodes(earnings, BASIC_DA_CODES);
 
     // PF Capped: contribution is 12% of EARNED Basic+DA limited to the wage
@@ -410,7 +480,11 @@
     // computed whenever coverage applies (flag, or contribution-period
     // continuity), replacing any fixed figure typed into the structure.
     const esiWages = esiActiveThisMonth ? Object.entries(earnings).filter(([code]) => !ESI_EXCLUDED_EARNING_CODES.includes(code)).reduce((s, [, v]) => s + v, 0) : 0;
-    const employeeEsiThisMonth = esiActiveThisMonth ? esiContribution(esiWages, wageCeilingConfig.esiEmployeeRate ?? 0.0075) : 0;
+    // Employees whose average daily wage is Rs 176 or less pay no employee
+    // share (ESIC, w.e.f. 1-Sep-2019) - the employer's 3.25% is still due.
+    const esiAverageDailyWage = daysWorked > 0 ? esiWages / daysWorked : 0;
+    const esiEmployeeShareExempt = esiActiveThisMonth && daysWorked > 0 && esiAverageDailyWage <= (wageCeilingConfig.esiEmployeeExemptDailyWage ?? 176);
+    const employeeEsiThisMonth = esiActiveThisMonth && !esiEmployeeShareExempt ? esiContribution(esiWages, wageCeilingConfig.esiEmployeeRate ?? 0.0075) : 0;
     if (esiActiveThisMonth) {
       const employerEsi = esiContribution(esiWages, wageCeilingConfig.esiEmployerRate ?? 0.0325);
       totalEmployerContrib += employerEsi - (employerContributions["EMPLOYER_ESI"] || 0);
@@ -486,16 +560,16 @@
 
     const declaration = db.investmentDeclarations.find((d) => d.employeeId === employeeId && d.financialYearId === fy.id) || null;
     const prevEmployer = db.previousEmployerIncomes.find((p) => p.employeeId === employeeId && p.financialYearId === fy.id) || null;
-    const perquisiteEntries = db.employeePerquisites.filter((p) => p.employeeId === employeeId && p.financialYearId === fy.id);
-    const perquisitesAnnual = computePerquisitesTotal(perquisiteEntries, fy.startDate).total;
+    const perquisitesAnnual = annualPerquisites(db, employee, fy).total;
 
     const oldConfig = getTaxRuleSetConfig(db, fy.code, "OLD", currentMonthDateIso);
     const newConfig = getTaxRuleSetConfig(db, fy.code, "NEW", currentMonthDateIso);
+    const childrenAllowanceExemptionThisMonth = monthlyChildrenAllowanceExemption(earnings, declaration, oldConfig.deductionLimits);
     // Informational only (never auto-suppresses ESI) - lets the UI warn an
     // admin who's about to untick ESI Applicable mid-period that coverage
     // must continue anyway (see esiContinuityActive above) until the
     // contribution period actually ends.
-    const esiCeilingExceededThisMonth = esiActiveThisMonth && grossSalary > wageCeilingConfig.esiWageCeiling;
+    const esiCeilingExceededThisMonth = esiActiveThisMonth && grossSalary > esiCeilingForEmployee;
 
     const rentActiveThisMonth = isRentActiveInMonth(run.calendarYear, run.calendarMonth, declaration?.rentStartDate, declaration?.rentEndDate);
     // Rent paid to a landlord is a fixed monthly obligation, not something
@@ -517,8 +591,9 @@
         if (l.employeeId === employeeId) priorLines.push(l);
       }
     }
-    let ytdGross = 0, ytdBasicPlusDa = 0, ytdEmployerPfNpsSuper = 0, ytdEmployerNps = 0, ytdPt = 0, ytdHraExemption = 0, ytdTds = 0, ytdEmployeePf = 0;
+    let ytdGross = 0, ytdBasicPlusDa = 0, ytdEmployerPfNpsSuper = 0, ytdEmployerNps = 0, ytdPt = 0, ytdHraExemption = 0, ytdTds = 0, ytdEmployeePf = 0, ytdChildrenAllowanceExemption = 0;
     for (const line of priorLines) {
+      ytdChildrenAllowanceExemption += line.metrics.childrenAllowanceExemptionThisMonth ?? 0;
       ytdGross += line.grossSalary;
       ytdBasicPlusDa += sumCodes(line.earnings, BASIC_DA_CODES);
       ytdEmployerPfNpsSuper += sumCodes(line.employerContributions, PERQ_CHECK_CODES);
@@ -541,7 +616,9 @@
     // Employee PF mirrors Employer PF (see the mirroring block above), so
     // future months are projected the same way: from the structure's
     // Employer PF line, not a separate Employee PF one.
-    const projEmployeePfPerMonth = structureEmployerMap["EMPLOYER_PF"] ?? 0;
+    const projEmployeePfPerMonth = pfCappedThisMonth
+      ? Math.round((structure.raw.pfRate || STATUTORY_PF_RATE) * Math.min(sumCodes(structureEarningMap, BASIC_DA_CODES), wageCeilingConfig.pfWageCeiling))
+      : structureEmployerMap["EMPLOYER_PF"] ?? 0;
     const projBasicPlusDaPerMonth = sumCodes(structureEarningMap, BASIC_DA_CODES);
     // Projected HRA exemption is summed month-by-month (rather than a flat
     // per-month figure x remaining months) since a declared rent period can
@@ -564,6 +641,8 @@
     const annualEmployerNps = ytdEmployerNps + employerNpsThisMonth + remainingProjectionMonths * projEmployerNpsPerMonth;
     const annualPt = ytdPt + ptThisMonth + remainingProjectionMonths * projPtPerMonth;
     const annualHraExemption = ytdHraExemption + hraExemptionThisMonth + projHraExemptionTotal;
+    const annualChildrenAllowanceExemption =
+      ytdChildrenAllowanceExemption + childrenAllowanceExemptionThisMonth + remainingProjectionMonths * monthlyChildrenAllowanceExemption(structureEarningMap, declaration, oldConfig.deductionLimits);
     const employeePfThisMonth = deductions["EMPLOYEE_PF"] ?? 0;
     const annualEmployeePf = ytdEmployeePf + employeePfThisMonth + remainingProjectionMonths * projEmployeePfPerMonth;
 
@@ -591,6 +670,7 @@
         employerPfNpsSuperContribution: annualEmployerPfNpsSuper,
         previousEmployerTaxableSalary: prevEmployer?.taxableSalary ?? 0,
         hraExemption: annualHraExemption,
+        childrenAllowanceExemption: annualChildrenAllowanceExemption,
         ltaExemption: declaration?.ltaClaimed ?? 0,
         professionalTaxPaid: annualPt,
         selfOccupiedHomeLoanInterest: declaration?.homeLoanInterestSelfOccupied ?? 0,
@@ -659,10 +739,30 @@
     // what the engine itself computed, so the override is never silent.
     const tdsOverridden = options.tdsOverride !== undefined && options.tdsOverride !== null && options.tdsOverride !== "";
     const tdsMonthly = tdsOverridden ? Math.round(Number(options.tdsOverride)) : computedTdsMonthly;
-    const totalDeductions = totalDeductionsExclTds + tdsMonthly;
+    let totalDeductions = totalDeductionsExclTds + tdsMonthly;
+
+    // Loan EMIs (Loans & Advances register): a post-tax recovery, so it
+    // never touches the tax computation above. Capped at the net pay left
+    // after every other deduction - an unrecovered balance just stays
+    // outstanding for later months. The whole balance falls due in the
+    // employee's last month of service (Full & Final).
+    let loanRecoveries = [];
+    if (!options.skipLoanRecovery) {
+      const isFinalMonth = !!employee.dateOfLeaving && lastActiveMonthIndex === currentIndex && employee.dateOfLeaving <= fy.endDate;
+      const due = computeLoanEmisDue(db, employeeId, run.calendarYear, run.calendarMonth, run.id, isFinalMonth);
+      if (due.length) {
+        loanRecoveries = allocateLoanRecoveries(due, grossSalary - totalDeductions);
+        const recovered = loanRecoveries.reduce((s, r) => s + r.amount, 0);
+        if (recovered) {
+          deductions["LOAN_RECOVERY"] = (deductions["LOAN_RECOVERY"] || 0) + recovered;
+          totalDeductions += recovered;
+        }
+      }
+    }
     const netSalary = grossSalary - totalDeductions;
 
     return {
+      loanRecoveries,
       daysInMonth,
       daysWorked,
       lopDays,
@@ -679,7 +779,7 @@
       netSalary,
       regimeUsed,
       taxCalcSnapshot: { old: oldResult, new: newResult },
-      metrics: { hraExemptionThisMonth, rentPaidThisMonth, prorationFactor, esiCoverageActiveThisMonth: esiActiveThisMonth, esiCeilingExceededThisMonth, esiWages, pfWages, pfCapped: pfCappedThisMonth, pfWageCeiling: wageCeilingConfig.pfWageCeiling },
+      metrics: { hraExemptionThisMonth, childrenAllowanceExemptionThisMonth, rentPaidThisMonth, prorationFactor, esiCoverageActiveThisMonth: esiActiveThisMonth, esiCeilingExceededThisMonth, esiIneligibleAboveCeiling, esiRateOfWages, esiEmployeeShareExempt, esiWages, pfWages, pfArrears: options.pfArrears || 0, pfCapped: pfCappedThisMonth, pfWageCeiling: wageCeilingConfig.pfWageCeiling },
     };
   }
 
@@ -703,6 +803,8 @@
       deductionAdjustments: override.deductionAdjustments,
       employerContribAdjustments: override.employerContribAdjustments,
       tdsOverride: override.tdsOverride,
+      pfArrears: override.pfArrears,
+      skipLoanRecovery: override.skipLoanRecovery,
     });
     const existingIdx = run.lines.findIndex((l) => l.employeeId === employee.id);
     const adjustments = existingIdx >= 0 ? run.lines[existingIdx].adjustments : [];
@@ -735,6 +837,7 @@
       regimeUsed: result.regimeUsed,
       taxCalcSnapshot: result.taxCalcSnapshot,
       metrics: result.metrics,
+      loanRecoveries: result.loanRecoveries,
       adjustments,
     };
     if (existingIdx >= 0) run.lines[existingIdx] = line;
@@ -871,7 +974,7 @@
       const override = (run.overrides && run.overrides[employeeId]) || {};
       let hypothetical;
       try {
-        hypothetical = computeEmployeePayrollLine(db, run.id, employeeId, { lopDays: override.lopDays, variablePay: override.variablePay });
+        hypothetical = computeEmployeePayrollLine(db, run.id, employeeId, { lopDays: override.lopDays, variablePay: override.variablePay, employerContribAdjustments: override.employerContribAdjustments });
       } catch {
         continue; // e.g. no active structure resolves for that date - skip rather than fail the whole calculation
       }
@@ -888,6 +991,10 @@
         const d = (hypothetical.earnings[code] || 0) - (actualLine.earnings[code] || 0);
         if (d) perComponent[code] = d;
       }
+      // PF on arrears is due month by month: the difference between PF that
+      // month would have carried under the revised structure (with that
+      // month's own cap/ceiling) and PF actually paid.
+      const pfDiff = Math.max(0, (hypothetical.employerContributions["EMPLOYER_PF"] || 0) - (actualLine.employerContributions["EMPLOYER_PF"] || 0));
       months.push({
         runId: run.id,
         payrollMonthIndex: run.payrollMonthIndex,
@@ -897,9 +1004,11 @@
         revisedGross: hypothetical.grossSalary,
         diff,
         perComponent,
+        pfDiff,
       });
       total += diff;
     }
+    const pfTotal = months.reduce((s, m) => s + m.pfDiff, 0);
 
     const perComponentTotal = {};
     for (const m of months) {
@@ -908,7 +1017,17 @@
       }
     }
 
-    return { months, total, perComponentTotal, reprocessableRunIds };
+    return { months, total, perComponentTotal, reprocessableRunIds, pfTotal };
+  }
+
+  /** PF to add when applying arrears - the computed month-wise PF difference, scaled down if the admin applies only part of the Basic+DA arrears. */
+  function pfOnAppliedArrears(arrears, amounts) {
+    const pfTotal = arrears.pfTotal || 0;
+    if (!pfTotal) return 0;
+    const computedBasicDa = sumCodes(arrears.perComponentTotal, BASIC_DA_CODES);
+    if (!(computedBasicDa > 0)) return pfTotal;
+    const appliedBasicDa = sumCodes(amounts, BASIC_DA_CODES);
+    return Math.round(pfTotal * Math.max(0, Math.min(1, appliedBasicDa / computedBasicDa)));
   }
 
   // Suffix marking an earning code as an arrears top-up of that same
@@ -948,7 +1067,13 @@
       const arrearsCode = `${code}${ARREARS_CODE_SUFFIX}`;
       variablePay[arrearsCode] = (variablePay[arrearsCode] || 0) + amt;
     }
-    targetRun.overrides[employeeId] = { ...existing, lopDays: existing.lopDays, variablePay };
+    // Employer PF arrears ride in as an employer-contribution adjustment;
+    // the employee's matching share follows automatically (Employee PF
+    // mirrors Employer PF in computeEmployeePayrollLine).
+    const pfArrears = pfOnAppliedArrears(arrears, amounts);
+    const employerContribAdjustments = { ...(existing.employerContribAdjustments || {}) };
+    if (pfArrears) employerContribAdjustments.EMPLOYER_PF = (employerContribAdjustments.EMPLOYER_PF || 0) + pfArrears;
+    targetRun.overrides[employeeId] = { ...existing, lopDays: existing.lopDays, variablePay, employerContribAdjustments, pfArrears: (existing.pfArrears || 0) + pfArrears };
 
     const settledAt = new Date().toISOString();
     for (const m of arrears.months) {
@@ -1274,12 +1399,13 @@
 
     const declaration = db.investmentDeclarations.find((d) => d.employeeId === employeeId && d.financialYearId === financialYearId) || null;
     const prevEmployerRows = db.previousEmployerIncomes.filter((p) => p.employeeId === employeeId && p.financialYearId === financialYearId);
-    const perquisitesForEstimate = computePerquisitesTotal(db.employeePerquisites.filter((p) => p.employeeId === employeeId && p.financialYearId === financialYearId), fy.startDate);
+    const perquisitesForEstimate = annualPerquisites(db, employee, fy);
     const perquisitesAnnualForEstimate = perquisitesForEstimate.total;
 
     const earningsAnnual = {}, employerAnnual = {}, deductionAnnual = {};
+    const company = companyOf(db, employee);
     for (const c of structure.components) {
-      if (isComponentSuppressed(employee, c.componentCode)) continue;
+      if (isComponentSuppressed(employee, c.componentCode, undefined, company)) continue;
       const map = c.category === "EARNING" ? earningsAnnual : c.category === "EMPLOYER_CONTRIBUTION" ? employerAnnual : deductionAnnual;
       map[c.componentCode] = (map[c.componentCode] ?? 0) + c.annualAmount;
     }
@@ -1332,6 +1458,7 @@
         employerPfNpsSuperContribution: employerPfNpsSuperAnnual,
         previousEmployerTaxableSalary,
         hraExemption: hraExemptionAnnual,
+        childrenAllowanceExemption: 12 * monthlyChildrenAllowanceExemption(Object.fromEntries(Object.entries(earningsAnnual).map(([k, v]) => [k, v / 12])), declaration, oldConfig.deductionLimits),
         ltaExemption: declaration?.ltaClaimed ?? 0,
         professionalTaxPaid: ptAnnual,
         selfOccupiedHomeLoanInterest: declaration?.homeLoanInterestSelfOccupied ?? 0,
@@ -1400,7 +1527,7 @@
       .flatMap((r) => r.lines.filter((l) => l.employeeId === employeeId));
     if (lines.length === 0) return null;
 
-    let annualGross = 0, basicPlusDaAnnual = 0, employerPfNpsSuperAnnual = 0, employerNpsAnnual = 0, ptAnnual = 0, hraExemptionAnnual = 0, tdsDeducted = 0, employeePfAnnual = 0, exemptTerminalBenefits = 0;
+    let annualGross = 0, basicPlusDaAnnual = 0, employerPfNpsSuperAnnual = 0, employerNpsAnnual = 0, ptAnnual = 0, hraExemptionAnnual = 0, tdsDeducted = 0, employeePfAnnual = 0, exemptTerminalBenefits = 0, childrenAllowanceExemptionAnnual = 0;
     const earningsAnnual = {};
     for (const l of lines) {
       annualGross += l.grossSalary;
@@ -1411,13 +1538,14 @@
       ptAnnual += l.deductions["PROFESSIONAL_TAX"] ?? 0;
       employeePfAnnual += l.deductions["EMPLOYEE_PF"] ?? 0;
       hraExemptionAnnual += (l.metrics && l.metrics.hraExemptionThisMonth) || 0;
+      childrenAllowanceExemptionAnnual += (l.metrics && l.metrics.childrenAllowanceExemptionThisMonth) || 0;
       tdsDeducted += l.tdsMonthly;
       exemptTerminalBenefits += (l.adjustments || []).filter((a) => a.enteredBy === "F&F Settlement" && a.amount > 0).reduce((s, a) => s + a.amount, 0);
     }
 
     const declaration = db.investmentDeclarations.find((d) => d.employeeId === employeeId && d.financialYearId === fy.id) || null;
     const prevEmployerRows = db.previousEmployerIncomes.filter((p) => p.employeeId === employeeId && p.financialYearId === fy.id);
-    const perquisites = computePerquisitesTotal(db.employeePerquisites.filter((p) => p.employeeId === employeeId && p.financialYearId === fy.id), fy.startDate);
+    const perquisites = annualPerquisites(db, employee, fy);
     const oldConfig = getTaxRuleSetConfig(db, fy.code, "OLD", fy.endDate);
     const newConfig = getTaxRuleSetConfig(db, fy.code, "NEW", fy.endDate);
     const section80C =
@@ -1435,6 +1563,7 @@
       employerPfNpsSuperContribution: employerPfNpsSuperAnnual,
       previousEmployerTaxableSalary: prevEmployerRows.reduce((s, r) => s + r.taxableSalary, 0),
       hraExemption: hraExemptionAnnual,
+      childrenAllowanceExemption: childrenAllowanceExemptionAnnual,
       ltaExemption: declaration?.ltaClaimed ?? 0,
       professionalTaxPaid: ptAnnual,
       selfOccupiedHomeLoanInterest: declaration?.homeLoanInterestSelfOccupied ?? 0,
@@ -1481,6 +1610,8 @@
   const PayrollEngine = {
     PAYROLL_STATUS_ORDER,
     computeAnnualTaxFromActuals,
+    annualPerquisites,
+    hasRecoverableLoans,
     getTaxRuleSetConfig,
     getWageCeilingConfig,
     getActiveStructure,

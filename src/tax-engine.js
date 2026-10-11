@@ -139,6 +139,10 @@ function calculateTax(input, config) {
       totalSalaryIncome -= input.hraExemption;
       steps.push({ label: "Less: HRA Exemption (old Sec 10(13A) - now a new Act Schedule provision)", amount: -input.hraExemption });
     }
+    if (input.childrenAllowanceExemption > 0) {
+      totalSalaryIncome -= input.childrenAllowanceExemption;
+      steps.push({ label: "Less: Children Education / Hostel Allowance exemption (old Sec 10(14), Income-tax Rules 2026)", amount: -input.childrenAllowanceExemption });
+    }
     if (input.ltaExemption > 0) {
       totalSalaryIncome -= input.ltaExemption;
       steps.push({ label: "Less: LTA Exemption (old Sec 10(5))", amount: -input.ltaExemption });

@@ -82,6 +82,11 @@ const DEDUCTION_LIMITS = {
   // AGGREGATE across all employers - this app only tracks the current
   // employment, so it is applied here per-settlement only (see the F&F tab).
   LEAVE_ENCASHMENT_EXEMPTION: 2500000,
+  // Children education / hostel allowance (old regime only), per child per
+  // month for up to 2 children - Income-tax Rules, 2026 (was Rs 100 / Rs 300).
+  CHILDREN_EDUCATION_PER_CHILD_MONTHLY: 3000,
+  HOSTEL_PER_CHILD_MONTHLY: 9000,
+  MAX_CHILDREN_ALLOWANCE: 2,
 };
 
 const HRA_CONFIG = { metroPercent: 0.5, nonMetroPercent: 0.4 };

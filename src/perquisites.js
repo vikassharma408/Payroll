@@ -31,6 +31,8 @@ const PERQUISITE_RATE_CARDS = [
     carFlatMonthlyRate: { UPTO_1600CC: 1800, ABOVE_1600CC: 2400 }, // Rule 3(2)(A)
     carDriverFlatMonthlyRate: 900, // Rule 3(2)(A)
     carDepreciationRatePa: 0.1, // Rule 3(2)(B)
+    mealExemptPerMeal: 50, // Rule 3(7)(iii)
+    loanExemptAggregate: 20000, // Rule 3(7)(i)
     ruleRef: "Rule 3",
   },
   {
@@ -41,6 +43,8 @@ const PERQUISITE_RATE_CARDS = [
     carFlatMonthlyRate: { UPTO_1600CC: 5000, ABOVE_1600CC: 7000 }, // Rule 15(2)(a) - up from Rs 1,800/2,400.
     carDriverFlatMonthlyRate: 3000, // Rule 15(2)(a) - up from Rs 900.
     carDepreciationRatePa: 0.1, // Rule 15(2)(b) - normal wear and tear rate unchanged.
+    mealExemptPerMeal: 200, // Rule 15(5)(a) - up from Rs 50; available under the new regime too.
+    loanExemptAggregate: 200000, // Rule 15 - small loans exempt while the aggregate stays within Rs 2 lakh (was Rs 20,000).
     ruleRef: "Rule 15",
   },
 ];
@@ -56,8 +60,22 @@ function getPerquisiteRates(asOfDate) {
 const PERQUISITE_TYPES = [
   { key: "GIFT_VOUCHER", label: "Gift / Gift Voucher" },
   { key: "CAR", label: "Company Car" },
+  { key: "MEAL_VOUCHER", label: "Meal Vouchers / Free Meals" },
   { key: "OTHER", label: "Other Perquisite (manual value)" },
+  { key: "LOAN", label: "Concessional / Interest-free Loan" },
 ];
+
+/** Taxable value of a meal voucher entry: only the value ABOVE the per-meal exemption is a perquisite, for every meal provided. */
+function computeMealVoucherValue(entry, rates) {
+  const r = rates || getPerquisiteRates();
+  const meals = (entry.mealsPerMonth || 0) * (entry.monthsProvided || 12);
+  const excessPerMeal = Math.max(0, (entry.valuePerMeal || 0) - (entry.recoveredPerMeal || 0) - r.mealExemptPerMeal);
+  const value = Math.round(excessPerMeal * meals);
+  return {
+    value,
+    note: `${meals} meal(s) at Rs ${(entry.valuePerMeal || 0).toLocaleString("en-IN")}${entry.recoveredPerMeal ? ` less Rs ${entry.recoveredPerMeal} paid by employee` : ""}; exempt up to Rs ${r.mealExemptPerMeal} per meal during working hours via non-transferable vouchers or canteen (${r.ruleRef}) - only the excess is taxable. A cash meal allowance is fully taxable salary instead.`,
+  };
+}
 
 /** Taxable value of a single CAR perquisite entry, under the given rate card (see getPerquisiteRates). */
 function computeCarPerquisiteValue(entry, rates) {
@@ -112,6 +130,12 @@ function computePerquisitesTotal(entries, asOfDate) {
     breakdown.push({ id: e.id, type: "CAR", label: e.description || "Company Car", taxableValue: value, note });
   }
 
+  for (const e of entries.filter((e) => e.type === "MEAL_VOUCHER")) {
+    const { value, note } = computeMealVoucherValue(e, rates);
+    total += value;
+    breakdown.push({ id: e.id, type: "MEAL_VOUCHER", label: e.description || "Meal vouchers", taxableValue: value, note });
+  }
+
   for (const e of entries.filter((e) => e.type === "OTHER")) {
     const value = e.taxableValue || 0;
     total += value;
@@ -122,5 +146,5 @@ function computePerquisitesTotal(entries, asOfDate) {
 }
 
 if (typeof module !== "undefined" && module.exports) {
-  module.exports = { PERQUISITE_TYPES, PERQUISITE_RATE_CARDS, PERQUISITE_LAW_CHANGE_DATE, getPerquisiteRates, computeCarPerquisiteValue, computePerquisitesTotal };
+  module.exports = { PERQUISITE_TYPES, PERQUISITE_RATE_CARDS, PERQUISITE_LAW_CHANGE_DATE, getPerquisiteRates, computeCarPerquisiteValue, computeMealVoucherValue, computePerquisitesTotal };
 }

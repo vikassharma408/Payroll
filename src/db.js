@@ -31,6 +31,7 @@ function createEmptyDb() {
     investmentDeclarations: [],
     previousEmployerIncomes: [],
     employeePerquisites: [],
+    employeeLoans: [],
     payrollRuns: [],
     importBatches: [],
     auditLog: [],
@@ -119,6 +120,9 @@ function migrateDb(db) {
     if (!r.deductionLimits) r.deductionLimits = {};
     if (r.deductionLimits.GRATUITY_EXEMPTION == null) r.deductionLimits.GRATUITY_EXEMPTION = 2000000;
     if (r.deductionLimits.LEAVE_ENCASHMENT_EXEMPTION == null) r.deductionLimits.LEAVE_ENCASHMENT_EXEMPTION = 2500000;
+    if (r.deductionLimits.CHILDREN_EDUCATION_PER_CHILD_MONTHLY == null) r.deductionLimits.CHILDREN_EDUCATION_PER_CHILD_MONTHLY = 3000;
+    if (r.deductionLimits.HOSTEL_PER_CHILD_MONTHLY == null) r.deductionLimits.HOSTEL_PER_CHILD_MONTHLY = 9000;
+    if (r.deductionLimits.MAX_CHILDREN_ALLOWANCE == null) r.deductionLimits.MAX_CHILDREN_ALLOWANCE = 2;
   }
   // Master salary components added after an install was first seeded (e.g.
   // EMPLOYER_ESI) - seedMasterData only runs on a brand-new db.
@@ -131,8 +135,24 @@ function migrateDb(db) {
   for (const w of db.wageCeilings) {
     if (w.esiEmployeeRate == null) w.esiEmployeeRate = 0.0075;
     if (w.esiEmployerRate == null) w.esiEmployerRate = 0.0325;
+    if (w.esiEmployeeExemptDailyWage == null) w.esiEmployeeExemptDailyWage = 176;
   }
+  // Companies saved before PF/ESI became company-level settings kept
+  // calculating both, so they're carried forward as applicable; a newly
+  // added company starts with both unticked.
+  for (const c of db.companies) {
+    if (c.pfApplicable == null) c.pfApplicable = true;
+    if (c.esiApplicable == null) c.esiApplicable = true;
+  }
+  if (!db.employeeLoans) db.employeeLoans = [];
   return db;
+}
+
+function isCompanyPfApplicable(company) {
+  return !company || company.pfApplicable !== false;
+}
+function isCompanyEsiApplicable(company) {
+  return !company || company.esiApplicable !== false;
 }
 
 /** Populates reference/master data (FYs, tax rules, components, bank templates) into a fresh db. Idempotent - skips anything already present by code. */
@@ -182,5 +202,5 @@ function seedMasterData(db) {
 }
 
 if (typeof module !== "undefined" && module.exports) {
-  module.exports = { createEmptyDb, migrateDb, seedMasterData, newId, SCHEMA_VERSION };
+  module.exports = { createEmptyDb, migrateDb, seedMasterData, newId, SCHEMA_VERSION, isCompanyPfApplicable, isCompanyEsiApplicable };
 }

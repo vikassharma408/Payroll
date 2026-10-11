@@ -15,6 +15,8 @@ const SALARY_COMPONENTS = [
   { code: "ARREARS", name: "Arrears", category: "EARNING", taxability: "TAXABLE", order: 13 },
   { code: "PERFORMANCE_PAY", name: "Performance Pay", category: "EARNING", taxability: "TAXABLE", order: 14 },
   { code: "OTHER_ALLOWANCE", name: "Other Allowances", category: "EARNING", taxability: "TAXABLE", order: 15 },
+  { code: "CHILDREN_EDUCATION_ALLOWANCE", name: "Children Education Allowance", category: "EARNING", taxability: "PARTIALLY_EXEMPT", order: 16 },
+  { code: "HOSTEL_ALLOWANCE", name: "Children Hostel Allowance", category: "EARNING", taxability: "PARTIALLY_EXEMPT", order: 17 },
   { code: "EMPLOYER_PF", name: "Employer PF Contribution", category: "EMPLOYER_CONTRIBUTION", taxability: "EXEMPT", order: 20 },
   { code: "EMPLOYER_NPS", name: "Employer NPS Contribution", category: "EMPLOYER_CONTRIBUTION", taxability: "EXEMPT", order: 21 },
   { code: "EMPLOYER_SUPERANNUATION", name: "Employer Superannuation Contribution", category: "EMPLOYER_CONTRIBUTION", taxability: "EXEMPT", order: 22 },
@@ -112,6 +114,7 @@ const WAGE_CEILING_CONFIGS = [
     pfWageCeiling: 15000,
     esiEmployeeRate: 0.0075,
     esiEmployerRate: 0.0325,
+    esiEmployeeExemptDailyWage: 176,
     notes: "ESI wage ceiling Rs 21,000 (Rs 25,000 for persons with disability) effective 1-Jan-2017; EPF wage ceiling Rs 15,000 effective 1-Sep-2014. ESI contribution 0.75% employee / 3.25% employer effective 1-Jul-2019.",
   },
   {
@@ -121,6 +124,7 @@ const WAGE_CEILING_CONFIGS = [
     pfWageCeiling: 25000,
     esiEmployeeRate: 0.0075,
     esiEmployerRate: 0.0325,
+    esiEmployeeExemptDailyWage: 176,
     notes: "EPF wage ceiling raised to Rs 25,000 effective 17-Sep-2026.",
   },
 ];

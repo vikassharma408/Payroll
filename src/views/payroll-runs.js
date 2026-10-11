@@ -527,7 +527,13 @@ function renderPayrollLineDetailPage(container, runId, lineId) {
         }
 
         if (!run.overrides) run.overrides = {};
-        const hasAnyOverride = lopDays || Object.keys(variablePay).length || Object.keys(deductionAdjustments).length || Object.keys(employerContribAdjustments).length || tdsOverrideRaw;
+        const prior = run.overrides[employeeId] || {};
+        const skipLoanEl = form.querySelector(".skip-loan-emi");
+        const skipLoanRecovery = !!(skipLoanEl && skipLoanEl.checked);
+        // PF on arrears lives inside the Employer PF adjustment shown above;
+        // keep its note only while that adjustment is still there.
+        const pfArrears = employerContribAdjustments.EMPLOYER_PF ? prior.pfArrears : undefined;
+        const hasAnyOverride = lopDays || Object.keys(variablePay).length || Object.keys(deductionAdjustments).length || Object.keys(employerContribAdjustments).length || tdsOverrideRaw || skipLoanRecovery;
         if (hasAnyOverride) {
           run.overrides[employeeId] = {
             lopDays,
@@ -536,6 +542,8 @@ function renderPayrollLineDetailPage(container, runId, lineId) {
             employerContribAdjustments,
             tdsOverride: tdsOverrideRaw ? num(tdsOverrideRaw) : undefined,
             tdsOverrideReason: tdsOverrideRaw ? tdsOverrideReason : undefined,
+            pfArrears,
+            skipLoanRecovery,
           };
         } else {
           delete run.overrides[employeeId];
@@ -560,6 +568,9 @@ function renderPayrollLineDetailPage(container, runId, lineId) {
 
 function esiContinuityBadge(code, line, emp) {
   if (code !== "EMPLOYEE_ESI" || !line.metrics) return "";
+  if (line.metrics.esiEmployeeShareExempt) {
+    return ` <span class="badge neutral" title="Average daily wage this month is Rs 176 or less, so the employee pays no ESI; the employer's 3.25% is still payable.">Employee share exempt</span>`;
+  }
   if (line.metrics.esiCoverageActiveThisMonth && !emp.esiApplicable) {
     return ` <span class="badge neutral" title="ESI Applicable is off for this employee, but contribution-period continuity keeps ESI active through this period's end (1-Apr to 30-Sep, or 1-Oct to 31-Mar) since it was already active earlier in it.">Continuing</span>`;
   }
@@ -567,6 +578,23 @@ function esiContinuityBadge(code, line, emp) {
     return ` <span class="badge neutral" title="Gross salary this month is above the ESI wage ceiling, but coverage continues through this contribution period's end regardless.">Above ceiling</span>`;
   }
   return "";
+}
+
+function lineStatutoryNotesHtml(line) {
+  const m = line.metrics || {};
+  const notes = [];
+  if (m.esiIneligibleAboveCeiling) {
+    notes.push(`ESI not deducted: ESI Applicable is ticked, but the monthly rate of wages (${rupees(m.esiRateOfWages)}, excluding overtime) is above the ESI ceiling, so coverage doesn't start this contribution period.`);
+  }
+  if (m.esiEmployeeShareExempt) {
+    notes.push(`ESI employee share exempt: average daily wage ${rupees(Math.round(m.esiWages / Math.max(1, line.daysWorked)))} is within Rs 176; employer ESI ${rupees(line.employerContributions.EMPLOYER_ESI || 0)} is still payable.`);
+  }
+  if (m.pfCapped) notes.push(`PF capped at the ${rupees(m.pfWageCeiling)} wage ceiling in force this month (PF wages earned: ${rupees(m.pfWages)}).`);
+  if (m.pfArrears) notes.push(`Includes PF on arrears: ${rupees(m.pfArrears)} employer + ${rupees(m.pfArrears)} employee, worked out month by month for the arrears period.`);
+  for (const r of line.loanRecoveries || []) {
+    notes.push(`Loan EMI recovered: ${escapeHtml(r.loanLabel)} - ${rupees(r.amount)} (principal ${rupees(r.principal)}, interest ${rupees(r.interest)}), balance after this month ${rupees(r.balanceAfter)}${r.shortfall ? `; ${rupees(r.shortfall)} of the EMI couldn't be recovered (insufficient net pay) and stays outstanding` : ""}.`);
+  }
+  return notes.length ? `<div class="card mt-16"><h3>Statutory &amp; Recovery Notes</h3>${notes.map((n) => `<p class="text-muted" style="font-size:13px;margin:4px 0;">${n}</p>`).join("")}</div>` : "";
 }
 
 function renderLineDetail(line, emp, run) {
@@ -630,6 +658,12 @@ function renderLineDetail(line, emp, run) {
             </div>`
                 : ""
             }
+            ${
+              PayrollEngine.hasRecoverableLoans(db, line.employeeId)
+                ? `<h4 class="mt-16">Loan EMI</h4>
+            <label class="row gap-8" style="display:flex;align-items:center;"><input type="checkbox" class="skip-loan-emi" ${override.skipLoanRecovery ? "checked" : ""} ${dis} style="width:auto;" /> Hold loan EMI recovery this month (it moves to the next month - the loan just runs one month longer)</label>`
+                : ""
+            }
             <h4 class="mt-16">TDS override</h4>
             <p class="text-muted" style="font-size:12px;">Replaces the computed monthly TDS outright (not a delta) for this run only - the tax calculation trace below still shows what the engine itself computed. Leave the amount blank to use the computed figure.</p>
             <div class="form-grid">
@@ -653,6 +687,7 @@ function renderLineDetail(line, emp, run) {
             <table>${Object.entries(line.employerContributions).map(([k, v]) => `<tr><td>${componentLabel(k)}</td><td>${rupees(v)}</td></tr>`).join("")}</table>
           </div>
         </div>
+        ${lineStatutoryNotesHtml(line)}
         ${
           snap
             ? `<details class="mt-16"><summary>Tax calculation trace (${sentenceCase(line.regimeUsed).toLowerCase()} regime, annualized)</summary>
@@ -819,7 +854,7 @@ const SLIP_COMPONENT_LABELS = {
   BASIC: "Basic Salary", DA: "Dearness Allowance", HRA: "House Rent Allowance", SPECIAL_ALLOWANCE: "Special Allowance",
   CONVEYANCE: "Conveyance Allowance", TRANSPORT_ALLOWANCE: "Transport Allowance", MEDICAL_ALLOWANCE: "Medical Allowance",
   LTA: "LTA / LTC", BONUS: "Bonus", INCENTIVE: "Incentive", COMMISSION: "Commission", OVERTIME: "Overtime", ARREARS: "Arrears",
-  PERFORMANCE_PAY: "Performance Pay", OTHER_ALLOWANCE: "Other Allowances", EMPLOYER_PF: "Employer PF", EMPLOYER_ESI: "Employer ESI", EMPLOYER_NPS: "Employer NPS",
+  PERFORMANCE_PAY: "Performance Pay", OTHER_ALLOWANCE: "Other Allowances", CHILDREN_EDUCATION_ALLOWANCE: "Children Education Allowance", HOSTEL_ALLOWANCE: "Children Hostel Allowance", EMPLOYER_PF: "Employer PF", EMPLOYER_ESI: "Employer ESI", EMPLOYER_NPS: "Employer NPS",
   EMPLOYER_SUPERANNUATION: "Employer Superannuation", GRATUITY: "Gratuity", OTHER_EMPLOYER_BENEFIT: "Other Employer Benefits",
   GRATUITY_TAXABLE: "Gratuity (Taxable Excess)", LEAVE_ENCASHMENT_TAXABLE: "Leave Encashment (Taxable Excess)",
   EMPLOYEE_PF: "Employee PF", EMPLOYEE_ESI: "Employee ESI", PROFESSIONAL_TAX: "Professional Tax", LWF: "Labour Welfare Fund",
@@ -940,6 +975,13 @@ function buildSlipCardHtml(run, line) {
       <div class="row between" style="background:var(--ink); padding:10px 16px; border-radius:8px; margin-top:16px;">
         <strong>Net Salary Payable</strong><strong>${rupees(line.netSalary)}</strong>
       </div>
+      ${
+        (line.loanRecoveries || []).length
+          ? `<p class="text-muted mt-16" style="font-size:12px;">${line.loanRecoveries
+              .map((r) => `${escapeHtml(r.loanLabel)}: EMI ${rupees(r.amount)} recovered, balance outstanding ${rupees(r.balanceAfter)}`)
+              .join(" &middot; ")}</p>`
+          : ""
+      }
       <div class="card-grid mt-16">
         <div>
           <h3>Employer Contributions</h3>

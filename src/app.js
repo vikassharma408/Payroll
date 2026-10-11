@@ -225,6 +225,7 @@ const SIDEBAR = [
       ["salary-structures", "Salary Structures"],
       ["investment-declarations", "Investment Declarations"],
       ["previous-employer", "Previous Employer Income"],
+      ["loans", "Loans & Advances"],
       ["payroll-runs", "Payroll Runs"],
       ["salary-register", "Salary Register"],
       ["salary-slips", "Salary Slips"],
@@ -1212,7 +1213,7 @@ registerView("wage-ceilings", "Setup", "Wage Ceilings", (container) => {
   }
 
   function renderWcForm(w) {
-    const v = w || { effectiveFrom: "", esiWageCeiling: 21000, esiWageCeilingDisability: 25000, pfWageCeiling: 25000, esiEmployeeRate: 0.0075, esiEmployerRate: 0.0325, notes: "" };
+    const v = w || { effectiveFrom: "", esiWageCeiling: 21000, esiWageCeilingDisability: 25000, pfWageCeiling: 25000, esiEmployeeRate: 0.0075, esiEmployerRate: 0.0325, esiEmployeeExemptDailyWage: 176, notes: "" };
     return `
       <div class="card" style="margin:8px 0;">
         <form id="wc-form" data-id="${w ? w.id : ""}">
@@ -1223,6 +1224,7 @@ registerView("wage-ceilings", "Setup", "Wage Ceilings", (container) => {
             <div><label>PF Wage Ceiling (monthly)</label><input type="number" min="0" name="pfWageCeiling" value="${v.pfWageCeiling}" /></div>
             <div><label>ESI Employee Rate (%)</label><input type="number" min="0" step="0.01" name="esiEmployeeRate" value="${((v.esiEmployeeRate ?? 0.0075) * 100).toFixed(2)}" /></div>
             <div><label>ESI Employer Rate (%)</label><input type="number" min="0" step="0.01" name="esiEmployerRate" value="${((v.esiEmployerRate ?? 0.0325) * 100).toFixed(2)}" /></div>
+            <div><label>ESI: no employee share up to avg daily wage (Rs)</label><input type="number" min="0" name="esiEmployeeExemptDailyWage" value="${v.esiEmployeeExemptDailyWage ?? 176}" /></div>
           </div>
           <div><label class="mt-16">Notes</label><textarea name="notes" rows="2" style="width:100%;">${escapeHtml(v.notes || "")}</textarea></div>
           <div id="wc-error" class="text-bad mt-16"></div>
@@ -1249,6 +1251,7 @@ registerView("wage-ceilings", "Setup", "Wage Ceilings", (container) => {
       pfWageCeiling: num(fd.get("pfWageCeiling")),
       esiEmployeeRate: num(fd.get("esiEmployeeRate")) / 100,
       esiEmployerRate: num(fd.get("esiEmployerRate")) / 100,
+      esiEmployeeExemptDailyWage: num(fd.get("esiEmployeeExemptDailyWage")),
       notes: String(fd.get("notes") || "") || null,
     };
     const targetId = evt.target.dataset.id;

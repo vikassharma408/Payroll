@@ -272,8 +272,10 @@ function renderEmployeeForm(container, employee) {
         <label class="row gap-8" style="display:flex;align-items:center;"><input type="checkbox" name="pfApplicable" ${e.pfApplicable ? "checked" : ""} style="width:auto;" /> PF Applicable</label>
         <label class="row gap-8" style="display:flex;align-items:center;"><input type="checkbox" name="esiApplicable" ${e.esiApplicable ? "checked" : ""} style="width:auto;" /> ESI Applicable</label>
         <label class="row gap-8" style="display:flex;align-items:center;"><input type="checkbox" id="field-ptApplicable" name="ptApplicable" ${e.ptApplicable ? "checked" : ""} style="width:auto;" /> PT Applicable</label>
+        <label class="row gap-8" style="display:flex;align-items:center;"><input type="checkbox" name="isPersonWithDisability" ${e.isPersonWithDisability ? "checked" : ""} style="width:auto;" /> Person with disability (ESI ceiling Rs 25,000)</label>
       </div>
-      <p class="text-muted" style="font-size:12px;margin-top:6px;">PF/ESI/PT Applicable are overrides, not auto-detected: even if the Salary Structure has a PF, ESI or PT line, unticking the matching box here skips it for this employee only (e.g. above the PF wage ceiling, no ESI cover, or PT-exempt) - handy once Salary Structure Templates mean most employees share one standard structure. Ticking "PT Applicable" with a State selected switches PT to that state's auto-calculated slab (overriding any fixed PT figure in the Salary Structure); it's auto-ticked when you pick a State below, untick it if you'd rather keep a fixed manually-entered PT amount instead.</p>
+      <p id="company-statutory-note" class="text-muted" style="font-size:12px;margin-top:6px;"></p>
+      <p class="text-muted" style="font-size:12px;margin-top:6px;">PF/ESI/PT Applicable are overrides, not auto-detected: even if the Salary Structure has a PF, ESI or PT line, unticking the matching box here skips it for this employee only (e.g. above the PF wage ceiling, no ESI cover, or PT-exempt) - handy once Salary Structure Templates mean most employees share one standard structure. ESI only starts if the monthly rate of wages (excluding overtime) is within the ESI ceiling at the start of the contribution period or on joining. Ticking "PT Applicable" with a State selected switches PT to that state's auto-calculated slab (overriding any fixed PT figure in the Salary Structure); it's auto-ticked when you pick a State below, untick it if you'd rather keep a fixed manually-entered PT amount instead.</p>
       <div id="form-error" class="text-bad mt-16"></div>
       <div class="row gap-8 mt-16">
         <button type="submit" class="primary">${isEdit ? "Save Changes" : "Add Employee"}</button>
@@ -286,6 +288,17 @@ function renderEmployeeForm(container, employee) {
   document.querySelector('select[name="state"]').addEventListener("change", (evt) => {
     document.getElementById("field-ptApplicable").checked = !!evt.target.value;
   });
+  const updateCompanyStatutoryNote = () => {
+    const companySelect = container.querySelector('select[name="companyId"]');
+    const company = db.companies.find((c) => c.id === (isEdit ? employee.companyId : companySelect && companySelect.value));
+    const off = [!isCompanyPfApplicable(company) && "PF", !isCompanyEsiApplicable(company) && "ESI"].filter(Boolean);
+    document.getElementById("company-statutory-note").innerHTML = off.length
+      ? `&#9888; ${escapeHtml(company ? company.name : "This company")} is not set up for ${off.join(" or ")} (Companies &gt; Statutory Registrations), so ${off.join("/")} will not be calculated for this employee even if ticked here.`
+      : "";
+  };
+  updateCompanyStatutoryNote();
+  const companySelectEl = container.querySelector('select[name="companyId"]');
+  if (companySelectEl) companySelectEl.addEventListener("change", updateCompanyStatutoryNote);
 
   document.getElementById("employee-form").addEventListener("submit", async (evt) => {
     evt.preventDefault();
@@ -351,6 +364,7 @@ function renderEmployeeForm(container, employee) {
       pfApplicable: fd.get("pfApplicable") === "on",
       esiApplicable: fd.get("esiApplicable") === "on",
       ptApplicable: fd.get("ptApplicable") === "on",
+      isPersonWithDisability: fd.get("isPersonWithDisability") === "on",
       taxRegime: String(fd.get("taxRegime") || "NEW"),
       status: String(fd.get("status") || "ACTIVE"),
       bankName: String(fd.get("bankName") || "") || null,
@@ -434,6 +448,8 @@ function renderEmployeeDetail(container, employee, initialTab, backTo) {
       db.investmentDeclarations = db.investmentDeclarations.filter((d) => d.employeeId !== employee.id);
       db.previousEmployerIncomes = db.previousEmployerIncomes.filter((p) => p.employeeId !== employee.id);
       db.employeeSalaryStructures = db.employeeSalaryStructures.filter((s) => s.employeeId !== employee.id);
+      db.employeePerquisites = db.employeePerquisites.filter((p) => p.employeeId !== employee.id);
+      db.employeeLoans = db.employeeLoans.filter((l) => l.employeeId !== employee.id);
       db.employees = db.employees.filter((e) => e.id !== employee.id);
       logAudit("Employee", employee.id, "DELETE", `Deleted ${employee.fullName} (${employee.employeeCode})`);
       await persist();
@@ -721,6 +737,12 @@ function renderSalaryStructureTab(container, employee, fy, onSaved) {
           <tbody>${rows}</tbody>
         </table>
         <div class="row between mt-16"><strong>Total Arrears</strong><strong>${rupees(arrears.total)}</strong></div>
+        ${
+          arrears.pfTotal
+            ? `<div class="row between mt-16"><span>PF on arrears (worked out month by month, respecting each month's PF cap)</span><span>${rupees(arrears.pfTotal)} employer + ${rupees(arrears.pfTotal)} employee</span></div>
+               <p class="text-muted" style="font-size:12px;">Added automatically to the run you apply arrears to (scaled down if you reduce the Basic/DA arrears below).</p>`
+            : ""
+        }
         ${reprocessNote}
         <h4 class="mt-16">Component-wise breakdown (editable)</h4>
         <p class="text-muted" style="font-size:12px;">Auto-calculated from each component's revised vs. previously-paid monthly amount across the months above. Adjust any figure before confirming if needed - each component is posted to the payslip as its own separate Arrears line (e.g. "Basic Salary (Arrears)"), not merged into this month's regular amount.</p>
@@ -868,6 +890,7 @@ const DEDUCTION_LIMIT_REFERENCE = [
   ["80EEA Home Loan Interest (affordable housing) - Sec 131", "Rs 1,50,000 - only for loans sanctioned 1 Apr 2019 to 31 Mar 2022"],
   ["80G Donations - Sec 133", "50% or 100% of the donated amount depending on the institution, some subject to a 10%-of-income qualifying limit - enter the employee's own already-computed eligible amount"],
   ["LTA Exempt Amount - old Sec 10(5) (new Act number not independently verified)", "Limited to actual eligible travel cost incurred, for 2 journeys in a block of 4 calendar years (current block: 2026-2029) - not a flat rupee cap"],
+  ["Children Education Allowance / Hostel Allowance - old Sec 10(14), Income-tax Rules 2026", "Rs 3,000 / Rs 9,000 per child per month, max 2 children, never more than the allowance paid"],
   ["Home Loan Interest (Self-Occupied) - Sec 24(b)", "Rs 2,00,000"],
   ["House Property Loss Set-Off (self-occupied + let-out combined) - old Sec 71(3A) (new Act number not independently verified)", "Rs 2,00,000 against other income per year; any excess carries forward (not tracked by this app)"],
 ];
@@ -995,6 +1018,14 @@ function renderInvestmentDeclarationTab(container, employee, fy, onSaved) {
         </label>
         <p class="text-muted mt-16" style="font-size:12px;">Leave Start/End Date blank if rent was paid for the entire financial year. If set, HRA exemption is only calculated for the months within this period (e.g. if rent started in July, April-June get no HRA exemption). From FY 2026-27 the Income-tax Rules, 2026 allow 50% of Basic+DA in these 8 cities (40% elsewhere) - re-declare it here each financial year if the employee's base location changes.</p>
       </div>
+      <div class="card">
+        <h3>Children Education / Hostel Allowance</h3>
+        <p class="text-muted" style="font-size:12px;">Old regime only. If the salary structure pays a Children Education Allowance or Children Hostel Allowance, up to Rs 3,000 / Rs 9,000 per child per month (maximum 2 children) is exempt under the Income-tax Rules, 2026 - never more than the allowance actually paid.</p>
+        <div class="form-grid">
+          <div><label>Children for Education Allowance (max 2)</label><input type="number" min="0" max="2" name="childrenEducationCount" value="${d.childrenEducationCount || 0}" /></div>
+          <div><label>Children in Hostel (max 2)</label><input type="number" min="0" max="2" name="childrenHostelCount" value="${d.childrenHostelCount || 0}" /></div>
+        </div>
+      </div>
       ${numFieldGroups}
       <div class="card">
         <label>Proof Status</label>
@@ -1017,6 +1048,8 @@ function renderInvestmentDeclarationTab(container, employee, fy, onSaved) {
       for (const [key] of fields) record[key] = num(fd.get(key));
     }
     record.isMetroCity = fd.get("isMetroCity") === "on";
+    record.childrenEducationCount = Math.min(2, Math.max(0, num(fd.get("childrenEducationCount"))));
+    record.childrenHostelCount = Math.min(2, Math.max(0, num(fd.get("childrenHostelCount"))));
     record.monthlyRent = num(fd.get("monthlyRent"));
     record.rentStartDate = String(fd.get("rentStartDate") || "") || null;
     record.rentEndDate = String(fd.get("rentEndDate") || "") || null;
@@ -1112,8 +1145,8 @@ function renderPreviousEmployerTab(container, employee, fy, onSaved) {
 
 // --- Perquisites -------------------------------------------------------------
 function renderPerquisitesTab(container, employee, fy, onSaved) {
-  const entries = db.employeePerquisites.filter((p) => p.employeeId === employee.id && p.financialYearId === fy.id);
-  const { total, breakdown, rates } = computePerquisitesTotal(entries, fy.startDate);
+  const { total, breakdown, rates } = PayrollEngine.annualPerquisites(db, employee, fy);
+  const addableTypes = PERQUISITE_TYPES.filter((t) => t.key !== "LOAN");
   let type = "GIFT_VOUCHER";
 
   function render() {
@@ -1130,7 +1163,7 @@ function renderPerquisitesTab(container, employee, fy, onSaved) {
           <tbody>
             ${
               breakdown
-                .map((b) => `<tr><td>${PERQUISITE_TYPES.find((t) => t.key === b.type)?.label || b.type}</td><td>${escapeHtml(b.label)}<div class="text-muted" style="font-size:12px;">${escapeHtml(b.note)}</div></td><td>${rupees(b.taxableValue)}</td><td>${b.id ? `<button class="danger remove-perq" data-id="${b.id}">Remove</button>` : ""}</td></tr>`)
+                .map((b) => `<tr><td>${PERQUISITE_TYPES.find((t) => t.key === b.type)?.label || b.type}</td><td>${escapeHtml(b.label)}<div class="text-muted" style="font-size:12px;">${escapeHtml(b.note)}</div></td><td>${rupees(b.taxableValue)}</td><td>${b.id ? `<button class="danger remove-perq" data-id="${b.id}">Remove</button>` : b.type === "LOAN" ? `<a href="#/loans">Loans &amp; Advances</a>` : ""}</td></tr>`)
                 .join("") || `<tr><td colspan="4" class="text-muted">No perquisites declared for FY ${fy.code}.</td></tr>`
             }
           </tbody>
@@ -1140,7 +1173,7 @@ function renderPerquisitesTab(container, employee, fy, onSaved) {
         <h3>Add Perquisite</h3>
         <div class="form-grid">
           <div><label>Type</label>
-            <select id="perq-type-select">${PERQUISITE_TYPES.map((t) => `<option value="${t.key}" ${t.key === type ? "selected" : ""}>${t.label}</option>`).join("")}</select>
+            <select id="perq-type-select">${addableTypes.map((t) => `<option value="${t.key}" ${t.key === type ? "selected" : ""}>${t.label}</option>`).join("")}</select>
           </div>
         </div>
         <div id="perq-type-fields" class="mt-16"></div>
@@ -1183,6 +1216,16 @@ function renderPerquisitesTab(container, employee, fy, onSaved) {
         entry.depreciationBase = num(fd.get("depreciationBase"));
         entry.recoveredFromEmployee = num(fd.get("recoveredFromEmployee"));
         entry.description = String(fd.get("description") || "") || null;
+      } else if (type === "MEAL_VOUCHER") {
+        entry.valuePerMeal = num(fd.get("valuePerMeal"));
+        entry.mealsPerMonth = num(fd.get("mealsPerMonth"));
+        entry.monthsProvided = num(fd.get("monthsProvided")) || 12;
+        entry.recoveredPerMeal = num(fd.get("recoveredPerMeal"));
+        entry.description = String(fd.get("description") || "") || null;
+        if (!(entry.valuePerMeal > 0) || !(entry.mealsPerMonth > 0)) {
+          errorEl.textContent = "Enter the value per meal and the number of meals per month.";
+          return;
+        }
       } else {
         const taxableValue = num(fd.get("taxableValue"));
         if (!String(fd.get("label") || "").trim()) {
@@ -1244,9 +1287,21 @@ function renderPerquisitesTab(container, employee, fy, onSaved) {
           </div>
         </div>
       `;
+    } else if (type === "MEAL_VOUCHER") {
+      el.innerHTML = `
+        <p class="text-muted" style="font-size:12px;">Free meals during working hours, or non-transferable meal vouchers/cards usable only at eating joints, are exempt up to Rs ${rates.mealExemptPerMeal} per meal (${escapeHtml(rates.ruleRef)}) under both tax regimes - only the value above that is taxable. A cash meal allowance is not covered: add it to the salary structure as a taxable allowance instead.</p>
+        <div class="form-grid">
+          <div><label>Value per Meal (Rs) *</label><input type="number" min="0" name="valuePerMeal" required placeholder="e.g. 200" /></div>
+          <div><label>Meals per Month *</label><input type="number" min="0" name="mealsPerMonth" required placeholder="e.g. 22 (one per working day)" /></div>
+          <div><label>Months Provided This FY</label><input type="number" min="1" max="12" name="monthsProvided" value="12" /></div>
+          <div><label>Paid by Employee per Meal (Rs)</label><input type="number" min="0" name="recoveredPerMeal" value="0" /></div>
+          <div><label>Description</label><input name="description" placeholder="e.g. Pluxee meal card" /></div>
+        </div>
+      `;
     } else {
       el.innerHTML = `
-        <p class="text-bad" style="font-size:12px;">This covers anything not modeled above (rent-free accommodation, ESOPs, interest-free loans, club membership, etc.) - work out the taxable value yourself per the applicable ${escapeHtml(rates.ruleRef)} provision (FY ${fy.code}) and enter it directly.</p>
+        <p class="text-muted" style="font-size:12px;">Interest-free or concessional loans are valued automatically from Loans &amp; Advances - don't add them here.</p>
+        <p class="text-bad" style="font-size:12px;">This covers anything not modeled above (rent-free accommodation, ESOPs, club membership, etc.) - work out the taxable value yourself per the applicable ${escapeHtml(rates.ruleRef)} provision (FY ${fy.code}) and enter it directly.</p>
         <div class="form-grid">
           <div><label>Label *</label><input name="label" placeholder="e.g. Club membership" required /></div>
           <div><label>Taxable Value *</label><input type="number" min="0" name="taxableValue" required /></div>
@@ -1297,6 +1352,7 @@ function buildComputationRows(estimate) {
     { section: "total", label: "Total Salary", bold: true, ...stepBoth("Total Salary (before exemptions/deductions)") },
     { section: "spacer" },
     { section: "less", label: "Less: HRA Exemption (old Sec 10(13A))", ...stepOldOnly("Less: HRA Exemption (old Sec 10(13A) - now a new Act Schedule provision)") },
+    { section: "less", label: "Less: Children Education / Hostel Allowance exemption", ...stepOldOnly("Less: Children Education / Hostel Allowance exemption (old Sec 10(14), Income-tax Rules 2026)") },
     { section: "less", label: "Less: LTA Exemption (old Sec 10(5))", ...stepOldOnly("Less: LTA Exemption (old Sec 10(5))") },
     { section: "less-header", label: "Less: Deduction u/s 19 (old Sec 16)" },
     { section: "less", label: "Profession Tax u/s 19 (old Sec 16(iii))", ...stepOldOnly("Less: Profession Tax u/s 19 (old Sec 16(iii))") },

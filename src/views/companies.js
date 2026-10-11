@@ -26,6 +26,7 @@ function renderCompaniesList(container) {
         <td><a href="#/companies/${c.id}">${escapeHtml(c.name)}</a></td>
         <td>${c.pan || "-"}</td>
         <td>${c.tan || "-"}</td>
+        <td>${isCompanyPfApplicable(c) ? `<span class="badge good">PF</span>` : `<span class="badge neutral">No PF</span>`} ${isCompanyEsiApplicable(c) ? `<span class="badge good">ESI</span>` : `<span class="badge neutral">No ESI</span>`}</td>
         <td>${employeeCount}</td>
       </tr>`;
     })
@@ -37,8 +38,8 @@ function renderCompaniesList(container) {
     </div>
     <div class="card">
       <table>
-        <thead><tr><th>Name</th><th>PAN</th><th>TAN</th><th>Employees</th></tr></thead>
-        <tbody>${rows || `<tr><td colspan="4" class="text-muted">No companies yet.</td></tr>`}</tbody>
+        <thead><tr><th>Name</th><th>PAN</th><th>TAN</th><th>Statutory Registrations</th><th>Employees</th></tr></thead>
+        <tbody>${rows || `<tr><td colspan="5" class="text-muted">No companies yet.</td></tr>`}</tbody>
       </table>
     </div>
   `;
@@ -71,7 +72,7 @@ function resizeLogoToDataUrl(file, maxW, maxH) {
 
 function renderCompanyForm(container, company) {
   const isEdit = !!company;
-  const c = company || { name: "", address: "", pan: "", tan: "", email: "", bankName: "", bankAccountNo: "", bankIfsc: "", branchCode: "", accountType: "CA", logoDataUrl: null };
+  const c = company || { name: "", address: "", pan: "", tan: "", email: "", bankName: "", bankAccountNo: "", bankIfsc: "", branchCode: "", accountType: "CA", logoDataUrl: null, pfApplicable: false, esiApplicable: false };
   let logoDataUrl = c.logoDataUrl || null;
   container.innerHTML = `
     <div class="no-print" style="margin-bottom:12px;">
@@ -97,6 +98,20 @@ function renderCompanyForm(container, company) {
             <option value="CC" ${c.accountType === "CC" ? "selected" : ""}>Cash Credit (CC)</option>
           </select>
         </div>
+      </div>
+      <h3 class="mt-16">Statutory Registrations</h3>
+      <p class="text-muted" style="font-size:12px;">Tick only if this company is registered and must comply. PF is mandatory for establishments with 20 or more employees (voluntary coverage allowed below that); ESI for establishments with 10 or more employees in ESI-implemented areas. When unticked, no PF / ESI is calculated for any employee of this company, whatever their own flags or salary structure say.</p>
+      <div class="form-grid">
+        <div>
+          <label class="row gap-8" style="display:flex;align-items:center;"><input type="checkbox" name="pfApplicable" ${isCompanyPfApplicable(c) ? "checked" : ""} style="width:auto;" /> PF Applicable (EPF registered)</label>
+          <label>PF Establishment Code</label><input name="pfEstablishmentCode" value="${escapeHtml(c.pfEstablishmentCode || "")}" placeholder="e.g. KNBNG0012345000" />
+        </div>
+        <div>
+          <label class="row gap-8" style="display:flex;align-items:center;"><input type="checkbox" name="esiApplicable" ${isCompanyEsiApplicable(c) ? "checked" : ""} style="width:auto;" /> ESI Applicable (ESIC registered)</label>
+          <label>ESI Employer Code</label><input name="esiEmployerCode" value="${escapeHtml(c.esiEmployerCode || "")}" placeholder="17-digit ESIC code" />
+        </div>
+      </div>
+      <div class="form-grid mt-16">
         <div>
           <label>Logo (shown on payslips)</label>
           <input type="file" id="logo-input" accept="image/*" />
@@ -159,6 +174,10 @@ function renderCompanyForm(container, company) {
       bankIfsc: String(fd.get("bankIfsc") || "") || null,
       branchCode: String(fd.get("branchCode") || "") || null,
       accountType: String(fd.get("accountType") || "CA"),
+      pfApplicable: fd.get("pfApplicable") === "on",
+      esiApplicable: fd.get("esiApplicable") === "on",
+      pfEstablishmentCode: String(fd.get("pfEstablishmentCode") || "").trim() || null,
+      esiEmployerCode: String(fd.get("esiEmployerCode") || "").trim() || null,
     };
     data.logoDataUrl = logoDataUrl;
     let targetId;
@@ -198,6 +217,7 @@ function renderCompanyForm(container, company) {
       db.previousEmployerIncomes = db.previousEmployerIncomes.filter((p) => !companyEmployeeIds.has(p.employeeId));
       db.employeeSalaryStructures = db.employeeSalaryStructures.filter((s) => !companyEmployeeIds.has(s.employeeId));
       db.employeePerquisites = db.employeePerquisites.filter((p) => !companyEmployeeIds.has(p.employeeId));
+      db.employeeLoans = db.employeeLoans.filter((l) => !companyEmployeeIds.has(l.employeeId));
       db.payrollRuns = db.payrollRuns.filter((r) => r.companyId !== company.id);
       db.employees = db.employees.filter((e) => e.companyId !== company.id);
       db.companies = db.companies.filter((x) => x.id !== company.id);
